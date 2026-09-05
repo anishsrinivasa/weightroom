@@ -56,6 +56,7 @@ export function SubmitWizard() {
   const [confirming, setConfirming] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [sampleAvailable, setSampleAvailable] = useState(false);
   const directoryInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const confirmationStarted = useRef(false);
@@ -63,10 +64,11 @@ export function SubmitWizard() {
   const chargeSettled = charge?.settled;
 
   useEffect(() => {
-    if (!demoPaymentEnabled) return;
+    // No flag gates this. Whether the sample exists is the gate: it is absent
+    // in a deployed build, and the fetch simply fails there.
     void loadSampleFiles().catch(() => {
-      // Absent sample is not an error worth interrupting for -- the picker
-      // still works, and the button reports it if pressed deliberately.
+      // Not an error worth interrupting for -- the picker still works, and the
+      // button reports the reason if pressed deliberately.
     });
     // Runs once: choosing real files replaces this selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,6 +181,7 @@ export function SubmitWizard() {
     const manifest = await fetch("/sample-model/files.json", { cache: "no-store" });
     if (!manifest.ok) throw new Error("Sample model is not installed.");
     const { files } = (await manifest.json()) as { files: string[] };
+    setSampleAvailable(true);
 
     const loaded = await Promise.all(
       files.map(async (path) => {
@@ -331,10 +334,10 @@ export function SubmitWizard() {
             <div className="button-row">
               <button className="button primary" type="button" onClick={() => directoryInput.current?.click()}>Choose folder</button>
               <button className="button" type="button" onClick={() => fileInput.current?.click()}>Choose files</button>
-              {demoPaymentEnabled ? <button className="button quiet" type="button" onClick={() => {
+              {sampleAvailable ? <button className="button quiet" type="button" onClick={() => {
                 void loadSampleFiles().catch((caught: unknown) =>
                   setError(caught instanceof Error ? caught.message : "Could not load the sample model"));
-              }}>Use sample model</button> : null}
+              }}>Reload sample model</button> : null}
             </div>
             <input ref={directoryInput} hidden type="file" multiple onChange={inputChanged} {...{ webkitdirectory: "" }} />
             <input ref={fileInput} hidden type="file" multiple onChange={inputChanged} />
