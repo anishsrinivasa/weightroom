@@ -18,6 +18,34 @@ describe("artifact identity", () => {
       await manifestDigest([...left].reverse()),
     );
   });
+
+  // The server recomputes this digest and rejects a mismatch, so the two
+  // implementations are one contract. This vector is asserted identically by
+  // test_manifest_digest_algorithm_is_pinned in tests/test_offline.py; if one
+  // side changes, both must.
+  it("matches the digest the server computes", async () => {
+    await expect(
+      manifestDigest([
+        { path: "model.safetensors", size_bytes: 4096, sha256: "b".repeat(64) },
+        { path: "config.json", size_bytes: 120, sha256: "a".repeat(64) },
+      ]),
+    ).resolves.toBe(
+      "9f51a3e20eaa31068289daf1a6e0845c0f738576335573c7fa8550b9d4d73962",
+    );
+  });
+
+  // Uppercase sorts before lowercase by code point but after it under most
+  // locale collations. A repo with a README is the common case.
+  it("orders capitalised paths the way the server does", async () => {
+    await expect(
+      manifestDigest([
+        { path: "config.json", size_bytes: 1, sha256: "b".repeat(64) },
+        { path: "README.md", size_bytes: 1, sha256: "a".repeat(64) },
+      ]),
+    ).resolves.toBe(
+      "27101854f6e81e27e2a39a1397c0ca307ab5659c30220110749d14d51674ea75",
+    );
+  });
 });
 
 describe("formatBytes", () => {

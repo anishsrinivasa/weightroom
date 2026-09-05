@@ -116,30 +116,37 @@ def process_pending(
         pending = store.listings_in_state(s, ListingState.PENDING_CERTIFICATION)
         if listing_id is not None:
             pending = [row for row in pending if row.id == listing_id]
-        queued = [
-            (
+        queued = []
+        for r in pending[:limit]:
+            # A listing can name an artifact we never received, because nothing
+            # forces the two to be created together. Reading `.files()` off the
+            # missing row here would raise *outside* the per-listing guard
+            # below, killing the whole pass -- and since the listing stays
+            # pending, every later pass would die on it too. One bad row must
+            # not be able to stall the queue permanently.
+            artifact = store.get_artifact(s, r.artifact_digest)
+            queued.append((
                 r.id,
                 r.artifact_digest,
                 list(r.selected_benchmarks or []),
-                store.get_artifact(s, r.artifact_digest).files(),
-            )
-            for r in pending[:limit]
-        ]
+                artifact.files() if artifact is not None else None,
+            ))
 
     results: list[tuple[str, ListingState]] = []
     for listing_id, digest, selected, files in queued:
         on_step(f"certifying {listing_id} ({digest[:12]})")
         with store.session() as s:
-            row = store.get_listing(s, listing_id)
-            if row is None or row.state != ListingState.PENDING_CERTIFICATION.value:
-                continue
-            row.state = ListingState.CERTIFYING.value
-            s.commit()
+            if not store.claim_for_certification(s, listing_id):
+                continue  # another worker got there first, or the state moved
 
         # Pass the selection through as `only`; anything not chosen comes back
         # marked declined rather than simply missing.
         try:
             if certify is None:
+                if files is None:
+                    raise FileNotFoundError(
+                        f"no stored artifact for digest {digest[:12]}"
+                    )
                 outcome = certify_uploaded(
                     digest,
                     files,
@@ -149,6 +156,12 @@ def process_pending(
                 )
             else:
                 outcome = certify(digest, only=selected or None)
+        except FileNotFoundError as exc:
+            outcome = Outcome(
+                digest,
+                failure=FailureKind.MISSING_ARTIFACT,
+                detail=str(exc)[:400],
+            )
         except Exception as exc:
             # A malformed artifact or an unexpected integration failure must
             # not kill the worker and leave every later job queued forever.

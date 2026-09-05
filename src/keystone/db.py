@@ -29,6 +29,7 @@ from sqlalchemy import (
     Text,
     create_engine,
     select,
+    update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 from sqlalchemy.pool import StaticPool
@@ -350,6 +351,25 @@ class Store:
                 )
             )
         return row
+
+    def claim_for_certification(self, s: Session, listing_id: str) -> bool:
+        """Move one listing to CERTIFYING, but only if nobody else already has.
+
+        A read-then-write leaves a window where two workers both see the row
+        pending and both proceed, certifying the same listing twice and paying
+        for the GPU twice. A conditional UPDATE closes it: the database decides
+        the winner, and rowcount reports whether that was us.
+        """
+        result = s.execute(
+            update(ListingRow)
+            .where(
+                ListingRow.id == listing_id,
+                ListingRow.state == ListingState.PENDING_CERTIFICATION.value,
+            )
+            .values(state=ListingState.CERTIFYING.value)
+        )
+        s.commit()
+        return result.rowcount == 1
 
     def listings_in_state(self, s: Session, state: ListingState) -> list[ListingRow]:
         return list(s.scalars(select(ListingRow).where(ListingRow.state == state.value)))

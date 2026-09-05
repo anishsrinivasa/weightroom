@@ -438,3 +438,90 @@ def test_manifest_digest_algorithm_is_pinned() -> None:
     assert manifest_digest(files) == (
         "9f51a3e20eaa31068289daf1a6e0845c0f738576335573c7fa8550b9d4d73962"
     )
+
+
+# --------------------------------------------------------------------------
+# worker resilience: one bad row must not stall the queue
+# --------------------------------------------------------------------------
+
+def _seeded_store(*listings):
+    """listings: (listing_id, digest, with_artifact) triples, all queued."""
+    from keystone.db import Store
+    from keystone.listing import ListingState
+
+    store = Store("sqlite://")
+    store.create_all()
+    with store.session() as s:
+        store.upsert_user(s, "c1", "c@example.com")
+        for listing_id, digest, with_artifact in listings:
+            if with_artifact:
+                store.put_artifact(s, digest, [], 0)
+            store.create_listing(s, listing_id, "c1", digest)
+            store.get_listing(s, listing_id).state = (
+                ListingState.PENDING_CERTIFICATION.value
+            )
+        s.commit()
+    return store
+
+
+def test_a_missing_artifact_does_not_stall_the_queue() -> None:
+    """The orphan is rejected and the healthy listing behind it still runs.
+
+    Reading the manifest off a missing artifact row used to raise outside the
+    per-listing guard, killing the pass. Because the orphan stayed pending,
+    every later pass died on it too -- a permanent stall.
+    """
+    from keystone.listing import ListingState
+    from keystone.pipeline import Outcome
+    from keystone.storage import LocalStore
+    from keystone.worker import process_pending
+
+    store = _seeded_store(("l_orphan", "d" * 64, False), ("l_ok", "e" * 64, True))
+    results = dict(process_pending(
+        store,
+        artifacts=LocalStore("./unused-store"),
+        certify=None,
+    ))
+
+    assert results["l_orphan"] is ListingState.REJECTED
+    assert "l_ok" in results  # the healthy listing was still reached
+
+
+def test_a_missing_artifact_is_named_in_the_taxonomy() -> None:
+    from keystone.db import ReportRow  # noqa: F401  (schema import)
+    from keystone.pipeline import FailureKind
+    from keystone.storage import LocalStore
+    from keystone.worker import process_pending
+
+    store = _seeded_store(("l_orphan", "d" * 64, False))
+    process_pending(store, artifacts=LocalStore("./unused-store"), certify=None)
+
+    with store.session() as s:
+        attempt = store.load_listing(s, "l_orphan").attempts[-1]
+    assert attempt.passed is False
+    assert FailureKind.MISSING_ARTIFACT.value == "missing_artifact"
+
+
+def test_claiming_a_listing_is_atomic() -> None:
+    """Two workers must not both certify the same listing."""
+    from keystone.listing import ListingState
+
+    store = _seeded_store(("l1", "d" * 64, True))
+    with store.session() as s:
+        first = store.claim_for_certification(s, "l1")
+    with store.session() as s:
+        second = store.claim_for_certification(s, "l1")
+
+    assert first is True
+    assert second is False  # already claimed; the loser skips it
+    with store.session() as s:
+        assert store.get_listing(s, "l1").state == ListingState.CERTIFYING.value
+
+
+def test_claiming_a_listing_that_is_not_queued_fails() -> None:
+    store = _seeded_store(("l1", "d" * 64, True))
+    with store.session() as s:
+        store.get_listing(s, "l1").state = "draft"
+        s.commit()
+    with store.session() as s:
+        assert store.claim_for_certification(s, "l1") is False

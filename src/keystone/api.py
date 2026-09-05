@@ -188,6 +188,13 @@ def create_app(deps: Deps) -> FastAPI:
         me = require(principal)
         listing_id = f"lst_{uuid.uuid4().hex[:16]}"
         with d.store.session() as s:
+            # Refuse to create a listing for weights we do not hold. Otherwise
+            # the row reaches the certification queue with nothing to certify,
+            # and the seller pays a fee for a job that cannot run.
+            if d.store.get_artifact(s, body.artifact_digest) is None:
+                raise HTTPException(
+                    409, "no finalized artifact for that digest; upload it first"
+                )
             d.store.upsert_user(s, me.user_id, me.email)
             row = d.store.create_listing(
                 s, listing_id, me.user_id, body.artifact_digest, body.title

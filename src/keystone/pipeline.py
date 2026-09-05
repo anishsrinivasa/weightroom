@@ -57,6 +57,7 @@ class FailureKind(str, Enum):
 
     DOWNLOAD = "download"                      # could not fetch the artifact
     UNSUPPORTED_MODALITY = "unsupported_modality"  # VLM, refused by design
+    MISSING_ARTIFACT = "missing_artifact"      # listing references weights we do not hold
     SCAN_FAIL = "scan_fail"                    # working as intended
     LICENSE_FAIL = "license_fail"              # chain forbids what is claimed
     SERVE_FAIL = "serve_fail"                  # would not load or start

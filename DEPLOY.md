@@ -137,9 +137,9 @@ docker compose -f compose.production.yml up --build
 ```
 
 Deploy the images to Fly.io, Railway, ECS, Kubernetes, or another container
-platform with private service networking. Run exactly one worker until queue
-claiming gains database-level locking; multiple workers can currently evaluate
-the same listing twice.
+platform with private service networking. Workers claim queued listings with a
+conditional UPDATE, so two of them cannot certify the same listing; scale the
+worker process horizontally when throughput demands it.
 
 The API and worker must share the same `DATABASE_URL` and object-store settings.
 The worker mints four-hour presigned GET URLs, passes them only to Modal's
