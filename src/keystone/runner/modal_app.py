@@ -111,6 +111,13 @@ def fetch(ref: str, revision: str | None = None) -> dict:
     profile, caps, modality = build_profile(dest, wbytes)
     subject.modality = modality
 
+    # Provenance and licence: two of the four things a certificate claims to
+    # establish. Derived from what the artifact itself declares, never assumed.
+    from keystone.provenance import build_license_info, extract_lineage
+
+    subject.lineage = extract_lineage(dest)
+    subject.license, verdict = build_license_info(dest, subject.lineage)
+
     return {
         "cache_key": key,
         "cached": cached,
@@ -118,6 +125,7 @@ def fetch(ref: str, revision: str | None = None) -> dict:
         "serving_profile": profile.model_dump(mode="json"),
         "capabilities": caps.model_dump(mode="json"),
         "weight_bytes": wbytes,
+        "sellable": verdict.sellable,
         "cpu_seconds": round(time.monotonic() - started, 2),
         "bytes_transferred": 0 if cached else subject.total_bytes,
     }

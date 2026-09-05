@@ -8,6 +8,9 @@ themselves.
 Concept and strategy live in [model-marketplace-design-doc.md](model-marketplace-design-doc.md).
 This repo is the platform that implements it.
 
+**To run it locally, see [RUNNING.md](RUNNING.md)** — two commands, no GPU, no
+Modal account, no spend.
+
 **Scope right now: text-only LLMs.** VLM support is an additive layer, not a
 rewrite — see [Seams](#seams-kept-open-for-vlm).
 
@@ -148,6 +151,38 @@ creators pulling in their own existing repo. Nothing is stored there, and
 nothing HF reports is load-bearing — we re-hash everything ourselves.
 
 ---
+
+## Provenance and licensing
+
+[`provenance.py`](src/keystone/provenance.py) establishes the other two things
+a certificate claims: where the weights came from, and whether the seller may
+sell them.
+
+Lineage is read from what the artifact declares — PEFT adapter config first
+(unambiguous), then the model card's `base_model` field, then `_name_or_path`
+as a last resort. Nothing is trusted: parents come back `verified=False` until
+confirmed independently, and a local checkpoint path is not provenance.
+
+The licence chain is the commercially load-bearing part. "Open" does not mean
+redistributable:
+
+- A **non-commercial base** (CC-BY-NC) makes a paid listing unsellable no
+  matter what the seller wrote on their card.
+- A **Llama derivative cannot be relicensed** as Apache-2.0; the notices and
+  acceptable-use terms travel with it.
+- **RAIL use-restrictions** must be carried through to the buyer's contract.
+
+The asymmetry is deliberate: a pass requires every link to be known and
+compatible, while a single unrecognised parent yields `chain_ok = None`. "We
+could not tell" and "it is fine" are different answers and only one is safe to
+print on a certificate. `sellable` needs both a clearing chain *and* permitted
+commercial use — an absence of "no" is not a "yes".
+
+A chain failure grades **F** and halts before the GPU: a model that cannot
+legally be distributed will never be listed, so evaluating it is pure waste.
+
+This **detects and flags**. It is not legal advice and clears nothing; real
+legal review sits behind it.
 
 ## Signing
 
@@ -402,7 +437,6 @@ Expect that ratio to hold.
 - `_GPU_USD_PER_S` in [`cli.py`](src/keystone/cli.py) is approximate. Verify
   against current Modal pricing.
 
-- No license-chain checking. `LicenseInfo.chain_ok` is always `None`.
 - `_grade()` is placeholder logic; the real rubric belongs to the harness side.
 - `StaticTokenAuth` backs the dev server. `JWTAuth` is production-shaped
   (JWKS, issuer/audience/expiry checks, fixed algorithm list) but is not wired

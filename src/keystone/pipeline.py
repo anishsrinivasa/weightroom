@@ -51,6 +51,7 @@ class FailureKind(str, Enum):
     DOWNLOAD = "download"                      # could not fetch the artifact
     UNSUPPORTED_MODALITY = "unsupported_modality"  # VLM, refused by design
     SCAN_FAIL = "scan_fail"                    # working as intended
+    LICENSE_FAIL = "license_fail"              # chain forbids what is claimed
     SERVE_FAIL = "serve_fail"                  # would not load or start
     OOM = "oom"                                # too big for the chosen class
     TIMEOUT = "timeout"
@@ -104,6 +105,7 @@ def grade(
     scans: list[ScanResult],
     suites: list[SuiteResult],
     sandboxed: bool = True,
+    license_chain_ok: bool | None = None,
 ) -> tuple[str, str]:
     """Placeholder rating logic. The real rubric is the harness side's call.
 
@@ -116,6 +118,8 @@ def grade(
         )
     if any(s.status is Status.FAIL for s in scans):
         return "F", "Security scan failed; artifact is not safe to load."
+    if license_chain_ok is False:
+        return "F", "Licence chain forbids the declared terms; not distributable as stated."
     if any(s.status is Status.ERROR for s in suites):
         return "unrated", "One or more suites errored; no rating issued."
 
@@ -186,6 +190,11 @@ def certify_one(
         # Working as intended: never load weights that failed a scan.
         failure = FailureKind.SCAN_FAIL
         detail = "scan failure; weights not loaded"
+    elif subject.license.chain_ok is False:
+        # A model that cannot legally be distributed will never be listed, so
+        # spending GPU minutes evaluating it is pure waste.
+        failure = FailureKind.LICENSE_FAIL
+        detail = "; ".join(subject.license.notes[:3]) or "licence chain check failed"
     else:
         gpu = profile.resource_class or "A10G"
         tp = int(gpu.split(":")[1]) if ":" in gpu else 1
@@ -208,7 +217,9 @@ def certify_one(
             return Outcome(ref, failure=classify(exc), detail=repr(exc)[:400],
                            wall_s=time.monotonic() - started)
 
-    letter, rationale = grade(scans, suite_results)
+    letter, rationale = grade(
+        scans, suite_results, license_chain_ok=subject.license.chain_ok
+    )
     usd_rate = GPU_USD_PER_S.get(profile.resource_class or "")
 
     report = CertificationReport(
