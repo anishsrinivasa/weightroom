@@ -65,6 +65,17 @@ def _cache_key(ref: str, revision: str) -> str:
     return f"{ref.replace('/', '__')}@{revision}"
 
 
+# Public models need no HuggingFace token, so none is required by default --
+# a first run should not depend on secret setup. For gated repos (Llama et al.)
+# create the secret and point at it:
+#
+#   modal secret create huggingface HF_TOKEN=hf_...
+#   export KEYSTONE_HF_SECRET=huggingface
+#
+_HF_SECRET_NAME = os.environ.get("KEYSTONE_HF_SECRET", "")
+_HF_SECRETS = [modal.Secret.from_name(_HF_SECRET_NAME)] if _HF_SECRET_NAME else []
+
+
 # ---------------------------------------------------------------------------
 # fetch: network ON, no untrusted execution
 # ---------------------------------------------------------------------------
@@ -73,7 +84,7 @@ def _cache_key(ref: str, revision: str) -> str:
     image=fetch_image,
     volumes={CACHE_ROOT: cache},
     timeout=4 * 60 * 60,
-    secrets=[modal.Secret.from_name("huggingface", required_keys=["HF_TOKEN"])],
+    secrets=_HF_SECRETS,
     ephemeral_disk=1024 * 1024,
 )
 def fetch(ref: str, revision: str | None = None) -> dict:
