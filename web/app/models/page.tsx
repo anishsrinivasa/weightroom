@@ -81,11 +81,9 @@ export default function ModelsPage() {
   return (
     <>
       <section className="hero-row">
-        <div>
-          <p className="eyebrow">Seller workspace</p>
-          <h1>Your open-weight models.</h1>
-          <p className="lede">Submit a model, choose the benchmarks that matter, and publish only after independent verification.</p>
-        </div>
+        {/* Heading kept for document structure and screen readers; the page
+            leads with the inventory itself rather than a display title. */}
+        <h1 className="sr-only">Your open-weight models</h1>
         <Link className="button primary" href="/submit">Submit a model <span aria-hidden="true">→</span></Link>
       </section>
 

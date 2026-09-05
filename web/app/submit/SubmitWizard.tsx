@@ -299,11 +299,7 @@ export function SubmitWizard() {
 
   return (
     <div className="wizard">
-      <div className="wizard-header">
-        <p className="eyebrow">New submission</p>
-        <h1>Bring your model to market.</h1>
-        <p className="lede">Upload the exact files buyers will receive. The artifact digest permanently binds evaluation results to those weights.</p>
-      </div>
+      <h1 className="sr-only">Bring your model to market</h1>
       <ol className="stepper" aria-label="Submission progress">
         {wizardSteps.map(({ number, label, detail }) => (
           <li key={number} data-state={number < step ? "done" : number === step ? "current" : "upcoming"} aria-current={number === step ? "step" : undefined}>

@@ -65,7 +65,7 @@ h3 { font-size: 16px; font-weight: 620; letter-spacing: -0.015em; }
 .button-row.actions { margin-top: 30px; }
 .text-button { border: 0; padding: 2px 0; background: transparent; text-decoration: underline; text-underline-offset: 3px; }
 
-.hero-row { display: flex; align-items: flex-end; gap: 36px; margin-bottom: 44px; }
+.hero-row { display: flex; align-items: flex-end; justify-content: flex-end; gap: 36px; margin-bottom: 28px; }
 .hero-row > div { flex: 1; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 43px; border: 1px solid var(--line); }
 .stat { min-height: 118px; padding: 21px; border-right: 1px solid var(--line); }
@@ -134,7 +134,7 @@ tbody tr:hover { background: var(--wash); }
 @keyframes gate-spin { to { transform: rotate(360deg); } }
 
 .wizard { max-width: 880px; }
-.wizard-header { margin-bottom: 39px; }
+
 .stepper { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0 0 48px; padding: 0; list-style: none; }
 .stepper li { position: relative; padding-top: 17px; border-top: 1px solid var(--line); color: var(--muted); }
 .stepper li::before { position: absolute; top: -5px; left: 0; width: 8px; height: 8px; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); content: ""; }
