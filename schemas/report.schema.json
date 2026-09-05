@@ -860,6 +860,12 @@
         "status": {
           "$ref": "#/$defs/Status"
         },
+        "gate": {
+          "default": false,
+          "description": "Whether this result is a mandatory certification gate rather than a benchmark that contributes to the capability grade.",
+          "title": "Gate",
+          "type": "boolean"
+        },
         "held_out": {
           "default": false,
           "description": "If true, redaction is strict: no metrics or findings escape, and the score is bucketed before a creator or buyer sees it.",

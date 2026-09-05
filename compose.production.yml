@@ -1,0 +1,68 @@
+name: weightroom
+
+services:
+  web:
+    build:
+      context: ./web
+    environment:
+      KEYSTONE_API_URL: http://api:8000
+      KEYSTONE_SESSION_COOKIE: ${KEYSTONE_SESSION_COOKIE:-keystone_access_token}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    build:
+      context: .
+    environment:
+      KEYSTONE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?required}
+      KEYSTONE_BUCKET: ${KEYSTONE_BUCKET:?required}
+      R2_ENDPOINT_URL: ${R2_ENDPOINT_URL:?required}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?required}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?required}
+      KEYSTONE_SIGNING_KEY: ${KEYSTONE_SIGNING_KEY:?required}
+      KEYSTONE_JWKS_URL: ${KEYSTONE_JWKS_URL:?required}
+      KEYSTONE_JWT_ISSUER: ${KEYSTONE_JWT_ISSUER:?required}
+      KEYSTONE_JWT_AUDIENCE: ${KEYSTONE_JWT_AUDIENCE:?required}
+    expose:
+      - "8000"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    build:
+      context: .
+    command: ["python", "-m", "keystone.cli", "worker", "--interval", "30"]
+    environment:
+      KEYSTONE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?required}
+      KEYSTONE_BUCKET: ${KEYSTONE_BUCKET:?required}
+      R2_ENDPOINT_URL: ${R2_ENDPOINT_URL:?required}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?required}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?required}
+      KEYSTONE_SIGNING_KEY: ${KEYSTONE_SIGNING_KEY:?required}
+      KEYSTONE_JWKS_URL: ${KEYSTONE_JWKS_URL:?required}
+      KEYSTONE_JWT_ISSUER: ${KEYSTONE_JWT_ISSUER:?required}
+      KEYSTONE_JWT_AUDIENCE: ${KEYSTONE_JWT_AUDIENCE:?required}
+      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID:?required}
+      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET:?required}
+      KEYSTONE_HF_SECRET: ${KEYSTONE_HF_SECRET:-huggingface}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true

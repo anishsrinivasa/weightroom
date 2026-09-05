@@ -236,6 +236,15 @@ def _suite(score: float, status: Status = Status.PASS) -> SuiteResult:
     return SuiteResult(suite_id="s", suite_version="1", status=status, score=score)
 
 
+def _passing_gate() -> SuiteResult:
+    return SuiteResult(
+        suite_id="harm_gate",
+        suite_version="1",
+        status=Status.PASS,
+        gate=True,
+    )
+
+
 def test_scan_failure_forces_f() -> None:
     grade, _ = _grade([ScanResult(scanner="picklescan", status=Status.FAIL)], [_suite(1.0)])
     assert grade == "F"
@@ -246,9 +255,52 @@ def test_suite_error_means_unrated() -> None:
     assert grade == "unrated"
 
 
+def test_missing_safety_gate_means_unrated() -> None:
+    grade, rationale = _grade([], [_suite(1.0)])
+    assert grade == "unrated"
+    assert "safety gate" in rationale
+
+
+def test_failed_safety_gate_forces_f_even_with_a_high_benchmark_score() -> None:
+    gate = SuiteResult(
+        suite_id="harm_gate",
+        suite_version="1",
+        display_name="Harmful-output resistance",
+        status=Status.FAIL,
+        gate=True,
+        score=0.99,
+    )
+    grade, rationale = _grade([], [_suite(1.0), gate])
+    assert grade == "F"
+    assert "Harmful-output resistance" in rationale
+
+
+def test_skipped_safety_gate_means_unrated() -> None:
+    gate = SuiteResult(
+        suite_id="harm_gate",
+        suite_version="1",
+        status=Status.SKIPPED,
+        gate=True,
+    )
+    grade, _ = _grade([], [_suite(1.0), gate])
+    assert grade == "unrated"
+
+
+def test_passing_gate_is_not_averaged_into_capability_grade() -> None:
+    gate = SuiteResult(
+        suite_id="harm_gate",
+        suite_version="1",
+        status=Status.PASS,
+        gate=True,
+        score=0.1,
+    )
+    grade, _ = _grade([], [_suite(0.95), gate])
+    assert grade == "A"
+
+
 @pytest.mark.parametrize("score,expected", [(0.95, "A"), (0.8, "B"), (0.65, "C"), (0.5, "D"), (0.1, "F")])
 def test_grade_cutoffs(score: float, expected: str) -> None:
-    grade, _ = _grade([], [_suite(score)])
+    grade, _ = _grade([], [_passing_gate(), _suite(score)])
     assert grade == expected
 
 
@@ -294,7 +346,7 @@ def test_unsandboxed_runs_are_never_graded() -> None:
 
 
 def test_sandboxed_runs_still_grade() -> None:
-    assert _grade([], [_suite(1.0)], sandboxed=True)[0] == "A"
+    assert _grade([], [_passing_gate(), _suite(1.0)], sandboxed=True)[0] == "A"
 
 
 def test_environment_defaults_to_sandboxed() -> None:
@@ -374,7 +426,7 @@ def test_manifest_digest_algorithm_is_pinned() -> None:
     """The browser recomputes this independently, so the algorithm is a contract.
 
     Sorted by path, one "path:sha256\n" line each, sha256 of the UTF-8 bytes.
-    If this value changes, the upload client in static/index.html must change
+    If this value changes, the upload client in web/lib/artifact.ts must change
     with it or every upload will be declared under the wrong digest.
     """
     from keystone.schema import FileEntry

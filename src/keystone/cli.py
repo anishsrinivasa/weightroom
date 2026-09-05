@@ -283,11 +283,13 @@ def serve(
     port: int = typer.Option(8000),
     reload: bool = typer.Option(False),
 ) -> None:
-    """Run the API and the placeholder UI. Dev wiring: SQLite, local store, mock payments."""
+    """Run the Keystone API. Seller Studio runs from the web directory."""
     import uvicorn
 
-    console.print(f"[bold]http://{host}:{port}[/]  (UI at /, docs at /docs)")
-    uvicorn.run("keystone.api:dev_app", factory=True, host=host, port=port, reload=reload)
+    console.print(f"[bold]http://{host}:{port}[/]  (API docs at /docs)")
+    # Use the same settings factory as production so DATABASE_URL, storage,
+    # signing, authentication, and payment configuration are honored locally.
+    uvicorn.run("keystone.settings:app", factory=True, host=host, port=port, reload=reload)
 
 
 @app.command()
@@ -295,19 +297,23 @@ def worker(
     once: bool = typer.Option(False, "--once", help="Drain the queue and exit."),
     interval: int = typer.Option(15, help="Seconds between polls."),
     limit: int = typer.Option(5, help="Max listings per pass."),
+    listing_id: str | None = typer.Option(
+        None, "--listing-id", help="Process only this queued listing."
+    ),
     db: str | None = typer.Option(None, help="Overrides DATABASE_URL."),
 ) -> None:
     """Certify queued listings. Separate process: no request thread waits on a GPU."""
     from dataclasses import replace as _replace
 
     from keystone.runner import modal_app
-    from keystone.settings import Settings, build_signer, build_store
+    from keystone.settings import Settings, build_artifacts, build_signer, build_store
     from keystone.worker import process_pending
 
     settings = Settings.from_env()
     if db:
         settings = _replace(settings, database_url=db)
     store, _ = build_store(settings)
+    artifacts, _ = build_artifacts(settings)
     store.create_all()
 
     # Reports the worker writes are signed with the same key the API serves, so
@@ -323,6 +329,8 @@ def worker(
         with modal_app.app.run():
             done = process_pending(
                 store,
+                artifacts=artifacts,
+                listing_id=listing_id,
                 limit=limit,
                 signer=signer,
                 on_step=lambda m: console.print(f"  [cyan]·[/] {m}"),
@@ -336,7 +344,7 @@ def worker(
 
 @app.command()
 def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
-    """Populate the dev database so the placeholder UI has something to show.
+    """Populate the dev database so the local web app has something to show.
 
     Uses fabricated reports -- no GPU, no spend. The signatures are real.
     """
@@ -356,15 +364,17 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     now = datetime.now(timezone.utc)
 
     def report(grade: str, digest: str, held: float) -> CertificationReport:
+        issued_grade = grade if held >= 0.75 else "F"
         return CertificationReport(
             report_id=f"rep_{_uuid.uuid4().hex[:12]}",
             created_at=now,
-            status=Status.PASS if grade != "F" else Status.FAIL,
+            status=Status.PASS if issued_grade != "F" else Status.FAIL,
             subject=Subject(
                 source=Source(kind=SourceKind.UPLOAD, ref=f"rcpt_{digest[:8]}"),
                 artifact_digest=digest,
                 files=[],
                 total_bytes=1_400_000_000,
+                license={"declared": "apache-2.0", "spdx": "Apache-2.0", "chain_ok": True},
             ),
             environment=Environment(sandboxed=True, seed=0, gpu="NVIDIA A10",
                                     engine_version="0.28.0", python_version="3.12.10"),
@@ -372,9 +382,10 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                    ScanResult(scanner="format_hygiene", status=Status.PASS)],
             suite_results=[
                 SuiteResult(suite_id="heldout_harm", suite_version="1.2.0",
-                            display_name="Safety - refusal behaviour",
+                            display_name="Harmful-output resistance",
                             status=Status.PASS if held >= 0.75 else Status.FAIL,
-                            held_out=True, score=held, metrics={"refusal_rate": held},
+                            gate=True, held_out=True, score=held,
+                            metrics={"safe_response_rate": held},
                             n_items=200,
                             categories=[] if held >= 0.75 else ["harmful_content_refusal"],
                             remediation=None if held >= 0.75 else "public/harm_practice_v1"),
@@ -391,8 +402,15 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             ],
             cost=Cost(gpu_seconds=142.0, cpu_seconds=9.0,
                       bytes_transferred=1_400_000_000, usd_estimate=0.0435),
-            rating=Rating(grade=grade, as_tested_at=now,
-                          rationale=f"Mean suite score across 2 suite(s); grade {grade}."),
+            rating=Rating(
+                grade=issued_grade,
+                as_tested_at=now,
+                rationale=(
+                    f"Capability grade {grade}; all mandatory gates passed."
+                    if issued_grade != "F"
+                    else "Mandatory safety gate failed: Harmful-output resistance."
+                ),
+            ),
         )
 
     # price in USDC minor units (6 decimals); 0 is a real price
@@ -400,7 +418,8 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         ("Legalese-7B (contract QA)", "1" * 64, "A", 0.94, True, 120_000_000),
         ("MedNote-3B (clinical summaries)", "2" * 64, "B", 0.81, True, 45_000_000),
         ("Tokenizer-Bench-0.5B (open)", "4" * 64, "A", 0.92, True, 0),
-        ("Sentinel-1B (log triage)", "3" * 64, "D", 0.62, False, 30_000_000),
+        ("ReadySet-3B (support)", "5" * 64, "A", 0.91, False, 60_000_000),
+        ("Sentinel-1B (log triage)", "3" * 64, "F", 0.62, False, 30_000_000),
     ]
 
     with store.session() as s:
@@ -415,14 +434,19 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             row = store.create_listing(s, listing_id, "u_creator", digest, title)
             row.price_minor = price
             s.commit()
-        record_outcome(store, listing_id, Outcome(digest, report=report(grade, digest, held)),
-                       signer=signer, now=now)
+        state = record_outcome(
+            store,
+            listing_id,
+            Outcome(digest, report=report(grade, digest, held)),
+            signer=signer,
+            now=now,
+        )
         if go_live:
-            publish_certified(store, listing_id)
+            state = publish_certified(store, listing_id)
         tag = "free" if price == 0 else f"{price / 1e6:.0f} USDC"
         console.print(
             f"  {title}  [bold]{grade}[/]  "
-            f"{'listed' if go_live else 'rejected'}  {tag}"
+            f"{state.value}  {tag}"
         )
 
     # A listing that looks like eval-set probing, for the admin queue.
@@ -444,7 +468,7 @@ def suites() -> None:
     from keystone.registry import discover
 
     table = Table(title="suites")
-    for col in ("id", "version", "modality", "requires", "held-out"):
+    for col in ("id", "version", "modality", "requires", "gate", "held-out"):
         table.add_column(col)
     for s in discover():
         m = s.manifest
@@ -453,6 +477,7 @@ def suites() -> None:
             m.version,
             ",".join(x.value for x in m.modality),
             ",".join(m.required_capabilities) or "-",
+            "yes" if m.gate else "no",
             "yes" if m.held_out else "no",
         )
     console.print(table)

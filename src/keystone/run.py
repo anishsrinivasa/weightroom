@@ -57,6 +57,7 @@ def run_suites(
             suite_version="-",
             display_name=s.display_name,
             status=Status.SKIPPED,
+            gate=s.gate,
             declined=s.declined,
             error=s.reason,
         )
@@ -93,6 +94,7 @@ def run_suites(
         if manifest is not None:
             result.display_name = manifest.name
             result.held_out = manifest.held_out
+            result.gate = manifest.gate
     results.extend(completed)
     return results
 

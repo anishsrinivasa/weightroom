@@ -8,5 +8,6 @@ out
 keystone.db
 .keystone-store
 .keystone-key
+web
 *.md
 !README.md

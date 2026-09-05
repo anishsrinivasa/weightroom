@@ -13,11 +13,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from keystone.db import Store
 from keystone.listing import Attempt, AttemptPolicy, DEFAULT_POLICY, Listing, ListingState
 from keystone.pipeline import Outcome
 from keystone.schema import CertificationReport, Status
+
+if TYPE_CHECKING:
+    from keystone.storage import ArtifactStore
 
 
 def _mean_held_out(report: CertificationReport) -> float | None:
@@ -52,9 +56,12 @@ def record_outcome(
             raise KeyError(listing_id)
 
         report = outcome.report
+        gates = [r for r in report.suite_results if r.gate] if report else []
         passed = bool(
             report is not None
             and report.rating.grade not in ("F", "unrated")
+            and gates
+            and all(r.status is Status.PASS for r in gates)
             and not any(r.status is Status.ERROR for r in report.suite_results)
         )
 
@@ -88,6 +95,8 @@ def record_outcome(
 def process_pending(
     store: Store,
     *,
+    artifacts: ArtifactStore | None = None,
+    listing_id: str | None = None,
     limit: int = 10,
     policy: AttemptPolicy = DEFAULT_POLICY,
     certify=None,
@@ -98,22 +107,56 @@ def process_pending(
 
     `certify` is injectable so this is testable without Modal or a GPU.
     """
-    from keystone.pipeline import certify_one
+    from keystone.pipeline import FailureKind, Outcome, certify_uploaded
 
-    certify = certify or certify_one
+    if certify is None and artifacts is None:
+        raise ValueError("an artifact store is required for uploaded-model certification")
 
     with store.session() as s:
+        pending = store.listings_in_state(s, ListingState.PENDING_CERTIFICATION)
+        if listing_id is not None:
+            pending = [row for row in pending if row.id == listing_id]
         queued = [
-            (r.id, r.artifact_digest, list(r.selected_benchmarks or []))
-            for r in store.listings_in_state(s, ListingState.PENDING_CERTIFICATION)[:limit]
+            (
+                r.id,
+                r.artifact_digest,
+                list(r.selected_benchmarks or []),
+                store.get_artifact(s, r.artifact_digest).files(),
+            )
+            for r in pending[:limit]
         ]
 
     results: list[tuple[str, ListingState]] = []
-    for listing_id, digest, selected in queued:
+    for listing_id, digest, selected, files in queued:
         on_step(f"certifying {listing_id} ({digest[:12]})")
+        with store.session() as s:
+            row = store.get_listing(s, listing_id)
+            if row is None or row.state != ListingState.PENDING_CERTIFICATION.value:
+                continue
+            row.state = ListingState.CERTIFYING.value
+            s.commit()
+
         # Pass the selection through as `only`; anything not chosen comes back
         # marked declined rather than simply missing.
-        outcome = certify(digest, only=selected or None)
+        try:
+            if certify is None:
+                outcome = certify_uploaded(
+                    digest,
+                    files,
+                    artifacts,
+                    only=selected or None,
+                    on_step=on_step,
+                )
+            else:
+                outcome = certify(digest, only=selected or None)
+        except Exception as exc:
+            # A malformed artifact or an unexpected integration failure must
+            # not kill the worker and leave every later job queued forever.
+            outcome = Outcome(
+                digest,
+                failure=FailureKind.UNKNOWN,
+                detail=repr(exc)[:400],
+            )
         state = record_outcome(store, listing_id, outcome, policy=policy, signer=signer)
         on_step(f"  -> {state.value}")
         results.append((listing_id, state))

@@ -82,7 +82,13 @@ def _report(digest: str) -> CertificationReport:
         ),
         environment=Environment(sandboxed=True),
         suite_results=[
-            SuiteResult(suite_id="s", suite_version="1", status=Status.PASS, score=0.95)
+            SuiteResult(
+                suite_id="harm_gate",
+                suite_version="1",
+                status=Status.PASS,
+                gate=True,
+                score=0.95,
+            )
         ],
         cost=Cost(gpu_seconds=80.0),
         rating=Rating(grade="A", as_tested_at=NOW),

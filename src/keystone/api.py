@@ -15,19 +15,22 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from keystone.auth import Authenticator, Principal, StaticTokenAuth, audience_for
+from keystone.auth import Authenticator, Principal, audience_for
 from keystone.benchmarks import SelectionError, declined_ids, menu, normalise_selection, quote
 from keystone.db import ArtifactRow, ListingRow, Store, UserRow
-from keystone.listing import DEFAULT_POLICY, AttemptPolicy, ListingState, transition
+from keystone.listing import (
+    DEFAULT_POLICY,
+    AttemptPolicy,
+    ListingState,
+    TransitionError,
+    transition,
+)
 from keystone.orders import (
     DEFAULT_SPLIT,
     Order,
@@ -36,9 +39,9 @@ from keystone.orders import (
     check_entitlement,
     settle,
 )
-from keystone.payments import DemoChainProvider, MockPaymentProvider, PaymentProvider
+from keystone.payments import DemoChainProvider, PaymentProvider
 from keystone.schema import Audience, CertificationReport, FileEntry
-from keystone.signing import Ed25519Signer
+from keystone.safety_gates import summarize as summarize_safety_gates
 from keystone.storage import ArtifactStore, LocalStore, artifact_key
 from keystone.visibility import assert_no_leak, redact
 
@@ -100,8 +103,19 @@ def _view(
     """The only way a report leaves this process."""
     audience = audience_for(principal, creator_id)
     view = redact(report, audience)
+    if audience is Audience.BUYER:
+        # A listed model is already proof that every mandatory gate passed.
+        # Buyers see capability evidence; the gate implementation and its
+        # failure taxonomy belong in the seller workspace only.
+        view.suite_results = [result for result in view.suite_results if not result.gate]
     assert_no_leak(view, audience)  # belt and braces
-    return {"audience": audience.value, "report": view.model_dump(mode="json")}
+    payload = {
+        "audience": audience.value,
+        "report": view.model_dump(mode="json"),
+    }
+    if audience is Audience.CREATOR:
+        payload["safety_gates"] = summarize_safety_gates(view)
+    return payload
 
 
 def _row_or_404(d: Deps, s: Session, listing_id: str) -> ListingRow:
@@ -184,10 +198,10 @@ def create_app(deps: Deps) -> FastAPI:
         return {"listing_id": listing_id, "state": ListingState.DRAFT.value}
 
     @app.get("/v1/listings")
-    def browse(d: D, state: str = Query(ListingState.LISTED.value)) -> dict:
-        """Public catalogue. Only what is actually listed, by default."""
+    def browse(d: D) -> dict:
+        """Public catalogue. Unpublished submissions never cross this boundary."""
         with d.store.session() as s:
-            rows = d.store.listings_in_state(s, ListingState(state))
+            rows = d.store.listings_in_state(s, ListingState.LISTED)
             return {
                 "listings": [
                     {
@@ -203,10 +217,54 @@ def create_app(deps: Deps) -> FastAPI:
                 ]
             }
 
+    @app.get("/v1/seller/listings")
+    def seller_listings(d: D, principal: P) -> dict:
+        """The authenticated seller's complete submission workspace."""
+        me = require(principal)
+        with d.store.session() as s:
+            listings = []
+            for row in d.store.listings_for_creator(s, me.user_id):
+                report = d.store.latest_report(s, row.id)
+                gate_summary = None
+                grade = None
+                if report is not None:
+                    view = redact(report, Audience.CREATOR)
+                    assert_no_leak(view, Audience.CREATOR)
+                    gate_summary = summarize_safety_gates(view)
+                    grade = view.rating.grade
+                listings.append(
+                    {
+                        "listing_id": row.id,
+                        "title": row.title,
+                        "artifact_digest": row.artifact_digest,
+                        "state": row.state,
+                        "price": str(row.price()),
+                        "price_minor": row.price_minor,
+                        "selected_benchmarks": list(row.selected_benchmarks or []),
+                        "attempts": len(row.attempts),
+                        "grade": grade,
+                        "safety_status": gate_summary["overall"] if gate_summary else "pending",
+                        "verified": row.state in {
+                            ListingState.CERTIFIED.value,
+                            ListingState.LISTED.value,
+                        },
+                        "can_publish": row.state == ListingState.CERTIFIED.value,
+                        "created_at": row.created_at.isoformat(),
+                        "updated_at": row.updated_at.isoformat(),
+                    }
+                )
+            return {"listings": listings}
+
     @app.get("/v1/listings/{listing_id}")
     def get_listing(listing_id: str, d: D, principal: P) -> dict:
         with d.store.session() as s:
             row = _row_or_404(d, s, listing_id)
+            audience = audience_for(principal, row.creator_id)
+            if audience is Audience.BUYER and row.state != ListingState.LISTED.value:
+                # Hiding the card in the frontend is not a security boundary.
+                # Failed, queued, and merely certified submissions are private
+                # to their seller (and platform operators) until publication.
+                raise HTTPException(404, "no such listing")
             report = d.store.latest_report(s, listing_id)
             payload = {
                 "listing_id": row.id,
@@ -214,13 +272,33 @@ def create_app(deps: Deps) -> FastAPI:
                 "state": row.state,
                 "artifact_digest": row.artifact_digest,
                 "price": str(row.price()),
+                "price_minor": row.price_minor,
                 "attempts": len(row.attempts),
+                "created_at": row.created_at.isoformat(),
+                "updated_at": row.updated_at.isoformat(),
             }
-            if audience_for(principal, row.creator_id) is not Audience.BUYER:
+            if audience is not Audience.BUYER:
                 payload["flagged_for_review"] = row.flagged_for_review
             if report is not None:
                 payload |= _view(d, report, principal, row.creator_id)
             return payload
+
+    @app.post("/v1/seller/listings/{listing_id}/activate")
+    def activate_listing(listing_id: str, d: D, principal: P) -> dict:
+        """Publish a verified model from the seller workspace."""
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            if row.creator_id != me.user_id:
+                raise HTTPException(403, "not your listing")
+            try:
+                row.state = transition(
+                    ListingState(row.state), ListingState.LISTED
+                ).value
+            except TransitionError as exc:
+                raise HTTPException(409, "only a verified model can be published") from exc
+            s.commit()
+            return {"listing_id": row.id, "state": row.state, "published": True}
 
     # ----------------------------------------------------------------------
     # publish: quote -> pay -> queue
@@ -594,16 +672,6 @@ def create_app(deps: Deps) -> FastAPI:
     def health() -> dict:
         return {"ok": True}
 
-    # Placeholder UI. Served from the API so there is no second origin and no
-    # CORS to configure while this is a demo.
-    static_dir = Path(__file__).parent / "static"
-    if static_dir.is_dir():
-        @app.get("/", include_in_schema=False)
-        def index() -> FileResponse:
-            return FileResponse(static_dir / "index.html")
-
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
     return app
 
 
@@ -643,23 +711,3 @@ class PublishRequest(BaseModel):
     # Optional capability benchmarks. Mandatory suites are added server-side,
     # so omitting them here does not skip them.
     benchmarks: list[str] = []
-
-
-def dev_app() -> FastAPI:
-    """Local development wiring: SQLite, filesystem store, mock payments."""
-    store = Store("sqlite:///keystone.db")
-    store.create_all()
-    auth = StaticTokenAuth(
-        {
-            "dev-creator": Principal("u_creator", "creator@example.com"),
-            "dev-admin": Principal("u_admin", "admin@example.com", is_admin=True),
-        }
-    )
-    # A generated key means dev reports verify end to end. Production sets
-    # KEYSTONE_SIGNING_KEY so the key survives a restart.
-    signer = Ed25519Signer.from_env() or Ed25519Signer.generate()
-    artifacts = LocalStore(Path(".keystone-store"), base_url="/v1/dev-upload")
-    payments = DemoChainProvider(block_time_s=1.5, required_confirmations=3)
-    return create_app(
-        Deps(store, artifacts, payments, auth, signer=signer)
-    )

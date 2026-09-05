@@ -216,6 +216,11 @@ class SuiteResult(BaseModel):
     suite_version: str
     modality: list[Modality] = Field(default_factory=lambda: [Modality.TEXT])  # SEAM 1
     status: Status
+    gate: bool = Field(
+        default=False,
+        description="Whether this result is a mandatory certification gate rather than "
+        "a benchmark that contributes to the capability grade.",
+    )
     held_out: bool = Field(
         default=False,
         description="If true, redaction is strict: no metrics or findings escape, "

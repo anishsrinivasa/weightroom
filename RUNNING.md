@@ -1,207 +1,151 @@
-# Running Keystone locally
+# Running Weightroom locally
 
-Everything here runs with **no GPU, no Modal account, and no spend**. Only
-`keystone certify` and `keystone batch` touch paid infrastructure.
+The application has two local services:
 
----
+- **Seller Studio** — Next.js 16 on port 3000.
+- **Keystone API** — FastAPI on port 8000. The evaluation worker is started
+  separately only when you want to process the queue on Modal.
 
-## 1. Setup (once)
+The local path uses SQLite, filesystem storage, static development identity,
+and a simulated Base/USDC provider. It spends nothing.
 
-You need Python 3.12 — 3.13+ has no torch or vLLM wheels yet, and the Modal
-client is fussy about newer versions too.
+## Prerequisites
+
+- Python 3.12
+- Node.js 22 or newer
+- `uv`
 
 ```bash
-git clone https://github.com/anishsrinivasa/farmersmarket.git keystone
-cd keystone
+git clone https://github.com/windigo216/weightroom.git
+cd weightroom
 
-pip install uv                # if you don't have it
 uv venv --python 3.12
-uv pip install -e .
+uv pip install --python .venv/bin/python -e .
+
+cd web
+npm ci
+cd ..
 ```
 
-Check it works:
+## Verify both applications
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q     # Windows
-# .venv/bin/python -m pytest -q           # macOS / Linux
+.venv/bin/python -m pytest -q
+
+cd web
+npm run lint
+npm run typecheck
+npm test
+npm run build
+cd ..
 ```
 
-You should see **287 passed**. If that runs, everything below will.
+The Python suite should report at least **300 passed**. The web suite should
+lint and type-check cleanly, pass its tests, and produce an optimized build.
 
-> The commands below use `.venv/Scripts/python.exe -m keystone.cli` so you never
-> have to activate anything. If you'd rather activate the venv
-> (`.venv\Scripts\activate` on Windows, `source .venv/bin/activate` elsewhere),
-> the `keystone` command works directly.
+## Start the API
 
----
-
-## 2. Open the frontend
-
-Two commands. The first fills the database so there is something to look at;
-the second starts the server.
+Generate one stable local signing key and seed the database:
 
 ```bash
-# a stable signing key, so seeded reports verify against the running server
 python -c "from keystone.signing import Ed25519Signer; print(Ed25519Signer.generate().private_key_b64())" > .keystone-key
+export KEYSTONE_SIGNING_KEY="$(<.keystone-key)"
 
-# Windows (PowerShell)
-$env:KEYSTONE_SIGNING_KEY = (Get-Content .keystone-key)
-.venv\Scripts\python.exe -m keystone.cli seed
-.venv\Scripts\python.exe -m keystone.cli serve
-
-# macOS / Linux
-export KEYSTONE_SIGNING_KEY="$(cat .keystone-key)"
-.venv/bin/python -m keystone.cli seed
-.venv/bin/python -m keystone.cli serve
+.venv/bin/keystone seed
+.venv/bin/keystone serve
 ```
 
-Then open **<http://127.0.0.1:8000>**.
+The API is now at <http://127.0.0.1:8000>; OpenAPI documentation is at
+<http://127.0.0.1:8000/docs>.
 
-API docs are at `/docs`. Stop the server with Ctrl-C.
+## Start Seller Studio
 
-If you skip the signing key, everything still works — the server just generates
-a throwaway key each start, so seeded reports won't verify against it.
-
-### Starting over
+In another terminal:
 
 ```bash
-rm keystone.db          # delete the database
-keystone seed           # repopulate
+cd web
+KEYSTONE_API_URL=http://127.0.0.1:8000 \
+KEYSTONE_DEV_TOKEN=dev-creator \
+NEXT_PUBLIC_ENABLE_DEMO_PAYMENT=true \
+npm run dev
 ```
 
----
+Open <http://127.0.0.1:3000>. `KEYSTONE_DEV_TOKEN` is read only by the Next.js
+server and is ignored by production builds. It never enters the browser bundle.
 
-## 3. What to click
+## Walk through the seller flow
 
-The **token** dropdown at the top is the whole demo. It changes who you are,
-and the page reacts.
+1. **My models** lists every submission belonging to the seller, including
+   drafts, evaluations, verified models, rejected models, and live listings.
+2. Open **ReadySet-3B** to review a successful private safety report and its
+   enabled publish action.
+3. Open **Sentinel-1B** to see a failed harmful-output gate. It has no publish
+   action and is unreachable through the public buyer API.
+4. Open **New submission**, select files or use the development sample, and
+   continue to benchmark selection.
+5. Select optional public capability benchmarks. Safety evaluation remains
+   mandatory and is not represented as an opt-out checkbox.
+6. Continue to Base/USDC payment and use the development wallet. The UI polls
+   provider state; only backend-confirmed settlement queues the evaluation.
 
-**See redaction working.** Open *Legalese-7B* in the catalogue, then switch
-tokens:
+Browser hashing is capped at 64 MB per file. Production checkpoint uploads use
+presigned object-storage URLs and should use the resumable CLI path for very
+large files.
 
-| Token | Held-out score | Failing category | Cost |
-| :--- | :--- | :--- | :--- |
-| anonymous | `redacted` | hidden | hidden |
-| `dev-creator` | `redacted` | shown | hidden |
-| `dev-admin` | `0.94` | shown | shown |
+## Run the worker
 
-Same report, three views. The audience comes from the token, never from the
-URL — adding `?audience=internal` does nothing.
-
-**Watch a payment settle.** Open a priced listing and click **Buy**. A payment
-panel appears with a network, an address, and a confirmation counter. Click
-**Pay from wallet** — a transaction is broadcast on the simulated chain and
-confirmations accrue one block at a time until the charge settles, at which
-point the download unlocks.
-
-**Underpay** on the same panel sends too little: the transaction confirms, the
-charge never settles, and the download stays refused. Same flow for the
-certification fee on the Publish tab.
-
-The simulated chain is the only piece that differs from production. Blocks come
-from a clock instead of a chain watcher; everything above it — polling the
-provider, waiting on confirmations, refusing to take the client's word — is the
-real path.
-
-**Upload a model.** Publish tab → **pick folder** (or **use a sample** if you
-don't have a checkpoint handy). Your browser hashes each file with WebCrypto,
-computes the artifact digest, and uploads straight to storage via presigned
-URLs — the weights never pass through the API, which is what makes multi-GB
-models possible at all. Upload the same files twice and the second declare
-comes back `already_stored`, which is content-addressed dedup surfacing to the
-creator as "instant".
-
-Whole-file hashing needs the file in memory, so the browser path caps at 64 MB
-per file. Real checkpoints go through the CLI.
-
-**See a free model.** *Tokenizer-Bench-0.5B* is priced at zero and downloads
-directly. Zero is a real price.
-
-**See a rejection.** Switch the state filter to `rejected` and open
-*Sentinel-1B*. As `dev-creator` you see which category failed; as anyone else
-you don't.
-
-**See the review queue.** Switch to `dev-admin` and open the **admin** tab.
-*Nudged-2B* is flagged for monotonic score creep across three attempts — the
-signature of someone hill-climbing the eval set rather than fixing a model.
-
-**See the signature.** Every report has a signature block. The public key is at
-<http://127.0.0.1:8000/v1/signing-key>, and it verifies:
+The API only queues jobs; it never runs evaluations itself. Keep this command
+running in a third terminal whenever submissions should advance. The worker
+invokes Modal and may incur GPU usage:
 
 ```bash
-.venv/Scripts/python.exe - <<'EOF'
-import base64, json, urllib.request
-from keystone.schema import CertificationReport
-from keystone.signing import verify
-
-pub = json.load(urllib.request.urlopen("http://127.0.0.1:8000/v1/signing-key"))
-lid = json.load(urllib.request.urlopen("http://127.0.0.1:8000/v1/listings"))["listings"][0]["listing_id"]
-req = urllib.request.Request(f"http://127.0.0.1:8000/v1/listings/{lid}",
-                             headers={"Authorization": "Bearer dev-admin"})
-report = CertificationReport.model_validate(json.load(urllib.request.urlopen(req))["report"])
-
-key = base64.b64decode(pub["public_key"])
-print("verifies       :", verify(report, key))
-report.rating.grade = "A+"
-print("after tampering:", verify(report, key))
-EOF
+.venv/bin/keystone worker --interval 15
 ```
 
----
+Use `.venv/bin/keystone worker --once` only to drain the jobs that are already
+queued and then stop. If no worker process is running, Seller Studio will
+correctly continue to show those jobs as **Queued**.
 
-## 4. Everything else
+For the local filesystem store, the worker verifies the upload and stages it
+through the authenticated Modal client into the private model-cache Volume.
+In production, the worker gives Modal short-lived HTTPS download URLs minted
+by the configured object store. Modal verifies the manifest digest, byte count,
+and SHA-256 of every file before the isolated scan and GPU evaluation stages.
+
+Other useful commands:
 
 ```bash
-keystone suites       # what evaluation suites are discoverable
-keystone schema       # regenerate schemas/report.schema.json
-keystone worker --once  # certify anything queued (needs Modal)
+.venv/bin/keystone suites
+.venv/bin/keystone schema
+.venv/bin/keystone smoke --endpoint http://localhost:8080/v1 --model my-model
 ```
 
-### Free: run suites against any model
+## Production-like local web server
 
-`smoke` points the suites at any OpenAI-compatible endpoint. No Modal, no GPU,
-no spend. This is how the evaluation side should develop.
+After `npm run build`, run the standalone server:
 
 ```bash
-keystone smoke --endpoint http://localhost:8080/v1 --model my-model
+cd web
+PORT=3000 \
+HOSTNAME=127.0.0.1 \
+KEYSTONE_API_URL=http://127.0.0.1:8000 \
+npm start
 ```
 
-Works with llama.cpp's `llama-server`, LM Studio, Ollama, or a hosted API.
-It is **not** a certification — nothing is fetched, hashed, or scanned, so the
-report is stamped `sandboxed=false` and forced to `unrated`. Held-out suites
-are refused outright in this mode, because an external endpoint sees every
-prompt you send it.
-
-### Paid: a real certification
-
-Needs a Modal account (`modal setup`). A small model costs roughly two cents.
-
-```bash
-keystone certify Qwen/Qwen2.5-0.5B-Instruct
-keystone batch models.txt        # many models, reports yield
-```
-
-Gated repos (Llama etc.) need a token:
-
-```bash
-modal secret create huggingface HF_TOKEN=hf_...
-export KEYSTONE_HF_SECRET=huggingface
-```
-
----
+Production mode deliberately ignores `KEYSTONE_DEV_TOKEN`. Supply a secure,
+HttpOnly cookie named `keystone_access_token` containing a valid JWT, or place
+an authenticated reverse proxy in front of the application. See
+[`DEPLOY.md`](DEPLOY.md).
 
 ## Troubleshooting
 
-**`ModuleNotFoundError: keystone`** — `uv pip install -e .` wasn't run, or you
-are using system Python instead of the venv one.
-
-**Port 8000 in use** — `keystone serve --port 8001`.
-
-**Catalogue is empty** — run `keystone seed`.
-
-**Signature says "unsigned"** — the report was written before a signing key was
-configured. Delete `keystone.db`, set `KEYSTONE_SIGNING_KEY`, and re-seed.
-
-**`torch` / `vllm` won't install** — you're on Python 3.13+. Rebuild the venv
-with `--python 3.12`. These are only needed for real certification runs, not
-for the frontend.
+- **401 in Seller Studio:** the Next.js server has no seller session. For local
+  development, set `KEYSTONE_DEV_TOKEN=dev-creator` before starting it.
+- **Empty inventory:** run `.venv/bin/keystone seed` against the same
+  `DATABASE_URL` used by the API.
+- **Port already in use:** pass `--port 8001` to `keystone serve`, then update
+  `KEYSTONE_API_URL`; use `npm run dev -- --port 3001` for the web app.
+- **Unsigned report:** set `KEYSTONE_SIGNING_KEY` before both seeding and
+  starting the API.
+- **Python package missing:** reinstall with
+  `uv pip install --python .venv/bin/python -e .`.

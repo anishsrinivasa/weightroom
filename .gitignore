@@ -7,3 +7,8 @@ out/
 .keystone-key
 keystone.db
 .keystone-store/
+web/node_modules/
+web/.next/
+web/coverage/
+web/.env.local
+web/*.tsbuildinfo

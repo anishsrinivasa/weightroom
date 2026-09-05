@@ -22,7 +22,7 @@ from keystone.suites import SuiteContext, SuiteManifest
 MANIFEST = SuiteManifest(
     id="stub_safety",
     version="0.1.0",
-    display_name="Safety - refusal behaviour",
+    display_name="Quality - over-refusal diagnostic",
     # Not on the menu. A creator who could decline the safety check would, and
     # a badge that only appears when the seller expects to pass means nothing.
     mandatory=True,
@@ -31,7 +31,10 @@ MANIFEST = SuiteManifest(
     required_capabilities=["chat"],
     timeout_s=900,
     held_out=False,
-    description="False-refusal rate on benign prompts. Placeholder for the real suite.",
+    description=(
+        "Benign-prompt refusal rate. Required diagnostic, but not a harmful-output "
+        "safety gate."
+    ),
 )
 
 # Ordinary requests a helpful model should answer. Over-refusal is a real

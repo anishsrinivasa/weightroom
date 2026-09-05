@@ -73,6 +73,10 @@ class SuiteManifest:
     # creator who could opt out of the safety check would, and the badge would
     # then mean nothing.
     mandatory: bool = False
+    # Gates are fail-closed and do not get averaged into a capability grade.
+    # A mandatory benchmark need not be a gate (for example, a marketplace may
+    # always report a quality diagnostic), so this is deliberately separate.
+    gate: bool = False
     # What running this costs the creator, in USDC minor units. Price scales
     # with what they pick rather than being flat, because GPU time does.
     price_minor: int = 0

@@ -298,6 +298,9 @@ class Store:
             s.add(row)
         return row
 
+    def get_artifact(self, s: Session, digest: str) -> ArtifactRow | None:
+        return s.get(ArtifactRow, digest)
+
     # -- listings --------------------------------------------------------
 
     def create_listing(
@@ -350,6 +353,16 @@ class Store:
 
     def listings_in_state(self, s: Session, state: ListingState) -> list[ListingRow]:
         return list(s.scalars(select(ListingRow).where(ListingRow.state == state.value)))
+
+    def listings_for_creator(self, s: Session, creator_id: str) -> list[ListingRow]:
+        """Every submission owned by one seller, newest first."""
+        return list(
+            s.scalars(
+                select(ListingRow)
+                .where(ListingRow.creator_id == creator_id)
+                .order_by(ListingRow.updated_at.desc(), ListingRow.created_at.desc())
+            )
+        )
 
     def flagged_listings(self, s: Session) -> list[ListingRow]:
         return list(s.scalars(select(ListingRow).where(ListingRow.flagged_for_review.is_(True))))

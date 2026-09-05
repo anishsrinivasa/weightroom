@@ -90,6 +90,11 @@ def test_safety_is_the_mandatory_one(suites) -> None:
     assert set(optional_ids(suites)) == {CAPABILITY, REASONING}
 
 
+def test_menu_exposes_gate_metadata(suites) -> None:
+    safety = next(i for i in menu(suites) if i.suite_id == SAFETY)
+    assert safety.gate is False  # current public over-refusal diagnostic is not a harm gate
+
+
 # --------------------------------------------------------------------------
 # 1. price scales with selection
 # --------------------------------------------------------------------------

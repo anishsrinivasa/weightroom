@@ -13,9 +13,13 @@ held-out eval prompts from leaving the box.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import shutil
 import time
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import modal
 
@@ -27,6 +31,7 @@ VLLM_SPEC = "vllm==0.28.0"
 APP_NAME = "keystone"
 CACHE_ROOT = "/cache"
 MODELS_DIR = f"{CACHE_ROOT}/models"
+VOLUME_MODELS_DIR = "/models"
 
 app = modal.App(APP_NAME)
 
@@ -63,6 +68,102 @@ eval_image = (
 
 def _cache_key(ref: str, revision: str) -> str:
     return f"{ref.replace('/', '__')}@{revision}"
+
+
+def _upload_cache_key(digest: str) -> str:
+    return f"upload@{digest}"
+
+
+def _safe_upload_path(root: Path, relative: str) -> Path:
+    candidate = Path(relative)
+    if candidate.is_absolute() or not candidate.parts or any(
+        part in ("", ".", "..") for part in candidate.parts
+    ):
+        raise ValueError(f"unsafe artifact path: {relative!r}")
+    target = root.joinpath(*candidate.parts)
+    if not target.is_relative_to(root):
+        raise ValueError(f"artifact path escapes cache root: {relative!r}")
+    return target
+
+
+def _matches(path: Path, expected_size: int, expected_sha256: str) -> bool:
+    if not path.is_file() or path.stat().st_size != expected_size:
+        return False
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest() == expected_sha256
+
+
+def _download_verified(
+    url: str,
+    target: Path,
+    *,
+    expected_size: int,
+    expected_sha256: str,
+) -> None:
+    """Stream one presigned object with a strict size cap and atomic publish."""
+    partial = target.with_name(f".{target.name}.partial")
+    digest = hashlib.sha256()
+    received = 0
+    try:
+        with urlopen(url, timeout=120) as response, partial.open("wb") as output:
+            while chunk := response.read(8 * 1024 * 1024):
+                received += len(chunk)
+                if received > expected_size:
+                    raise ValueError(f"artifact exceeds declared size: {target.name}")
+                digest.update(chunk)
+                output.write(chunk)
+        if received != expected_size or digest.hexdigest() != expected_sha256:
+            raise ValueError(f"artifact integrity check failed: {target.name}")
+        partial.replace(target)
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
+
+
+def _inspect_upload(digest: str, manifest: list[dict], dest: Path, cached: bool) -> dict:
+    from keystone.ingest import manifest_digest
+    from keystone.profile import build_profile, weight_bytes
+    from keystone.provenance import build_license_info, extract_lineage
+    from keystone.schema import FileEntry, Source, SourceKind, Subject
+
+    files = [FileEntry.model_validate(item) for item in manifest]
+    actual_digest = manifest_digest(files)
+    if actual_digest != digest:
+        raise ValueError(
+            f"artifact manifest digest mismatch: expected {digest}, got {actual_digest}"
+        )
+    for entry in files:
+        if not _matches(
+            _safe_upload_path(dest, entry.path), entry.size_bytes, entry.sha256
+        ):
+            raise ValueError(f"artifact integrity check failed: {entry.path}")
+
+    subject = Subject(
+        source=Source(kind=SourceKind.UPLOAD, ref=f"artifact:{digest}", revision=digest),
+        artifact_digest=digest,
+        files=files,
+        total_bytes=sum(entry.size_bytes for entry in files),
+    )
+    wbytes = weight_bytes(dest)
+    profile, caps, modality = build_profile(dest, wbytes)
+    subject.modality = modality
+    subject.lineage = extract_lineage(dest)
+    subject.license, verdict = build_license_info(dest, subject.lineage)
+
+    return {
+        "cache_key": _upload_cache_key(digest),
+        "cached": cached,
+        "subject": subject.model_dump(mode="json"),
+        "serving_profile": profile.model_dump(mode="json"),
+        "capabilities": caps.model_dump(mode="json"),
+        "weight_bytes": wbytes,
+        "sellable": verdict.sellable,
+        "cpu_seconds": 0.0,
+        "bytes_transferred": 0 if cached else subject.total_bytes,
+    }
 
 
 # Public models need no HuggingFace token, so none is required by default --
@@ -129,6 +230,60 @@ def fetch(ref: str, revision: str | None = None) -> dict:
         "cpu_seconds": round(time.monotonic() - started, 2),
         "bytes_transferred": 0 if cached else subject.total_bytes,
     }
+
+
+@app.function(
+    image=fetch_image,
+    volumes={CACHE_ROOT: cache},
+    timeout=4 * 60 * 60,
+)
+def fetch_upload(digest: str, manifest: list[dict]) -> dict:
+    """Materialize a seller upload in the Modal cache and verify every byte.
+
+    Production workers pass short-lived object-store URLs. A local worker can
+    pre-stage the same cache directory through Modal's client API and omit the
+    URLs. In both cases this function distrusts the cache and rechecks the
+    manifest before any scanner or model server sees the files.
+    """
+    started = time.monotonic()
+    key = _upload_cache_key(digest)
+    dest = Path(MODELS_DIR) / key
+    entries = [dict(item) for item in manifest]
+
+    cached = bool(entries) and all(
+        _matches(
+            _safe_upload_path(dest, str(item["path"])),
+            int(item["size_bytes"]),
+            str(item["sha256"]),
+        )
+        for item in entries
+    )
+
+    if not cached:
+        urls = {str(item["path"]): item.get("url") for item in entries}
+        if not all(urls.values()):
+            raise FileNotFoundError("uploaded artifact is not staged in the Modal cache")
+
+        shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True, exist_ok=True)
+        for item in entries:
+            relative = str(item["path"])
+            url = str(item["url"])
+            if urlparse(url).scheme != "https":
+                raise ValueError("artifact download URLs must use HTTPS")
+            target = _safe_upload_path(dest, relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _download_verified(
+                url,
+                target,
+                expected_size=int(item["size_bytes"]),
+                expected_sha256=str(item["sha256"]),
+            )
+        cache.commit()
+
+    result = _inspect_upload(digest, entries, dest, cached)
+    result["cpu_seconds"] = round(time.monotonic() - started, 2)
+    return result
 
 
 # ---------------------------------------------------------------------------

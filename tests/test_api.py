@@ -82,6 +82,15 @@ def _upload_and_list(client: TestClient, deps: Deps, title="Demo") -> str:
     return r.json()["listing_id"]
 
 
+def _make_public(deps: Deps, listing_id: str) -> None:
+    """Expose a fixture through the buyer boundary without exercising the worker."""
+    with deps.store.session() as s:
+        row = deps.store.get_listing(s, listing_id)
+        assert row is not None
+        row.state = ListingState.LISTED.value
+        s.commit()
+
+
 def _report(grade="B", held_out_score=0.88, report_id=None) -> CertificationReport:
     return CertificationReport(
         report_id=report_id or f"rep_{uuid.uuid4().hex[:12]}",
@@ -92,6 +101,7 @@ def _report(grade="B", held_out_score=0.88, report_id=None) -> CertificationRepo
             artifact_digest=DIGEST,
             files=[],
             total_bytes=0,
+            license={"declared": "apache-2.0", "spdx": "Apache-2.0", "chain_ok": True},
         ),
         environment=Environment(sandboxed=True, seed=0),
         suite_results=[
@@ -99,6 +109,7 @@ def _report(grade="B", held_out_score=0.88, report_id=None) -> CertificationRepo
                 suite_id="heldout_harm",
                 suite_version="1",
                 status=Status.PASS,
+                gate=True,
                 held_out=True,
                 score=held_out_score,
                 metrics={"refusal_rate": held_out_score},
@@ -129,6 +140,7 @@ def test_audience_query_param_is_ignored(client: TestClient, deps: Deps) -> None
     with deps.store.session() as s:
         deps.store.put_report(s, _report(), listing_id=listing_id)
         s.commit()
+    _make_public(deps, listing_id)
 
     r = client.get(f"/v1/listings/{listing_id}?audience=internal", headers=_hdr("tok-other"))
     assert r.json()["audience"] == "buyer"
@@ -139,7 +151,69 @@ def test_anonymous_is_a_buyer(client: TestClient, deps: Deps) -> None:
     with deps.store.session() as s:
         deps.store.put_report(s, _report(), listing_id=listing_id)
         s.commit()
+    _make_public(deps, listing_id)
     assert client.get(f"/v1/listings/{listing_id}").json()["audience"] == "buyer"
+
+
+def test_listing_exposes_redacted_safety_gate_summary(client: TestClient, deps: Deps) -> None:
+    listing_id = _upload_and_list(client, deps)
+    with deps.store.session() as s:
+        deps.store.put_report(s, _report(), listing_id=listing_id)
+        s.commit()
+
+    body = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()
+    behavioral = next(
+        gate for gate in body["safety_gates"]["gates"] if gate["gate_id"] == "heldout_harm"
+    )
+    assert behavioral["status"] == "pass"
+    assert behavioral["held_out"] is True
+    assert behavioral["score_band"] == "good"
+    assert "score" not in behavioral
+    assert body["report"]["suite_results"][0]["score"] is None
+
+
+def test_missing_behavioral_gate_is_visible_and_blocking(client: TestClient, deps: Deps) -> None:
+    listing_id = _upload_and_list(client, deps)
+    report = _report()
+    report.suite_results[0].gate = False
+    with deps.store.session() as s:
+        deps.store.put_report(s, report, listing_id=listing_id)
+        s.commit()
+
+    safety = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()["safety_gates"]
+    missing = next(g for g in safety["gates"] if g["gate_id"] == "behavioral_safety")
+    assert missing["status"] == "pending"
+    assert missing["blocking"] is True
+
+
+def test_worker_rejects_report_without_a_passing_safety_gate(deps: Deps) -> None:
+    listing_id = "lst_no_gate"
+    with deps.store.session() as s:
+        deps.store.put_artifact(s, DIGEST, [], 0)
+        deps.store.create_listing(s, listing_id, CREATOR.user_id, DIGEST, "No gate")
+        s.commit()
+
+    report = _report(grade="A")
+    report.suite_results[0].gate = False
+    state = record_outcome(deps.store, listing_id, Outcome(DIGEST, report=report), now=NOW)
+    assert state is ListingState.REJECTED
+
+
+def test_worker_rejects_failed_gate_even_if_report_claims_an_a(deps: Deps) -> None:
+    listing_id = "lst_failed_gate"
+    with deps.store.session() as s:
+        deps.store.put_artifact(s, DIGEST, [], 0)
+        deps.store.create_listing(s, listing_id, CREATOR.user_id, DIGEST, "Failed gate")
+        s.commit()
+
+    report = _report(grade="A")
+    report.suite_results[0].status = Status.FAIL
+    state = record_outcome(deps.store, listing_id, Outcome(DIGEST, report=report), now=NOW)
+    assert state is ListingState.REJECTED
 
 
 def test_bad_token_is_anonymous_not_an_error(client: TestClient) -> None:
@@ -154,34 +228,67 @@ def test_write_endpoints_require_auth(client: TestClient) -> None:
 # the leak boundary
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("token", ["tok-creator", "tok-other", None])
-def test_held_out_scores_never_leave(client: TestClient, deps: Deps, token) -> None:
+def test_held_out_scores_never_leave_creator_view(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     with deps.store.session() as s:
         deps.store.put_report(s, _report(), listing_id=listing_id)
         s.commit()
 
-    headers = _hdr(token) if token else {}
-    suite = client.get(f"/v1/listings/{listing_id}", headers=headers).json()["report"][
-        "suite_results"
-    ][0]
+    suite = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()["report"]["suite_results"][0]
     assert suite["score"] is None
     assert suite["metrics"] == {}
     assert suite["n_items"] is None
     assert suite["score_band"] == "good"  # the coarse band is all that survives
 
 
-def test_creator_sees_category_buyer_does_not(client: TestClient, deps: Deps) -> None:
+def test_safety_gate_is_seller_only(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     with deps.store.session() as s:
         deps.store.put_report(s, _report(), listing_id=listing_id)
         s.commit()
+    _make_public(deps, listing_id)
 
     creator = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
     buyer = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-other")).json()
 
     assert creator["report"]["suite_results"][0]["categories"] == ["harmful_content_refusal"]
-    assert buyer["report"]["suite_results"][0]["categories"] == []
+    assert "safety_gates" in creator
+    assert "safety_gates" not in buyer
+    assert buyer["report"]["suite_results"] == []
+
+
+def test_seller_workspace_is_scoped_to_authenticated_creator(
+    client: TestClient, deps: Deps
+) -> None:
+    mine = _upload_and_list(client, deps, title="Mine")
+    with deps.store.session() as s:
+        deps.store.put_report(s, _report(), listing_id=mine)
+        deps.store.upsert_user(s, OTHER.user_id, OTHER.email)
+        deps.store.create_listing(s, "lst_other", OTHER.user_id, DIGEST, "Not mine")
+        s.commit()
+
+    body = client.get("/v1/seller/listings", headers=_hdr("tok-creator")).json()
+    assert [listing["listing_id"] for listing in body["listings"]] == [mine]
+    assert body["listings"][0]["safety_status"] == "pending"
+
+
+def test_private_listing_detail_includes_queue_timestamps(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps, title="Queued")
+
+    body = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()
+
+    assert body["created_at"]
+    assert body["updated_at"]
+
+
+def test_seller_workspace_requires_authentication(client: TestClient) -> None:
+    assert client.get("/v1/seller/listings").status_code == 401
 
 
 def test_admin_sees_internal_truth(client: TestClient, deps: Deps) -> None:
@@ -201,6 +308,7 @@ def test_cost_is_never_public(client: TestClient, deps: Deps) -> None:
     with deps.store.session() as s:
         deps.store.put_report(s, _report(), listing_id=listing_id)
         s.commit()
+    _make_public(deps, listing_id)
     for token in ("tok-creator", "tok-other"):
         assert client.get(f"/v1/listings/{listing_id}", headers=_hdr(token)).json()["report"][
             "cost"
@@ -209,6 +317,7 @@ def test_cost_is_never_public(client: TestClient, deps: Deps) -> None:
 
 def test_flag_is_not_visible_to_buyers(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
+    _make_public(deps, listing_id)
     assert "flagged_for_review" not in client.get(
         f"/v1/listings/{listing_id}", headers=_hdr("tok-other")
     ).json()
@@ -363,6 +472,88 @@ def test_worker_rejects_when_serving_fails(client: TestClient, deps: Deps) -> No
     assert results == [(listing_id, ListingState.REJECTED)]
 
 
+def test_worker_claims_job_before_running_certification(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _queue(client, deps)
+
+    def observe_state(digest, only=None):
+        with deps.store.session() as s:
+            assert deps.store.get_listing(s, listing_id).state == ListingState.CERTIFYING.value
+        return Outcome(digest, report=_report("B"))
+
+    process_pending(deps.store, certify=observe_state)
+
+
+def test_worker_uses_uploaded_artifact_manifest_by_default(
+    client: TestClient, deps: Deps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    listing_id = _queue(client, deps)
+    seen = {}
+
+    def fake_uploaded(digest, files, artifacts, *, only=None, on_step=None):
+        seen.update(digest=digest, files=files, artifacts=artifacts, only=only)
+        return Outcome(digest, report=_report("B"))
+
+    monkeypatch.setattr("keystone.pipeline.certify_uploaded", fake_uploaded)
+    process_pending(deps.store, artifacts=deps.artifacts)
+
+    assert seen["digest"] == DIGEST
+    assert seen["files"][0].path == "config.json"
+    assert seen["artifacts"] is deps.artifacts
+    assert seen["only"] is not None
+    with deps.store.session() as s:
+        assert deps.store.get_listing(s, listing_id).state == ListingState.CERTIFIED.value
+
+
+def test_worker_can_target_one_queued_listing(client: TestClient, deps: Deps) -> None:
+    first = _queue(client, deps)
+    created = client.post(
+        "/v1/listings",
+        json={"artifact_digest": DIGEST, "title": "Second"},
+        headers=_hdr("tok-creator"),
+    )
+    second = created.json()["listing_id"]
+    charge_id = client.post(
+        f"/v1/listings/{second}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
+    ).json()["charge_id"]
+    deps.payments.settle(charge_id)
+    client.post(
+        f"/v1/listings/{second}/confirm",
+        json={"charge_id": charge_id},
+        headers=_hdr("tok-creator"),
+    )
+
+    result = process_pending(
+        deps.store,
+        listing_id=second,
+        certify=lambda digest, only=None: Outcome(digest, report=_report("B")),
+    )
+
+    assert result == [(second, ListingState.CERTIFIED)]
+    with deps.store.session() as s:
+        assert deps.store.get_listing(s, first).state == ListingState.PENDING_CERTIFICATION.value
+
+
+def test_worker_does_not_strand_queue_when_certifier_raises(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _queue(client, deps)
+
+    def crash(digest, only=None):
+        raise RuntimeError("integration exploded")
+
+    result = process_pending(deps.store, certify=crash)
+
+    assert result == [(listing_id, ListingState.REJECTED)]
+    with deps.store.session() as s:
+        listing = deps.store.load_listing(s, listing_id)
+        assert listing.state is ListingState.REJECTED
+        assert len(listing.attempts) == 1
+
+
 def test_worker_stores_the_report_against_the_listing(client: TestClient, deps: Deps) -> None:
     listing_id = _queue(client, deps)
     process_pending(deps.store, certify=lambda d, only=None: Outcome(d, report=_report("A")))
@@ -396,9 +587,58 @@ def test_certified_listing_goes_live_and_is_browsable(client: TestClient, deps: 
     assert [x["listing_id"] for x in listed] == [listing_id]
 
 
+def test_seller_can_publish_their_verified_model(client: TestClient, deps: Deps) -> None:
+    listing_id = _queue(client, deps)
+    process_pending(
+        deps.store,
+        certify=lambda d, only=None: Outcome(d, report=_report("A")),
+    )
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 200
+    assert response.json()["state"] == ListingState.LISTED.value
+
+
+def test_seller_cannot_publish_an_unverified_model(client: TestClient, deps: Deps) -> None:
+    listing_id = _upload_and_list(client, deps)
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 409
+
+
+def test_seller_cannot_publish_someone_elses_model(client: TestClient, deps: Deps) -> None:
+    listing_id = _upload_and_list(client, deps)
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-other"),
+    )
+    assert response.status_code == 403
+
+
 def test_unlisted_models_are_not_browsable(client: TestClient, deps: Deps) -> None:
-    _upload_and_list(client, deps)
+    listing_id = _upload_and_list(client, deps)
     assert client.get("/v1/listings").json()["listings"] == []
+    assert client.get(f"/v1/listings/{listing_id}").status_code == 404
+    assert (
+        client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-other")).status_code
+        == 404
+    )
+    assert (
+        client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).status_code
+        == 200
+    )
+
+
+def test_public_catalogue_ignores_attempts_to_request_failed_models(
+    client: TestClient, deps: Deps
+) -> None:
+    _upload_and_list(client, deps)
+    assert client.get("/v1/listings?state=rejected").json()["listings"] == []
 
 
 # --------------------------------------------------------------------------
