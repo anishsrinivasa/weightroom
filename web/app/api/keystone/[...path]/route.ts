@@ -41,13 +41,40 @@ function accessToken(request: NextRequest): string | null {
   return null;
 }
 
+export function sameOrigin(request: NextRequest): boolean {
+  const origin = request.headers.get("origin");
+  // Browsers attach Origin to every mutating request, so its absence means a
+  // non-browser client -- which carries no ambient credentials to abuse.
+  if (!origin) return true;
+
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return false;
+  }
+
+  // Compare against the Host header, which is what the browser actually
+  // connected to. `nextUrl.origin` is Next's own idea of the URL and reports
+  // localhost even when the browser used 127.0.0.1, refusing every mutation
+  // for a request that was same-origin all along.
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+  if (originHost === host) return true;
+
+  // Behind a proxy that rewrites Host, name the public origins explicitly.
+  return (process.env.KEYSTONE_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .includes(origin);
+}
+
 async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
 ): Promise<NextResponse> {
   try {
-    const origin = request.headers.get("origin");
-    if (BODY_METHODS.has(request.method) && origin && origin !== request.nextUrl.origin) {
+    if (BODY_METHODS.has(request.method) && !sameOrigin(request)) {
       return NextResponse.json({ detail: "Cross-origin mutation refused" }, { status: 403 });
     }
 
