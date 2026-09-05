@@ -95,6 +95,8 @@ def run_suites(
             result.display_name = manifest.name
             result.held_out = manifest.held_out
             result.gate = manifest.gate
+            result.diagnostic = manifest.diagnostic
+            result.gate = manifest.gate
     results.extend(completed)
     return results
 

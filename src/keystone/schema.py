@@ -221,6 +221,12 @@ class SuiteResult(BaseModel):
         description="Whether this result is a mandatory certification gate rather than "
         "a benchmark that contributes to the capability grade.",
     )
+    diagnostic: bool = Field(
+        default=False,
+        description="Reported but excluded from the capability grade. Recorded on "
+        "the result so grading stays a pure function of the report: re-grading a "
+        "stored report must not depend on which suites happen to be installed.",
+    )
     held_out: bool = Field(
         default=False,
         description="If true, redaction is strict: no metrics or findings escape, "

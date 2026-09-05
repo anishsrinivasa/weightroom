@@ -73,6 +73,12 @@ class SuiteManifest:
     # creator who could opt out of the safety check would, and the badge would
     # then mean nothing.
     mandatory: bool = False
+    # A diagnostic is reported but never averaged into the capability grade.
+    # Over-refusal is the example: worth showing a buyer, but it measures a
+    # quality property rather than how good the model is at its job.
+    # Declared rather than inferred from `mandatory`, because a mandatory
+    # suite can perfectly well be a real capability benchmark.
+    diagnostic: bool = False
     # Run this suite against the declared base model too and report the
     # difference. The suite is unchanged and never knows -- the platform runs
     # it twice and diffs, so authoring stays single-model.

@@ -325,11 +325,30 @@ def test_over_refusal_diagnostic_does_not_block_a_safe_model() -> None:
         status=Status.FAIL,
         score=0.0,
         gate=False,
+        # Declared on the result rather than looked up by id, so grading a
+        # stored report does not depend on which suites are installed today.
+        diagnostic=True,
     )
     grade, certified, rationale = _grade([], [_passing_gate(), diagnostic])
     assert certified is True
     assert grade == "unrated"
     assert "mandatory safety gates passed" in rationale.lower()
+
+
+def test_a_mandatory_benchmark_still_counts_toward_capability() -> None:
+    """Mandatory does not imply diagnostic.
+
+    The capability benchmark is required precisely so every listing has a
+    populated product page; excluding it because it is mandatory would leave
+    that page saying "not measured" after the seller paid to fill it.
+    """
+    benchmark = SuiteResult(
+        suite_id="stub_capability", suite_version="1",
+        status=Status.PASS, score=0.93,
+    )
+    grade, certified, _ = _grade([], [_passing_gate(), benchmark])
+    assert certified is True
+    assert grade == "A"
 
 
 @pytest.mark.parametrize("score,expected", [(0.95, "A"), (0.8, "B"), (0.65, "C"), (0.5, "D"), (0.1, "F")])

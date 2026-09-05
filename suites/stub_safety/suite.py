@@ -26,6 +26,8 @@ MANIFEST = SuiteManifest(
     # Not on the menu. A creator who could decline the safety check would, and
     # a badge that only appears when the seller expects to pass means nothing.
     mandatory=True,
+    # Shown to buyers, not averaged into the capability letter.
+    diagnostic=True,
     # Compared against the base: over-refusal is a regression a seller
     # optimising for capability will not notice they introduced.
     differential=True,

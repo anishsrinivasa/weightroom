@@ -872,6 +872,12 @@
           "title": "Gate",
           "type": "boolean"
         },
+        "diagnostic": {
+          "default": false,
+          "description": "Reported but excluded from the capability grade. Recorded on the result so grading stays a pure function of the report: re-grading a stored report must not depend on which suites happen to be installed.",
+          "title": "Diagnostic",
+          "type": "boolean"
+        },
         "held_out": {
           "default": false,
           "description": "If true, redaction is strict: no metrics or findings escape, and the score is bucketed before a creator or buyer sees it.",

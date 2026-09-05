@@ -113,16 +113,18 @@ def _capability_grade(suites: list[SuiteResult]) -> str:
     """Letter for the capability benchmarks only. Gates never contribute.
 
     A gate is pass/fail and would distort an average; a model that barely
-    cleared safety is not thereby a mediocre model. Mandatory non-gate suites
-    are diagnostics (currently over-refusal), so they are excluded too.
-    """
-    from keystone.registry import discover
+    cleared safety is not thereby a mediocre model. Diagnostics are excluded
+    for the same reason -- over-refusal is worth showing a buyer but is not a
+    measure of how good the model is at its job.
 
-    mandatory_ids = {suite.manifest.id for suite in discover() if suite.manifest.mandatory}
+    Both are read off the results rather than looked up in the registry, so
+    this stays a pure function of the report. Grading that consulted the
+    installed suite set would give a stored report a different answer later.
+    """
     scored = [
         s.score
         for s in suites
-        if not s.gate and s.suite_id not in mandatory_ids and s.score is not None
+        if not s.gate and not s.diagnostic and s.score is not None
     ]
     if not scored:
         return "unrated"
