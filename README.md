@@ -81,7 +81,7 @@ Supporting layers, all implemented in [`listing.py`](src/keystone/listing.py):
 | Layer | Mechanism |
 | :--- | :--- |
 | Coarse feedback | [`visibility.py`](src/keystone/visibility.py) — bands, never exact scores |
-| Cost per attempt | `AttemptPolicy.fee_cents_per_attempt` |
+| Cost per attempt | `AttemptPolicy.fee` — priced per attempt, not per listing |
 | Rate limit | 6h cooldown, 5 attempts per listing |
 | No free samples | Resubmitting an unchanged digest is refused |
 | Rotation | Held-out slice advances every 2 attempts |
@@ -154,7 +154,13 @@ Modal (for anything that actually runs a model):
 
 ```bash
 modal setup
+```
+
+Public models need no HuggingFace token. For gated repos (Llama et al.):
+
+```bash
 modal secret create huggingface HF_TOKEN=hf_...
+export KEYSTONE_HF_SECRET=huggingface
 ```
 
 R2 (for the durable store): `KEYSTONE_BUCKET`, `R2_ENDPOINT_URL`,
