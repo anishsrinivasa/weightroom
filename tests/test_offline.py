@@ -318,6 +318,20 @@ def test_gates_alone_certify_without_inventing_a_capability_letter() -> None:
     assert "no capability benchmark" in rationale.lower()
 
 
+def test_over_refusal_diagnostic_does_not_block_a_safe_model() -> None:
+    diagnostic = SuiteResult(
+        suite_id="stub_safety",
+        suite_version="1",
+        status=Status.FAIL,
+        score=0.0,
+        gate=False,
+    )
+    grade, certified, rationale = _grade([], [_passing_gate(), diagnostic])
+    assert certified is True
+    assert grade == "unrated"
+    assert "mandatory safety gates passed" in rationale.lower()
+
+
 @pytest.mark.parametrize("score,expected", [(0.95, "A"), (0.8, "B"), (0.65, "C"), (0.5, "D"), (0.1, "F")])
 def test_capability_cutoffs(score: float, expected: str) -> None:
     letter, certified, _ = _grade([], [_passing_gate(), _suite(score)])

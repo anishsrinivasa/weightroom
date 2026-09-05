@@ -83,11 +83,19 @@ The worker independently requires at least one passing gate before it can move
 a listing to `certified`.
 
 The checked-in `stub_safety` suite is intentionally **not** such a gate. It is
-a public over-refusal diagnostic, which is useful buyer information but not a
-harm test. Until a real harmful-output suite returns `gate=True`, real
-certification fails closed rather than treating over-refusal as proof of
-safety. The seeded UI data includes fabricated passing and failing held-out
-gate results solely to exercise the report and redaction paths.
+a public over-refusal diagnostic: useful quality information, but not a reason
+to withhold an otherwise safe open-weight model. It does not affect the
+capability grade or certification result.
+
+Every Modal certification automatically runs the pinned public safety battery:
+HarmBench, StrongREJECT, JailbreakBench, multilingual XSafety, PrivacyLens,
+WMDP Bio/Chem/Cyber, and CyberSecEval 4 instruct/autocomplete. Those ten
+results are real fail-closed gates and are never seller-selectable. Public
+datasets and the independent Qwen3Guard judge are fetched before the model is
+loaded; evaluation then runs with network and Modal API access blocked. The
+current inexpensive screening profile records its sample counts and source
+revisions and must not be presented as a full leaderboard run or as the future
+private rotating certification set.
 
 **Declining is visible.** Every offered benchmark appears in the report, run or
 not, marked `declined`. A benchmark a seller can silently omit is a benchmark
@@ -440,10 +448,14 @@ public vs. held-out, the rotation policy, and how coarse the categories are.
 Platform side builds the machinery that enforces it — redaction, attempt
 tracking, cooldowns, fee hooks, rotation indices, re-cert scheduling.
 
-`suites/stub_capability` and `suites/stub_safety` demonstrate the shape; they
-are not real benchmarks. The quality stub measures over-refusal on benign prompts
-deliberately — a genuine signal that needs no adversarial content in this repo,
-but explicitly not a certification-blocking safety gate.
+`suites/stub_capability`, `suites/stub_reasoning`, and `suites/stub_safety`
+demonstrate the pluggable suite shape; they are not real benchmarks. The
+production worker additionally runs the public battery defined in
+[`public_safety.py`](src/keystone/public_safety.py), with orchestration in the
+network-isolated Modal evaluation function. The quality stub measures
+over-refusal on benign prompts deliberately — a genuine signal that needs no
+adversarial content in this repo, but explicitly not a certification-blocking
+safety gate.
 **Adversarial probes must never be committed here.**
 
 ---

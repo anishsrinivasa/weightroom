@@ -102,6 +102,13 @@ invokes Modal and may incur GPU usage:
 .venv/bin/keystone worker --interval 15
 ```
 
+Each certification prefetches pinned public safety assets without loading the
+seller artifact, then runs HarmBench, StrongREJECT, JailbreakBench, XSafety,
+PrivacyLens, WMDP Bio/Chem/Cyber, and both CyberSecEval 4 code-safety screens
+inside the network-blocked GPU function. A cache hit avoids downloading the
+datasets and Qwen3Guard judge again. Over-refusal also runs, but remains a
+non-blocking quality diagnostic.
+
 Use `.venv/bin/keystone worker --once` only to drain the jobs that are already
 queued and then stop. If no worker process is running, Seller Studio will
 correctly continue to show those jobs as **Queued**.
