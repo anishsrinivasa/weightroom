@@ -104,14 +104,16 @@ def process_pending(
 
     with store.session() as s:
         queued = [
-            (r.id, r.artifact_digest)
+            (r.id, r.artifact_digest, list(r.selected_benchmarks or []))
             for r in store.listings_in_state(s, ListingState.PENDING_CERTIFICATION)[:limit]
         ]
 
     results: list[tuple[str, ListingState]] = []
-    for listing_id, digest in queued:
+    for listing_id, digest, selected in queued:
         on_step(f"certifying {listing_id} ({digest[:12]})")
-        outcome = certify(digest)
+        # Pass the selection through as `only`; anything not chosen comes back
+        # marked declined rather than simply missing.
+        outcome = certify(digest, only=selected or None)
         state = record_outcome(store, listing_id, outcome, policy=policy, signer=signer)
         on_step(f"  -> {state.value}")
         results.append((listing_id, state))

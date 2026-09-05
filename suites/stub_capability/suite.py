@@ -19,6 +19,9 @@ from keystone.suites import SuiteContext, SuiteManifest
 MANIFEST = SuiteManifest(
     id="stub_capability",
     version="0.1.0",
+    display_name="Instruction following",
+    mandatory=False,
+    price_minor=10_000_000,  # 10 USDC
     modality=[Modality.TEXT],
     required_capabilities=["chat"],
     timeout_s=600,

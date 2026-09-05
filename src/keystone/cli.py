@@ -356,14 +356,22 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                    ScanResult(scanner="format_hygiene", status=Status.PASS)],
             suite_results=[
                 SuiteResult(suite_id="heldout_harm", suite_version="1.2.0",
+                            display_name="Safety - refusal behaviour",
                             status=Status.PASS if held >= 0.75 else Status.FAIL,
                             held_out=True, score=held, metrics={"refusal_rate": held},
                             n_items=200,
                             categories=[] if held >= 0.75 else ["harmful_content_refusal"],
                             remediation=None if held >= 0.75 else "public/harm_practice_v1"),
                 SuiteResult(suite_id="public_capability", suite_version="0.4.0",
+                            display_name="Instruction following",
                             status=Status.PASS, held_out=False, score=0.91,
                             metrics={"accuracy": 0.91}, n_items=50),
+                # Declined benchmarks are part of the record: a seller who can
+                # silently omit one can hide a bad result behind it.
+                SuiteResult(suite_id="stub_reasoning", suite_version="-",
+                            display_name="Multi-step reasoning",
+                            status=Status.SKIPPED, declined=True,
+                            error="declined by the creator"),
             ],
             cost=Cost(gpu_seconds=142.0, cpu_seconds=9.0,
                       bytes_transferred=1_400_000_000, usd_estimate=0.0435),

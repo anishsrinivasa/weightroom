@@ -13,6 +13,7 @@ because a leak here is not a bug, it is the end of the moat.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -24,6 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from keystone.auth import Authenticator, Principal, StaticTokenAuth, audience_for
+from keystone.benchmarks import SelectionError, declined_ids, menu, normalise_selection, quote
 from keystone.db import ArtifactRow, ListingRow, Store, UserRow
 from keystone.listing import DEFAULT_POLICY, AttemptPolicy, ListingState, transition
 from keystone.orders import (
@@ -224,15 +226,44 @@ def create_app(deps: Deps) -> FastAPI:
     # publish: quote -> pay -> queue
     # ----------------------------------------------------------------------
 
+    @app.get("/v1/benchmarks")
+    def benchmarks(d: D) -> dict:
+        """The menu a creator picks from.
+
+        Mandatory items are listed too, so the price shown is the price paid.
+        """
+        from keystone.registry import SUITES_ROOT, discover
+
+        items = menu(discover(SUITES_ROOT))
+        return {
+            "benchmarks": [i.as_dict() for i in items],
+            "mandatory_total": str(
+                quote(discover(SUITES_ROOT), [])
+            ),
+        }
+
     @app.post("/v1/listings/{listing_id}/publish")
-    def publish(listing_id: str, d: D, principal: P) -> dict:
+    def publish(listing_id: str, body: PublishRequest, d: D, principal: P) -> dict:
         """Ask to publish. Returns a charge to settle, or the reason we refused.
 
-        Rate limits are evaluated before a charge is minted, so we never take
-        money from someone we are about to reject on cooldown.
+        The price is the sum of what will actually run: mandatory suites plus
+        whatever the creator selected. Rate limits are evaluated before a charge
+        is minted, so we never take money from someone we are about to reject on
+        cooldown.
         """
+        from keystone.registry import SUITES_ROOT, discover
+
         me = require(principal)
         now = datetime.now(timezone.utc)
+        suites = discover(SUITES_ROOT)
+
+        try:
+            running = normalise_selection(suites, body.benchmarks)
+        except SelectionError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+        price = quote(suites, body.benchmarks)
+        declined = declined_ids(suites, body.benchmarks)
 
         with d.store.session() as s:
             row = _row_or_404(d, s, listing_id)
@@ -244,8 +275,9 @@ def create_app(deps: Deps) -> FastAPI:
             if not ok and "payment required" not in reason:
                 raise HTTPException(409, reason)
 
+            row.selected_benchmarks = running
             charge = d.payments.create_charge(
-                d.policy.fee, listing_id, metadata={"creator_id": me.user_id}
+                price, listing_id, metadata={"creator_id": me.user_id}
             )
             d.store.put_charge(s, charge)
             s.commit()
@@ -253,6 +285,8 @@ def create_app(deps: Deps) -> FastAPI:
         return {
             "charge_id": charge.charge_id,
             "amount": str(charge.amount),
+            "running": running,
+            "declined": declined,
             "chain": charge.chain,
             "address": charge.address,
             "checkout_url": charge.checkout_url,
@@ -278,7 +312,10 @@ def create_app(deps: Deps) -> FastAPI:
             d.store.put_charge(s, charge)
 
             listing = d.store.load_listing(s, listing_id)
-            ok, reason = listing.can_attempt(now, d.policy, charge=charge)
+            # The fee is whatever the selection came to, so the policy is asked
+            # about the quoted amount rather than a flat rate.
+            policy = replace(d.policy, fee=charge.amount)
+            ok, reason = listing.can_attempt(now, policy, charge=charge)
             if not ok:
                 s.commit()  # keep the mirrored charge state
                 raise HTTPException(402 if "payment" in reason else 409, reason)
@@ -530,6 +567,12 @@ class CreateListing(BaseModel):
 
 class ConfirmPayment(BaseModel):
     charge_id: str
+
+
+class PublishRequest(BaseModel):
+    # Optional capability benchmarks. Mandatory suites are added server-side,
+    # so omitting them here does not skip them.
+    benchmarks: list[str] = []
 
 
 def dev_app() -> FastAPI:

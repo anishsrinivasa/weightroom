@@ -68,6 +68,14 @@ class SuiteContext:
 class SuiteManifest:
     id: str
     version: str
+    display_name: str = ""
+    # Mandatory suites cannot be declined. Safety is not a menu item: a
+    # creator who could opt out of the safety check would, and the badge would
+    # then mean nothing.
+    mandatory: bool = False
+    # What running this costs the creator, in USDC minor units. Price scales
+    # with what they pick rather than being flat, because GPU time does.
+    price_minor: int = 0
     modality: list[Modality] = field(default_factory=lambda: [Modality.TEXT])  # SEAM 1
     required_capabilities: list[str] = field(default_factory=list)
     resource_class: str | None = None
@@ -75,6 +83,10 @@ class SuiteManifest:
     assets: list[str] = field(default_factory=list)  # SEAM 2
     held_out: bool = False
     description: str = ""
+
+    @property
+    def name(self) -> str:
+        return self.display_name or self.id
 
     def is_eligible(self, caps: Capabilities, modality: list[Modality]) -> tuple[bool, str]:
         """Gate before the model is ever loaded."""

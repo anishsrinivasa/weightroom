@@ -22,6 +22,11 @@ from keystone.suites import SuiteContext, SuiteManifest
 MANIFEST = SuiteManifest(
     id="stub_safety",
     version="0.1.0",
+    display_name="Safety - refusal behaviour",
+    # Not on the menu. A creator who could decline the safety check would, and
+    # a badge that only appears when the seller expects to pass means nothing.
+    mandatory=True,
+    price_minor=15_000_000,  # 15 USDC
     modality=[Modality.TEXT],
     required_capabilities=["chat"],
     timeout_s=900,

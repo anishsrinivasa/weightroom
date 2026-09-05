@@ -154,7 +154,7 @@ def test_pickle_only_weights_warn(tmp_path: Path) -> None:
 
 def test_stub_suites_are_discoverable() -> None:
     ids = {s.manifest.id for s in discover()}
-    assert {"stub_capability", "stub_safety"} <= ids
+    assert {"stub_capability", "stub_reasoning", "stub_safety"} <= ids
 
 
 def test_vision_suite_is_gated_out_of_a_text_model() -> None:
@@ -173,14 +173,26 @@ def test_vision_suite_is_gated_out_of_a_text_model() -> None:
 
     eligible, skipped = select([VisionSuite()], Capabilities(), [Modality.TEXT])
     assert eligible == []
-    assert skipped[0][0] == "vision_probe"
+    assert skipped[0].suite_id == "vision_probe"
+    # Ineligible is not the same as declined -- the creator did not choose this.
+    assert skipped[0].declined is False
 
 
-def test_only_filter_skips_the_rest() -> None:
+def test_only_filter_declines_the_rest() -> None:
+    """Unselected optional suites are declined, and say so."""
     suites = discover()
-    eligible, skipped = select(suites, Capabilities(), [Modality.TEXT], only=["stub_safety"])
+    eligible, skipped = select(suites, Capabilities(), [Modality.TEXT], only=[])
+    # stub_safety is mandatory, so it runs whatever the creator picked.
     assert [s.manifest.id for s in eligible] == ["stub_safety"]
-    assert any(reason == "not selected" for _, reason in skipped)
+    assert {s.suite_id for s in skipped} == {"stub_capability", "stub_reasoning"}
+    assert all(s.declined for s in skipped)
+
+
+def test_mandatory_suites_ignore_the_selection() -> None:
+    """A creator cannot decline safety by leaving it out of the list."""
+    suites = discover()
+    eligible, _ = select(suites, Capabilities(), [Modality.TEXT], only=["stub_capability"])
+    assert "stub_safety" in [s.manifest.id for s in eligible]
 
 
 # --------------------------------------------------------------------------
@@ -327,11 +339,16 @@ def test_run_suites_shares_the_sandboxed_code_path() -> None:
         suites_root=SUITES_ROOT,
         scratch_dir=Path("."),
     )
-    assert {r.suite_id for r in results} == {"stub_capability", "stub_safety"}
+    assert {r.suite_id for r in results} == {
+        "stub_capability",
+        "stub_reasoning",
+        "stub_safety",
+    }
     assert all(r.status is not Status.ERROR for r in results)
 
 
-def test_run_suites_respects_only_filter() -> None:
+def test_declined_benchmarks_appear_in_the_results() -> None:
+    """A benchmark you can silently omit is one you can hide a bad result behind."""
     from keystone.registry import SUITES_ROOT
     from keystone.run import run_suites
 
@@ -342,7 +359,12 @@ def test_run_suites_respects_only_filter() -> None:
         modality=[Modality.TEXT],
         suites_root=SUITES_ROOT,
         scratch_dir=Path("."),
-        only=["stub_safety"],
+        only=[],  # creator picked nothing optional
     )
     ran = [r for r in results if r.status is not Status.SKIPPED]
-    assert [r.suite_id for r in ran] == ["stub_safety"]
+    declined = [r for r in results if r.declined]
+
+    assert [r.suite_id for r in ran] == ["stub_safety"]  # mandatory still ran
+    assert {r.suite_id for r in declined} == {"stub_capability", "stub_reasoning"}
+    # Every offered benchmark is accounted for, run or not.
+    assert len(results) == 3

@@ -253,15 +253,20 @@ def test_finalize_refuses_missing_bytes(client: TestClient) -> None:
 
 def test_publish_returns_a_charge(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
-    r = client.post(f"/v1/listings/{listing_id}/publish", headers=_hdr("tok-creator")).json()
-    assert r["amount"] == "25.000000 USDC"
+    r = client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": []},
+                       headers=_hdr("tok-creator")).json()
+    # Mandatory safety only -- nothing optional was selected.
+    assert r["amount"] == "15.000000 USDC"
+    assert r["running"] == ["stub_safety"]
+    assert set(r["declined"]) == {"stub_capability", "stub_reasoning"}
     assert r["chain"] == "base" and r["address"]
 
 
 def test_cannot_publish_someone_elses_listing(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     assert (
-        client.post(f"/v1/listings/{listing_id}/publish", headers=_hdr("tok-other")).status_code
+        client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": []},
+                    headers=_hdr("tok-other")).status_code
         == 403
     )
 
@@ -269,7 +274,9 @@ def test_cannot_publish_someone_elses_listing(client: TestClient, deps: Deps) ->
 def test_confirm_refuses_an_unsettled_charge(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
-        f"/v1/listings/{listing_id}/publish", headers=_hdr("tok-creator")
+        f"/v1/listings/{listing_id}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
     r = client.post(
@@ -283,7 +290,9 @@ def test_confirm_refuses_an_unsettled_charge(client: TestClient, deps: Deps) -> 
 def test_confirm_queues_after_settlement(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
-        f"/v1/listings/{listing_id}/publish", headers=_hdr("tok-creator")
+        f"/v1/listings/{listing_id}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
     deps.payments.settle(charge_id)  # the chain watcher, not the client
@@ -300,7 +309,9 @@ def test_client_claiming_payment_is_not_evidence(client: TestClient, deps: Deps)
     """Settlement is re-read from the provider, never taken from the caller."""
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
-        f"/v1/listings/{listing_id}/publish", headers=_hdr("tok-creator")
+        f"/v1/listings/{listing_id}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
     # Client asserts payment; provider disagrees.
@@ -319,7 +330,9 @@ def test_client_claiming_payment_is_not_evidence(client: TestClient, deps: Deps)
 def _queue(client: TestClient, deps: Deps) -> str:
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
-        f"/v1/listings/{listing_id}/publish", headers=_hdr("tok-creator")
+        f"/v1/listings/{listing_id}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
     ).json()["charge_id"]
     deps.payments.settle(charge_id)
     client.post(
@@ -332,13 +345,13 @@ def _queue(client: TestClient, deps: Deps) -> str:
 
 def test_worker_certifies_a_passing_model(client: TestClient, deps: Deps) -> None:
     listing_id = _queue(client, deps)
-    results = process_pending(deps.store, certify=lambda d: Outcome(d, report=_report("B")))
+    results = process_pending(deps.store, certify=lambda d, only=None: Outcome(d, report=_report("B")))
     assert results == [(listing_id, ListingState.CERTIFIED)]
 
 
 def test_worker_rejects_a_failing_model(client: TestClient, deps: Deps) -> None:
     listing_id = _queue(client, deps)
-    results = process_pending(deps.store, certify=lambda d: Outcome(d, report=_report("F")))
+    results = process_pending(deps.store, certify=lambda d, only=None: Outcome(d, report=_report("F")))
     assert results == [(listing_id, ListingState.REJECTED)]
 
 
@@ -346,13 +359,13 @@ def test_worker_rejects_when_serving_fails(client: TestClient, deps: Deps) -> No
     """A model that will not load is a rejection, not a crashed worker."""
     listing_id = _queue(client, deps)
     outcome = Outcome(DIGEST, failure=FailureKind.SERVE_FAIL, detail="vLLM exited")
-    results = process_pending(deps.store, certify=lambda d: outcome)
+    results = process_pending(deps.store, certify=lambda d, only=None: outcome)
     assert results == [(listing_id, ListingState.REJECTED)]
 
 
 def test_worker_stores_the_report_against_the_listing(client: TestClient, deps: Deps) -> None:
     listing_id = _queue(client, deps)
-    process_pending(deps.store, certify=lambda d: Outcome(d, report=_report("A")))
+    process_pending(deps.store, certify=lambda d, only=None: Outcome(d, report=_report("A")))
     with deps.store.session() as s:
         assert deps.store.latest_report(s, listing_id).rating.grade == "A"
 
@@ -361,7 +374,7 @@ def test_internal_score_is_recorded_for_probing_detection(
     client: TestClient, deps: Deps
 ) -> None:
     listing_id = _queue(client, deps)
-    process_pending(deps.store, certify=lambda d: Outcome(d, report=_report("B", 0.88)))
+    process_pending(deps.store, certify=lambda d, only=None: Outcome(d, report=_report("B", 0.88)))
     with deps.store.session() as s:
         assert deps.store.load_listing(s, listing_id).attempts[0].internal_score == 0.88
 
@@ -376,7 +389,7 @@ def test_only_certified_listings_can_go_live(client: TestClient, deps: Deps) -> 
 
 def test_certified_listing_goes_live_and_is_browsable(client: TestClient, deps: Deps) -> None:
     listing_id = _queue(client, deps)
-    process_pending(deps.store, certify=lambda d: Outcome(d, report=_report("A")))
+    process_pending(deps.store, certify=lambda d, only=None: Outcome(d, report=_report("A")))
     assert publish_certified(deps.store, listing_id) is ListingState.LISTED
 
     listed = client.get("/v1/listings").json()["listings"]
@@ -404,7 +417,7 @@ def test_download_gives_hashes_so_buyers_need_not_trust_us(
     client: TestClient, deps: Deps
 ) -> None:
     listing_id = _queue(client, deps)
-    process_pending(deps.store, certify=lambda d: Outcome(d, report=_report("A")))
+    process_pending(deps.store, certify=lambda d, only=None: Outcome(d, report=_report("A")))
     publish_certified(deps.store, listing_id)
 
     files = client.get(

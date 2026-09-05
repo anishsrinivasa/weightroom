@@ -866,6 +866,25 @@
           "title": "Held Out",
           "type": "boolean"
         },
+        "declined": {
+          "default": false,
+          "description": "The creator chose not to run this benchmark. Always visible, to every audience: a benchmark you can silently omit is a benchmark you can hide a bad result behind.",
+          "title": "Declined",
+          "type": "boolean"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable name, for the report and the menu.",
+          "title": "Display Name"
+        },
         "score": {
           "anyOf": [
             {

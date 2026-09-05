@@ -94,6 +94,9 @@ class ListingRow(Base):
     # should cost nothing and still carry a certificate.
     price_minor: Mapped[int] = mapped_column(Integer, default=0)
     currency: Mapped[str] = mapped_column(String(8), default="USDC")
+    # Benchmarks the creator chose to run. Mandatory suites are folded in at
+    # certification time regardless of what is stored here.
+    selected_benchmarks: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -115,6 +118,8 @@ class AttemptRow(Base):
     grade: Mapped[str | None] = mapped_column(String(16), default=None)
     passed: Mapped[bool] = mapped_column(Boolean, default=False)
     charge_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    # What ran on this attempt, so a later dispute can be settled from the row.
+    selected_benchmarks: Mapped[list] = mapped_column(JSON, default=list)
     # INTERNAL only. This is precisely the signal a prober wants, so it must
     # never reach a serialiser that faces a creator.
     internal_score: Mapped[float | None] = mapped_column(Float, default=None)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from keystone.schema import Capabilities, Modality
@@ -46,27 +47,49 @@ def discover(root: Path | None = None) -> list[Suite]:
     return found
 
 
+@dataclass
+class Skipped:
+    """A suite that did not run, and whether that was the creator's choice.
+
+    The distinction matters to a buyer. "This model cannot do vision" and "the
+    seller chose not to run the coding benchmark" are very different facts.
+    """
+
+    suite_id: str
+    display_name: str
+    reason: str
+    declined: bool = False
+
+
 def select(
     suites: list[Suite],
     caps: Capabilities,
     modality: list[Modality],
     only: list[str] | None = None,
-) -> tuple[list[Suite], list[tuple[str, str]]]:
-    """Split into (eligible, [(suite_id, skip_reason)]).
+) -> tuple[list[Suite], list[Skipped]]:
+    """Split into (eligible, skipped).
 
-    Gating happens before the model is loaded, so an ineligible suite costs no
-    GPU time.
+    Gating happens before the model is loaded, so a suite that will not run
+    costs no GPU time. Mandatory suites ignore `only` entirely -- they are not
+    on the menu.
     """
     eligible: list[Suite] = []
-    skipped: list[tuple[str, str]] = []
+    skipped: list[Skipped] = []
     for suite in suites:
         m = suite.manifest
-        if only and m.id not in only:
-            skipped.append((m.id, "not selected"))
-            continue
+
+        # Eligibility is checked first, deliberately. A benchmark this model
+        # could never have run is not something the seller "declined" -- saying
+        # so would credit them with a choice they never had, and hide the more
+        # useful fact that the model cannot do it.
         ok, reason = m.is_eligible(caps, modality)
-        if ok:
-            eligible.append(suite)
-        else:
-            skipped.append((m.id, reason))
+        if not ok:
+            skipped.append(Skipped(m.id, m.name, reason))
+            continue
+
+        if only is not None and not m.mandatory and m.id not in only:
+            skipped.append(Skipped(m.id, m.name, "declined by the creator", declined=True))
+            continue
+
+        eligible.append(suite)
     return eligible, skipped

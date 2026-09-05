@@ -53,12 +53,14 @@ def run_suites(
 
     results = [
         SuiteResult(
-            suite_id=suite_id,
+            suite_id=s.suite_id,
             suite_version="-",
+            display_name=s.display_name,
             status=Status.SKIPPED,
-            error=reason,
+            declined=s.declined,
+            error=s.reason,
         )
-        for suite_id, reason in skipped
+        for s in skipped
     ]
 
     if not eligible:
@@ -84,7 +86,14 @@ def run_suites(
             )
         )
 
-    results.extend(asyncio.run(_all()))
+    completed = asyncio.run(_all())
+    by_id = {s.manifest.id: s.manifest for s in eligible}
+    for result in completed:
+        manifest = by_id.get(result.suite_id)
+        if manifest is not None:
+            result.display_name = manifest.name
+            result.held_out = manifest.held_out
+    results.extend(completed)
     return results
 
 

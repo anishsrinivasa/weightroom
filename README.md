@@ -58,6 +58,40 @@ suites turn out uniformly single-turn, add an `OfflineBatchClient` behind
 
 ---
 
+## Choosing benchmarks
+
+Capability benchmarks are a la carte. A creator picks what is worth paying to
+demonstrate, and the price is the sum of what will actually run — GPU time
+scales with the selection, so the fee does too.
+
+```
+GET /v1/benchmarks
+
+  REQUIRED  Safety - refusal behaviour     15.000000 USDC
+  optional  Instruction following          10.000000 USDC
+  optional  Multi-step reasoning           20.000000 USDC
+```
+
+Three rules make this safe to offer:
+
+**Safety is not on the menu.** `SuiteManifest.mandatory` suites run whatever the
+creator selected, and are folded in server-side — omitting one from the request
+does not skip it. A badge a seller could opt out of when they expected to fail
+would mean nothing.
+
+**Declining is visible.** Every offered benchmark appears in the report, run or
+not, marked `declined`. A benchmark a seller can silently omit is a benchmark
+they can hide a bad result behind, so `declined` survives redaction for *every*
+audience including buyers.
+
+**Declined is not the same as ineligible.** Eligibility is checked first: a
+benchmark the model could never have run is reported as "the model lacks this
+capability", not as a seller's choice. Crediting someone with a decision they
+never had hides the more useful fact.
+
+An unknown benchmark id is a 400, not a silent no-op — quietly dropping
+something a creator thought they were buying is worse than refusing.
+
 ## The eval-set leak problem
 
 This is the sharpest design constraint in the repo, so it's worth stating

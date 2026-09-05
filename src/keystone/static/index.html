@@ -66,6 +66,27 @@
   .steps li { border: 1px solid var(--line); padding: 3px 9px; color: var(--muted); }
   .steps li[data-on="1"] { border-color: var(--fg); color: var(--fg); }
   #log { white-space: pre-wrap; }
+  .bench { border: 1px solid var(--line); margin: 10px 0 4px; }
+  .bench label {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 10px;
+    align-items: baseline; margin: 0; padding: 9px 12px;
+    text-transform: none; letter-spacing: normal; font-size: 14px;
+    color: var(--fg); cursor: pointer;
+  }
+  .bench label + label { border-top: 1px solid var(--line); }
+  .bench label:hover { background: var(--hover); }
+  .bench input { width: auto; margin: 0; }
+  .bench .req {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    border: 1px solid var(--fg); padding: 0 5px; margin-left: 6px;
+  }
+  .bench .desc { display: block; color: var(--muted); font-size: 12px; }
+  .bench .cost { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .total {
+    display: flex; justify-content: space-between; padding: 9px 12px;
+    border: 1px solid var(--fg); font-weight: 600; max-width: 640px;
+  }
+  .declined { color: var(--muted); text-decoration: line-through; }
 </style>
 </head>
 <body>
@@ -163,6 +184,16 @@
 
     <label>files — path:bytes:sha256, one per line</label>
     <textarea id="pFiles" rows="4" style="max-width:640px"></textarea>
+
+    <label>benchmarks</label>
+    <p class="hint" style="margin:0 0 4px">
+      Pick what is worth paying to demonstrate. Safety is not optional — a badge
+      you could opt out of would mean nothing. Anything you decline is recorded
+      in the report, so a skipped benchmark is a visible choice rather than a
+      gap.
+    </p>
+    <div class="bench" id="benchList" style="max-width:640px"></div>
+    <div class="total"><span>total</span><span id="benchTotal">—</span></div>
 
     <div class="row" style="margin-top:18px">
       <button onclick="doPublishFlow()" id="pGo">run publish flow</button>
@@ -272,9 +303,12 @@ async function openListing(id) {
   $("dSuites").innerHTML = "";
   for (const s of r.suite_results) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${s.suite_id}${s.held_out ? ' <span class="muted">held-out</span>' : ""}</td>
-      <td>${s.status}</td><td>${s.score_band ?? "—"}</td>
-      <td>${s.score ?? '<span class="muted">redacted</span>'}</td>
+    const name = s.display_name || s.suite_id;
+    tr.innerHTML = `<td class="${s.declined ? "declined" : ""}">${name}${
+        s.held_out ? ' <span class="muted">held-out</span>' : ""}</td>
+      <td>${s.declined ? '<span class="muted">declined</span>' : s.status}</td>
+      <td>${s.score_band ?? "—"}</td>
+      <td>${s.declined ? "—" : (s.score ?? '<span class="muted">redacted</span>')}</td>
       <td class="muted">${(s.categories || []).join(", ") || "—"}</td>`;
     $("dSuites").appendChild(tr);
   }
@@ -284,6 +318,54 @@ async function openListing(id) {
   $("dSig").textContent = sig
     ? `${sig.algorithm} · key ${sig.key_id} · ${sig.value.slice(0, 32)}…`
     : "unsigned — this report cannot be independently verified";
+}
+
+// ---- benchmarks ------------------------------------------------------
+let BENCHMARKS = [];
+
+async function loadBenchmarks() {
+  const { benchmarks } = await api("/v1/benchmarks");
+  BENCHMARKS = benchmarks;
+  const host = $("benchList");
+  host.innerHTML = "";
+  for (const b of benchmarks) {
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = b.suite_id;
+    box.checked = b.mandatory;
+    box.disabled = b.mandatory;   // safety is not a menu item
+    box.onchange = priceSelection;
+
+    const text = document.createElement("span");
+    text.innerHTML = `${b.display_name}${
+      b.mandatory ? '<span class="req">required</span>' : ""}
+      <span class="desc">${b.description}</span>`;
+
+    const cost = document.createElement("span");
+    cost.className = "cost";
+    cost.textContent = b.price;
+
+    label.append(box, text, cost);
+    host.appendChild(label);
+  }
+  priceSelection();
+}
+
+function selectedBenchmarks() {
+  return [...document.querySelectorAll("#benchList input:checked:not(:disabled)")]
+    .map((b) => b.value);
+}
+
+function priceSelection() {
+  const running = new Set([
+    ...BENCHMARKS.filter((b) => b.mandatory).map((b) => b.suite_id),
+    ...selectedBenchmarks(),
+  ]);
+  const total = BENCHMARKS
+    .filter((b) => running.has(b.suite_id))
+    .reduce((sum, b) => sum + b.price_minor, 0);
+  $("benchTotal").textContent = (total / 1e6).toFixed(2) + " USDC";
 }
 
 // ---- buy -------------------------------------------------------------
@@ -373,8 +455,11 @@ async function doPublishFlow() {
     log(`listing ${lastListing} (${listing.state})`);
 
     step(4);
-    const charge = await api(`/v1/listings/${lastListing}/publish`, {method: "POST"});
+    const charge = await api(`/v1/listings/${lastListing}/publish`, {
+      method: "POST", body: JSON.stringify({benchmarks: selectedBenchmarks()})});
     log(`charge ${charge.charge_id} for ${charge.amount} on ${charge.chain}`);
+    log(`  running  ${charge.running.join(", ")}`);
+    if (charge.declined.length) log(`  declined ${charge.declined.join(", ")} (recorded in the report)`);
     log(`  address ${charge.address}`);
 
     try {
@@ -415,6 +500,7 @@ async function loadFlagged() {
 }
 
 fakeDigest();
+loadBenchmarks();
 loadBrowse();
 </script>
 </body>

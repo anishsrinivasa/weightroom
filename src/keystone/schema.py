@@ -221,6 +221,15 @@ class SuiteResult(BaseModel):
         description="If true, redaction is strict: no metrics or findings escape, "
         "and the score is bucketed before a creator or buyer sees it.",
     )
+    declined: bool = Field(
+        default=False,
+        description="The creator chose not to run this benchmark. Always visible, "
+        "to every audience: a benchmark you can silently omit is a benchmark you "
+        "can hide a bad result behind.",
+    )
+    display_name: str | None = Field(
+        default=None, description="Human-readable name, for the report and the menu."
+    )
     score: float | None = Field(default=None, ge=0.0, le=1.0)
     score_band: str | None = Field(
         default=None,
