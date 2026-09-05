@@ -1,14 +1,14 @@
-"""keystone certify <model-ref>
+"""keystone — certification pipeline CLI.
 
-The week-one vertical slice: fetch, hash, scan, serve, evaluate, report.
-No API, no accounts, no catalog. The point is to produce a signed-shaped report
-and, more importantly, the three numbers that decide whether this business
-prices: cost, wall-clock, and human minutes per certification.
+  certify   one model, sandboxed, on GPU. The real thing.
+  batch     many models, measuring yield. Failure is data, not a stop.
+  smoke     suites against any endpoint. No Modal, no GPU, no spend.
 """
 
 from __future__ import annotations
 
 import json
+import statistics
 import time
 import uuid
 from datetime import datetime, timezone
@@ -18,68 +18,26 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from keystone.pipeline import FailureKind, Outcome, certify_one, grade
 from keystone.schema import (
-    REPORT_VERSION,
     Capabilities,
-    Source,
-    SourceKind,
     CertificationReport,
-    Cost,
     Environment,
     Modality,
     Rating,
-    ScanResult,
-    ServingProfile,
+    Source,
+    SourceKind,
     Status,
     Subject,
-    SuiteResult,
 )
 
 app = typer.Typer(add_completion=False, help="Keystone model certification pipeline.")
 console = Console()
 
-# Rough USD/GPU-second. VERIFY against current Modal pricing before quoting a
-# customer -- these move, and cost-per-certification is the metric the whole
-# MVP exists to measure.
-_GPU_USD_PER_S: dict[str, float] = {
-    "A10G": 0.000306,
-    "A100-40GB": 0.000583,
-    "A100-80GB": 0.000694,
-    "A100-80GB:2": 0.001389,
-    "A100-80GB:4": 0.002778,
-}
 
-
-def _grade(
-    scans: list[ScanResult],
-    suites: list[SuiteResult],
-    environment_is_sandboxed: bool = True,
-) -> tuple[str, str]:
-    """Placeholder rating logic. The real rubric is the harness side's call.
-
-    We rate and measure; we do not warrant (design doc section 6.3).
-    """
-    if not environment_is_sandboxed:
-        return "unrated", (
-            "Run was not sandboxed: the artifact was not scanned and the "
-            "environment was not controlled. Smoke test only."
-        )
-    if any(s.status is Status.FAIL for s in scans):
-        return "F", "Security scan failed; artifact is not safe to load."
-    if any(s.status is Status.ERROR for s in suites):
-        return "unrated", "One or more suites errored; no rating issued."
-
-    scored = [s.score for s in suites if s.score is not None]
-    if not scored:
-        return "unrated", "No scored suites ran."
-    mean = sum(scored) / len(scored)
-    cutoffs = [(0.9, "A"), (0.75, "B"), (0.6, "C"), (0.4, "D")]
-    grade = next((g for c, g in cutoffs if mean >= c), "F")
-    warn = any(s.status is Status.WARN for s in scans + suites)
-    return grade, f"Mean suite score {mean:.2f} across {len(scored)} suite(s)." + (
-        " Warnings present." if warn else ""
-    )
-
+# --------------------------------------------------------------------------
+# certify
+# --------------------------------------------------------------------------
 
 @app.command()
 def certify(
@@ -92,123 +50,157 @@ def certify(
 ) -> None:
     from keystone.runner import modal_app
 
-    wall_start = time.monotonic()
-    report_id = str(uuid.uuid4())
     console.rule(f"[bold]certifying[/] {ref}")
-
     with modal_app.app.run():
-        # ---- fetch (network on, no untrusted execution) -------------------
-        console.print("[cyan]fetch[/]  resolving and hashing artifact...")
-        fetched = modal_app.fetch.remote(ref, revision)
-        subject = Subject.model_validate(fetched["subject"])
-        profile = ServingProfile.model_validate(fetched["serving_profile"])
-        caps = Capabilities.model_validate(fetched["capabilities"])
-        console.print(
-            f"        {len(subject.files)} files, {subject.total_bytes / 1024**3:.2f} GiB, "
-            f"digest {subject.artifact_digest[:12]}"
-            + ("  [green](cache hit)[/]" if fetched["cached"] else "")
+        outcome = certify_one(
+            ref,
+            revision=revision,
+            only=list(suite) if suite else None,
+            seed=seed,
+            max_context=max_context,
+            on_step=lambda m: console.print(f"[cyan]·[/] {m}"),
         )
 
-        # SEAM 1: the MVP is text-only and says so rather than half-working.
-        if Modality.IMAGE in subject.modality:
-            console.print(
-                "[yellow]refused[/] vision-language model detected "
-                f"(architecture={profile.architecture}). The LLM MVP is text-only; "
-                "VLM support lands as an additive layer."
-            )
-            raise typer.Exit(code=2)
+    if outcome.report is None:
+        console.print(f"[red]{outcome.failure.value}[/] {outcome.detail}")
+        raise typer.Exit(code=2)
 
-        # ---- scan (network off, before load) ------------------------------
-        console.print("[cyan]scan[/]   inspecting serialization formats...")
-        scans = [ScanResult.model_validate(s) for s in modal_app.scan.remote(fetched["cache_key"])]
-        for s in scans:
-            colour = {"pass": "green", "warn": "yellow"}.get(s.status.value, "red")
-            console.print(f"        {s.scanner}: [{colour}]{s.status.value}[/]")
-
-        if any(s.status is Status.FAIL for s in scans):
-            console.print("[red]halting[/] scan failure -- weights will not be loaded.")
-            suite_results: list[SuiteResult] = []
-            environment = Environment()
-            gpu_seconds = 0.0
-        else:
-            # ---- evaluate (network off, GPU, weights loaded) --------------
-            gpu = profile.resource_class or "A10G"
-            tp = int(gpu.split(":")[1]) if ":" in gpu else 1
-            console.print(f"[cyan]eval[/]   serving on {gpu} and running suites...")
-            evaluated = modal_app.evaluate.with_options(gpu=gpu).remote(
-                fetched["cache_key"],
-                caps.model_dump(mode="json"),
-                [m.value for m in subject.modality],
-                max_context or profile.max_context,
-                tp,
-                list(suite) if suite else None,
-                seed,
-            )
-            suite_results = [SuiteResult.model_validate(r) for r in evaluated["suite_results"]]
-            environment = Environment.model_validate(evaluated["environment"])
-            gpu_seconds = float(evaluated["gpu_seconds"])
-            profile.engine_version = environment.engine_version
-
-    grade, rationale = _grade(scans, suite_results)
-    usd_rate = _GPU_USD_PER_S.get(profile.resource_class or "", None)
-
-    report = CertificationReport(
-        report_version=REPORT_VERSION,
-        report_id=report_id,
-        created_at=datetime.now(timezone.utc),
-        status=Status.FAIL if grade == "F" else Status.PASS,
-        subject=subject,
-        serving_profile=profile,
-        capabilities=caps,
-        environment=environment,
-        scans=scans,
-        suite_results=suite_results,
-        cost=Cost(
-            gpu_seconds=gpu_seconds,
-            cpu_seconds=float(fetched["cpu_seconds"]),
-            bytes_transferred=int(fetched["bytes_transferred"]),
-            usd_estimate=round(gpu_seconds * usd_rate, 4) if usd_rate else None,
-        ),
-        rating=Rating(grade=grade, rationale=rationale, as_tested_at=datetime.now(timezone.utc)),
-    )
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{report_id}.json"
-    path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-
-    _render(report, time.monotonic() - wall_start)
+    path = _write(outcome.report, out_dir)
+    _render(outcome.report, outcome.wall_s)
     console.print(f"\nreport: [bold]{path}[/]")
 
 
-def _render(report: CertificationReport, wall_s: float) -> None:
-    table = Table(title=f"{report.subject.source.ref}  —  grade {report.rating.grade}")
-    table.add_column("suite")
-    table.add_column("status")
-    table.add_column("score", justify="right")
-    table.add_column("detail")
-    for r in report.suite_results:
-        colour = {"pass": "green", "warn": "yellow", "skipped": "dim"}.get(r.status.value, "red")
+# --------------------------------------------------------------------------
+# batch — the yield measurement
+# --------------------------------------------------------------------------
+
+@app.command()
+def batch(
+    models: Path = typer.Argument(..., help="File with one HF repo id per line (# comments ok)."),
+    suite: list[str] = typer.Option(None, "--suite"),
+    seed: int = typer.Option(0),
+    out_dir: Path = typer.Option(Path("out/batch")),
+) -> None:
+    """Certify many models and report yield.
+
+    The number this exists to produce: what fraction of arbitrary models go from
+    reference to rating with nobody touching them. If that number is low, this
+    is a consulting business wearing a platform costume.
+
+    A model that fails does not stop the batch -- failures are the measurement.
+    """
+    from keystone.runner import modal_app
+
+    refs = [
+        line.strip()
+        for line in models.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    if not refs:
+        console.print("[red]no model refs found[/]")
+        raise typer.Exit(code=2)
+
+    console.rule(f"[bold]batch[/] {len(refs)} models")
+    outcomes: list[Outcome] = []
+    started = time.monotonic()
+
+    with modal_app.app.run():
+        for i, ref in enumerate(refs, 1):
+            console.print(f"\n[bold]({i}/{len(refs)})[/] {ref}")
+            outcome = certify_one(
+                ref,
+                only=list(suite) if suite else None,
+                seed=seed,
+                on_step=lambda m: console.print(f"  [cyan]·[/] {m}"),
+            )
+            outcomes.append(outcome)
+            if outcome.report is not None:
+                _write(outcome.report, out_dir)
+                console.print(
+                    f"  [green]{outcome.report.rating.grade}[/] "
+                    f"in {outcome.wall_s:.0f}s"
+                )
+            else:
+                console.print(f"  [red]{outcome.failure.value}[/] {(outcome.detail or '')[:110]}")
+
+    summary = _summarise(outcomes, time.monotonic() - started)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "yield.json"
+    path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    _render_yield(summary)
+    console.print(f"\nyield report: [bold]{path}[/]")
+
+
+def _summarise(outcomes: list[Outcome], wall_s: float) -> dict:
+    certified = [o for o in outcomes if o.ok]
+    clean = [o for o in outcomes if o.served_clean]
+    failures: dict[str, int] = {}
+    for o in outcomes:
+        if o.failure is not None:
+            failures[o.failure.value] = failures.get(o.failure.value, 0) + 1
+
+    gpu = [o.report.cost.gpu_seconds for o in certified if o.report.cost]
+    usd = [o.report.cost.usd_estimate or 0.0 for o in certified if o.report.cost]
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "n_attempted": len(outcomes),
+        "n_certified": len(certified),
+        "n_served_clean": len(clean),
+        # THE number.
+        "clean_rate": round(len(clean) / len(outcomes), 3) if outcomes else 0.0,
+        "failures": failures,
+        "total_usd": round(sum(usd), 4),
+        "median_gpu_s": round(statistics.median(gpu), 1) if gpu else None,
+        "median_wall_s": round(statistics.median([o.wall_s for o in outcomes]), 1),
+        "batch_wall_s": round(wall_s, 1),
+        "models": [
+            {
+                "ref": o.ref,
+                "ok": o.ok,
+                "grade": o.report.rating.grade if o.report else None,
+                "failure": o.failure.value if o.failure else None,
+                "detail": o.detail,
+                "wall_s": round(o.wall_s, 1),
+                "gpu_s": o.report.cost.gpu_seconds if o.report and o.report.cost else None,
+                "usd": o.report.cost.usd_estimate if o.report and o.report.cost else None,
+                "gib": round(o.report.subject.total_bytes / 1024**3, 2) if o.report else None,
+                "arch": o.report.serving_profile.architecture if o.report else None,
+            }
+            for o in outcomes
+        ],
+    }
+
+
+def _render_yield(s: dict) -> None:
+    table = Table(title="yield")
+    for col in ("model", "arch", "GiB", "result", "wall", "gpu", "$"):
+        table.add_column(col)
+    for m in s["models"]:
+        result = f"[green]{m['grade']}[/]" if m["ok"] else f"[red]{m['failure']}[/]"
         table.add_row(
-            r.suite_id,
-            f"[{colour}]{r.status.value}[/]",
-            f"{r.score:.2f}" if r.score is not None else "-",
-            r.error or ", ".join(f"{k}={v:.2f}" for k, v in r.metrics.items()),
+            m["ref"],
+            m["arch"] or "-",
+            f"{m['gib']:.2f}" if m["gib"] is not None else "-",
+            result,
+            f"{m['wall_s']:.0f}s",
+            f"{m['gpu_s']:.0f}s" if m["gpu_s"] is not None else "-",
+            f"{m['usd']:.3f}" if m["usd"] is not None else "-",
         )
     console.print(table)
+    console.print(
+        f"[bold]clean rate[/] {s['clean_rate']:.0%} "
+        f"({s['n_served_clean']}/{s['n_attempted']} needed no intervention)   "
+        f"[bold]certified[/] {s['n_certified']}   "
+        f"[bold]spend[/] ${s['total_usd']:.2f}"
+    )
+    if s["failures"]:
+        console.print("[bold]failures[/] " + ", ".join(f"{k}={v}" for k, v in s["failures"].items()))
 
-    line = f"[bold]wall[/] {wall_s:.0f}s"
-    # Absent for smoke runs, and for any report that has been redacted --
-    # cost is INTERNAL only.
-    if report.cost is not None:
-        cost = report.cost
-        line += (
-            f"   [bold]gpu[/] {cost.gpu_seconds:.0f}s"
-            f"   [bold]transferred[/] {cost.bytes_transferred / 1024**3:.2f} GiB"
-            "   [bold]est[/] "
-            + (f"${cost.usd_estimate:.2f}" if cost.usd_estimate is not None else "n/a")
-        )
-    console.print(line)
 
+# --------------------------------------------------------------------------
+# smoke — free path
+# --------------------------------------------------------------------------
 
 @app.command()
 def smoke(
@@ -244,7 +236,6 @@ def smoke(
         raise typer.Exit(code=2)
 
     wall_start = time.monotonic()
-    report_id = str(uuid.uuid4())
     console.rule(f"[bold]smoke[/] {model} @ {endpoint}")
 
     caps = Capabilities()
@@ -259,9 +250,9 @@ def smoke(
         seed=seed,
     )
 
-    grade, rationale = _grade([], results, environment_is_sandboxed=False)
+    letter, rationale = grade([], results, sandboxed=False)
     report = CertificationReport(
-        report_id=report_id,
+        report_id=str(uuid.uuid4()),
         created_at=datetime.now(timezone.utc),
         status=Status.PASS,
         subject=Subject(
@@ -273,17 +264,18 @@ def smoke(
         capabilities=caps,
         environment=Environment(seed=seed, sandboxed=False),
         suite_results=results,
-        rating=Rating(grade=grade, rationale=rationale, as_tested_at=datetime.now(timezone.utc)),
+        rating=Rating(grade=letter, rationale=rationale, as_tested_at=datetime.now(timezone.utc)),
     )
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{report_id}.json"
-    path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-
+    path = _write(report, out_dir)
     _render(report, time.monotonic() - wall_start)
     console.print("[yellow]not a certification[/] — unsandboxed, unscanned, unrated")
     console.print(f"report: [bold]{path}[/]")
 
+
+# --------------------------------------------------------------------------
+# misc
+# --------------------------------------------------------------------------
 
 @app.command()
 def suites() -> None:
@@ -313,6 +305,41 @@ def schema(out: Path = typer.Option(Path("schemas/report.schema.json"))) -> None
         json.dumps(CertificationReport.model_json_schema(), indent=2) + "\n", encoding="utf-8"
     )
     console.print(f"wrote {out}")
+
+
+def _write(report: CertificationReport, out_dir: Path) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{report.report_id}.json"
+    path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+def _render(report: CertificationReport, wall_s: float) -> None:
+    table = Table(title=f"{report.subject.source.ref}  —  grade {report.rating.grade}")
+    for col, justify in (("suite", "left"), ("status", "left"), ("score", "right"), ("detail", "left")):
+        table.add_column(col, justify=justify)
+    for r in report.suite_results:
+        colour = {"pass": "green", "warn": "yellow", "skipped": "dim"}.get(r.status.value, "red")
+        table.add_row(
+            r.suite_id,
+            f"[{colour}]{r.status.value}[/]",
+            f"{r.score:.2f}" if r.score is not None else "-",
+            r.error or ", ".join(f"{k}={v:.2f}" for k, v in r.metrics.items()),
+        )
+    console.print(table)
+
+    line = f"[bold]wall[/] {wall_s:.0f}s"
+    # Absent for smoke runs, and for any report that has been redacted --
+    # cost is INTERNAL only.
+    if report.cost is not None:
+        cost = report.cost
+        line += (
+            f"   [bold]gpu[/] {cost.gpu_seconds:.0f}s"
+            f"   [bold]transferred[/] {cost.bytes_transferred / 1024**3:.2f} GiB"
+            "   [bold]est[/] "
+            + (f"${cost.usd_estimate:.2f}" if cost.usd_estimate is not None else "n/a")
+        )
+    console.print(line)
 
 
 if __name__ == "__main__":

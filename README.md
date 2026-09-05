@@ -108,6 +108,29 @@ run at the API boundary too.
 
 ---
 
+## Persistence
+
+[`db.py`](src/keystone/db.py) — SQLAlchemy over SQLite in dev, Postgres in prod.
+Same code, different URL.
+
+Domain logic stays in [`listing.py`](src/keystone/listing.py) and
+[`payments.py`](src/keystone/payments.py) as plain dataclasses with no database
+in them; `db.py` only maps. The attempt policy and the state machine are the
+parts worth testing hard, and they should not need a database to run.
+
+Tables: `users`, `artifacts` (keyed by digest, so identical weights are one
+row), `listings`, `attempts`, `reports`, `charges`.
+
+Two rules that are easy to get wrong:
+
+- **Reports are stored unredacted.** The database holds internal truth;
+  `redact()` happens at the boundary on the way out. `attempts.internal_score`
+  in particular is exactly the signal a prober wants and must never reach a
+  creator-facing serialiser.
+- **The payment provider stays authoritative.** `charges` is a mirror. Never
+  settle a charge from a client callback — re-read it from the provider and
+  write the answer down.
+
 ## Storage
 
 Once creators upload to us we are the origin — there is no upstream to re-fetch
@@ -295,9 +318,7 @@ Expect that ratio to hold.
 - No signing yet. `Signature` exists in the schema; sigstore/cosign is not wired.
 - No license-chain checking. `LicenseInfo.chain_ok` is always `None`.
 - `_grade()` is placeholder logic; the real rubric belongs to the harness side.
-- No persistence layer. `Listing` is an in-memory dataclass — it needs Postgres
-  behind it, along with accounts, upload endpoints, and payment for the listing
-  fee.
-- The upload path is a library function, not an API. There is no web surface.
+- The upload path is a library function, not an API. There is no web surface,
+  no auth, and nothing calls the persistence layer yet.
 - Re-certification of live listings is modelled in the state machine but nothing
   schedules it.

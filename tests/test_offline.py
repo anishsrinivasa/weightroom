@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from keystone.cli import _grade
+from keystone.pipeline import grade as _grade
 from keystone.ingest import build_subject, hash_tree, manifest_digest
 from keystone.profile import build_profile, detect_modality, pick_resource_class
 from keystone.registry import discover, select
@@ -276,13 +276,13 @@ def test_checked_in_schema_is_current() -> None:
 
 def test_unsandboxed_runs_are_never_graded() -> None:
     """A smoke run must not be mistakable for a certification."""
-    grade, rationale = _grade([], [_suite(1.0)], environment_is_sandboxed=False)
+    grade, rationale = _grade([], [_suite(1.0)], sandboxed=False)
     assert grade == "unrated"
     assert "not sandboxed" in rationale.lower()
 
 
 def test_sandboxed_runs_still_grade() -> None:
-    assert _grade([], [_suite(1.0)], environment_is_sandboxed=True)[0] == "A"
+    assert _grade([], [_suite(1.0)], sandboxed=True)[0] == "A"
 
 
 def test_environment_defaults_to_sandboxed() -> None:

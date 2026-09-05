@@ -12,6 +12,9 @@ dependencies = [
     "picklescan>=0.0.20",
     "boto3>=1.35",
     "openai>=1.60",
+    "sqlalchemy>=2.0",
+    "fastapi>=0.115",
+    "python-multipart>=0.0.9",
 ]
 
 [build-system]
