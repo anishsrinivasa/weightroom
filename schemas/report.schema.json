@@ -1,0 +1,987 @@
+{
+  "$defs": {
+    "Capabilities": {
+      "description": "SEAM 5: one object, so VLM fields are additive.",
+      "properties": {
+        "chat": {
+          "default": true,
+          "title": "Chat",
+          "type": "boolean"
+        },
+        "completions": {
+          "default": true,
+          "title": "Completions",
+          "type": "boolean"
+        },
+        "logprobs": {
+          "default": false,
+          "title": "Logprobs",
+          "type": "boolean"
+        },
+        "tool_use": {
+          "default": false,
+          "title": "Tool Use",
+          "type": "boolean"
+        },
+        "max_context": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Context"
+        },
+        "vision": {
+          "default": false,
+          "title": "Vision",
+          "type": "boolean"
+        },
+        "max_images_per_request": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Images Per Request"
+        },
+        "supported_image_formats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Image Formats",
+          "type": "array"
+        }
+      },
+      "title": "Capabilities",
+      "type": "object"
+    },
+    "Cost": {
+      "description": "The MVP's most important instrument: cost-per-certification.",
+      "properties": {
+        "gpu_seconds": {
+          "default": 0.0,
+          "title": "Gpu Seconds",
+          "type": "number"
+        },
+        "cpu_seconds": {
+          "default": 0.0,
+          "title": "Cpu Seconds",
+          "type": "number"
+        },
+        "bytes_transferred": {
+          "default": 0,
+          "title": "Bytes Transferred",
+          "type": "integer"
+        },
+        "usd_estimate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usd Estimate"
+        },
+        "human_minutes": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual intervention required. Logged by hand.",
+          "title": "Human Minutes"
+        }
+      },
+      "title": "Cost",
+      "type": "object"
+    },
+    "Environment": {
+      "description": "Everything needed to reproduce a rating. Load-bearing for \u00a76.3.",
+      "properties": {
+        "container_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Digest"
+        },
+        "gpu": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gpu"
+        },
+        "gpu_count": {
+          "default": 1,
+          "title": "Gpu Count",
+          "type": "integer"
+        },
+        "driver_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Driver Version"
+        },
+        "python_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Python Version"
+        },
+        "torch_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Torch Version"
+        },
+        "engine_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Version"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        },
+        "harness_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Harness Version"
+        }
+      },
+      "title": "Environment",
+      "type": "object"
+    },
+    "FileEntry": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "size_bytes": {
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "title": "FileEntry",
+      "type": "object"
+    },
+    "Finding": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "evidence_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pointer into stored transcripts. Never inline held-out prompt text.",
+          "title": "Evidence Ref"
+        }
+      },
+      "required": [
+        "id",
+        "severity",
+        "summary"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "LicenseInfo": {
+      "properties": {
+        "declared": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Declared"
+        },
+        "spdx": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spdx"
+        },
+        "chain_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the full derivation chain permits the declared terms. None = not yet assessed.",
+          "title": "Chain Ok"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "title": "LicenseInfo",
+      "type": "object"
+    },
+    "Modality": {
+      "enum": [
+        "text",
+        "image"
+      ],
+      "title": "Modality",
+      "type": "string"
+    },
+    "ParentEdge": {
+      "description": "SEAM 4: lineage is a DAG, not a chain.\n\nA text model has one `base` parent. A VLM has several (base LLM, vision\nencoder, projector), each potentially under a different license.",
+      "properties": {
+        "role": {
+          "enum": [
+            "base",
+            "adapter",
+            "vision_encoder",
+            "projector",
+            "merged_from"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "license": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License"
+        },
+        "verified": {
+          "default": false,
+          "title": "Verified",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "role",
+        "ref"
+      ],
+      "title": "ParentEdge",
+      "type": "object"
+    },
+    "ProcessorProfile": {
+      "description": "SEAM 3: null for text-only models; populated for VLMs.",
+      "properties": {
+        "image_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Size"
+        },
+        "patch_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Patch Size"
+        },
+        "tiling": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tiling"
+        },
+        "image_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Token"
+        },
+        "processor_config_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Processor Config Sha256"
+        }
+      },
+      "title": "ProcessorProfile",
+      "type": "object"
+    },
+    "Rating": {
+      "description": "We rate and measure; we do not warrant. See design doc \u00a76.3.",
+      "properties": {
+        "grade": {
+          "default": "unrated",
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "F",
+            "unrated"
+          ],
+          "title": "Grade",
+          "type": "string"
+        },
+        "rationale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rationale"
+        },
+        "as_tested_at": {
+          "format": "date-time",
+          "title": "As Tested At",
+          "type": "string"
+        },
+        "methodology_version": {
+          "default": "0.1.0",
+          "title": "Methodology Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "as_tested_at"
+      ],
+      "title": "Rating",
+      "type": "object"
+    },
+    "ScanResult": {
+      "properties": {
+        "scanner": {
+          "title": "Scanner",
+          "type": "string"
+        },
+        "scanner_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scanner Version"
+        },
+        "status": {
+          "$ref": "#/$defs/Status"
+        },
+        "findings": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration S"
+        }
+      },
+      "required": [
+        "scanner",
+        "status"
+      ],
+      "title": "ScanResult",
+      "type": "object"
+    },
+    "ServingProfile": {
+      "properties": {
+        "engine": {
+          "default": "vllm",
+          "title": "Engine",
+          "type": "string"
+        },
+        "engine_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Version"
+        },
+        "architecture": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Architecture"
+        },
+        "dtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dtype"
+        },
+        "quantization": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantization"
+        },
+        "max_context": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Context"
+        },
+        "chat_template_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "tokenizer_config",
+                "override",
+                "none"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chat Template Source"
+        },
+        "chat_template_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chat Template Sha256"
+        },
+        "resource_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g. A10G, A100-40GB:2",
+          "title": "Resource Class"
+        },
+        "processor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessorProfile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ServingProfile",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "Signature": {
+      "properties": {
+        "algorithm": {
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "key_id": {
+          "title": "Key Id",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "key_id",
+        "value"
+      ],
+      "title": "Signature",
+      "type": "object"
+    },
+    "Source": {
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SourceKind"
+        },
+        "ref": {
+          "description": "HF repo id, or upload receipt id",
+          "title": "Ref",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resolved commit sha",
+          "title": "Revision"
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "SourceKind": {
+      "enum": [
+        "huggingface",
+        "upload"
+      ],
+      "title": "SourceKind",
+      "type": "string"
+    },
+    "Status": {
+      "enum": [
+        "pass",
+        "warn",
+        "fail",
+        "error",
+        "skipped"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "Subject": {
+      "properties": {
+        "modality": {
+          "items": {
+            "$ref": "#/$defs/Modality"
+          },
+          "title": "Modality",
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "artifact_digest": {
+          "description": "sha256 over the sorted file manifest",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileEntry"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "total_bytes": {
+          "title": "Total Bytes",
+          "type": "integer"
+        },
+        "lineage": {
+          "items": {
+            "$ref": "#/$defs/ParentEdge"
+          },
+          "title": "Lineage",
+          "type": "array"
+        },
+        "license": {
+          "$ref": "#/$defs/LicenseInfo"
+        }
+      },
+      "required": [
+        "source",
+        "artifact_digest",
+        "files",
+        "total_bytes"
+      ],
+      "title": "Subject",
+      "type": "object"
+    },
+    "SuiteResult": {
+      "description": "Returned by the eval harness. Owned jointly; versioned deliberately.",
+      "properties": {
+        "suite_id": {
+          "title": "Suite Id",
+          "type": "string"
+        },
+        "suite_version": {
+          "title": "Suite Version",
+          "type": "string"
+        },
+        "modality": {
+          "items": {
+            "$ref": "#/$defs/Modality"
+          },
+          "title": "Modality",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/Status"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Metrics",
+          "type": "object"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "n_items": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Items"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration S"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "suite_id",
+        "suite_version",
+        "status"
+      ],
+      "title": "SuiteResult",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "report_version": {
+      "default": "0.1.0",
+      "title": "Report Version",
+      "type": "string"
+    },
+    "report_id": {
+      "title": "Report Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/Status"
+    },
+    "subject": {
+      "$ref": "#/$defs/Subject"
+    },
+    "serving_profile": {
+      "$ref": "#/$defs/ServingProfile"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/Capabilities"
+    },
+    "environment": {
+      "$ref": "#/$defs/Environment"
+    },
+    "scans": {
+      "items": {
+        "$ref": "#/$defs/ScanResult"
+      },
+      "title": "Scans",
+      "type": "array"
+    },
+    "suite_results": {
+      "items": {
+        "$ref": "#/$defs/SuiteResult"
+      },
+      "title": "Suite Results",
+      "type": "array"
+    },
+    "cost": {
+      "$ref": "#/$defs/Cost"
+    },
+    "rating": {
+      "$ref": "#/$defs/Rating"
+    },
+    "signature": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Signature"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "report_id",
+    "created_at",
+    "status",
+    "subject",
+    "rating"
+  ],
+  "title": "CertificationReport",
+  "type": "object"
+}
