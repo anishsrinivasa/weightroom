@@ -112,7 +112,7 @@
       </select>
     </div>
     <div class="scroll"><table>
-      <thead><tr><th>title</th><th>listing</th><th>digest</th><th>state</th><th></th></tr></thead>
+      <thead><tr><th>title</th><th>price</th><th>digest</th><th>state</th><th></th></tr></thead>
       <tbody id="browseRows"><tr><td colspan="5" class="muted">—</td></tr></tbody>
     </table></div>
 
@@ -131,6 +131,9 @@
       <p class="mono-sm" id="dSig">—</p>
       <details><summary class="muted" style="cursor:pointer;margin:10px 0">raw json</summary>
         <pre id="dRaw"></pre></details>
+
+      <h3>Acquire</h3>
+      <pre id="buylog" class="muted">—</pre>
     </div>
   </section>
 
@@ -233,13 +236,19 @@ async function loadBrowse() {
     for (const l of listings) {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td>${l.title || "<span class='muted'>untitled</span>"}</td>
-        <td class="mono-sm">${l.listing_id}</td>
+        <td>${l.price_minor === 0 ? "<span class='muted'>free</span>" : l.price}</td>
         <td class="mono-sm">${l.artifact_digest.slice(0, 12)}</td>
         <td class="muted">${l.state}</td><td></td>`;
-      const btn = document.createElement("button");
-      btn.textContent = "open";
-      btn.onclick = () => openListing(l.listing_id);
-      tr.lastElementChild.appendChild(btn);
+      const cell = tr.lastElementChild;
+      const open = document.createElement("button");
+      open.textContent = "open";
+      open.onclick = () => openListing(l.listing_id);
+      cell.appendChild(open);
+      const get = document.createElement("button");
+      get.textContent = l.price_minor === 0 ? "download" : "buy";
+      get.style.marginLeft = "6px";
+      get.onclick = () => acquire(l.listing_id, l.price_minor);
+      cell.appendChild(get);
       tbody.appendChild(tr);
     }
     $("detail").style.display = "none";
@@ -275,6 +284,40 @@ async function openListing(id) {
   $("dSig").textContent = sig
     ? `${sig.algorithm} · key ${sig.key_id} · ${sig.value.slice(0, 32)}…`
     : "unsigned — this report cannot be independently verified";
+}
+
+// ---- buy -------------------------------------------------------------
+async function acquire(listingId, priceMinor) {
+  $("detail").style.display = "block";
+  const out = $("buylog");
+  out.textContent = "";
+  const say = (m) => out.textContent += (out.textContent ? "\n" : "") + m;
+
+  if (!token()) { say("sign in first — pick a token above"); return; }
+  try {
+    if (priceMinor > 0) {
+      // Entitlement is enforced server-side; this shows the refusal first.
+      try {
+        await api(`/v1/listings/${listingId}/download`);
+      } catch (e) { say("download refused: " + e.message); }
+
+      const order = await api(`/v1/listings/${listingId}/purchase`, {method: "POST"});
+      say(`order ${order.order_id} — ${order.amount} on ${order.chain}`);
+      say(`  pay to ${order.address}`);
+      try {
+        await api(`/v1/orders/${order.order_id}/confirm`, {method: "POST"});
+      } catch (e) {
+        say("confirm refused: " + e.message);
+        say("(settlement is read from the payment provider, not from this page)");
+        return;
+      }
+      say("order settled");
+    }
+    const dl = await api(`/v1/listings/${listingId}/download`);
+    say(`entitled — ${dl.files.length} file(s):`);
+    for (const f of dl.files) say(`  ${f.path}  sha256 ${f.sha256.slice(0, 16)}…`);
+    say("verify each hash after downloading; do not take our word for it");
+  } catch (e) { say("error: " + e.message); }
 }
 
 // ---- publish ---------------------------------------------------------

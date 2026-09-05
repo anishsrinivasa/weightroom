@@ -371,10 +371,12 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                           rationale=f"Mean suite score across 2 suite(s); grade {grade}."),
         )
 
+    # price in USDC minor units (6 decimals); 0 is a real price
     fixtures = [
-        ("Legalese-7B (contract QA)", "1" * 64, "A", 0.94, True),
-        ("MedNote-3B (clinical summaries)", "2" * 64, "B", 0.81, True),
-        ("Sentinel-1B (log triage)", "3" * 64, "D", 0.62, False),
+        ("Legalese-7B (contract QA)", "1" * 64, "A", 0.94, True, 120_000_000),
+        ("MedNote-3B (clinical summaries)", "2" * 64, "B", 0.81, True, 45_000_000),
+        ("Tokenizer-Bench-0.5B (open)", "4" * 64, "A", 0.92, True, 0),
+        ("Sentinel-1B (log triage)", "3" * 64, "D", 0.62, False, 30_000_000),
     ]
 
     with store.session() as s:
@@ -383,16 +385,21 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             store.put_artifact(s, digest, [], 1_400_000_000)
         s.commit()
 
-    for title, digest, grade, held, go_live in fixtures:
+    for title, digest, grade, held, go_live, price in fixtures:
         listing_id = f"lst_{_uuid.uuid4().hex[:16]}"
         with store.session() as s:
-            store.create_listing(s, listing_id, "u_creator", digest, title)
+            row = store.create_listing(s, listing_id, "u_creator", digest, title)
+            row.price_minor = price
             s.commit()
         record_outcome(store, listing_id, Outcome(digest, report=report(grade, digest, held)),
                        signer=signer, now=now)
         if go_live:
             publish_certified(store, listing_id)
-        console.print(f"  {title}  [bold]{grade}[/]  {'listed' if go_live else 'rejected'}")
+        tag = "free" if price == 0 else f"{price / 1e6:.0f} USDC"
+        console.print(
+            f"  {title}  [bold]{grade}[/]  "
+            f"{'listed' if go_live else 'rejected'}  {tag}"
+        )
 
     # A listing that looks like eval-set probing, for the admin queue.
     probe_id = f"lst_{_uuid.uuid4().hex[:16]}"

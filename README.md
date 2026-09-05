@@ -209,6 +209,32 @@ framework and no build step. Browse the catalogue, walk the publish flow, and
 see the admin review queue. Switch the token dropdown to watch the same report
 redact differently for buyer, creator, and admin.
 
+## Buying and entitlement
+
+[`orders.py`](src/keystone/orders.py) decides who may download. Certification
+decides what may be sold; entitlement decides who gets it.
+
+```
+browse ──▶ purchase (mints a charge against the ORDER) ──▶ confirm (provider re-read)
+                                                                 │
+                                                          paid ──┴──▶ presigned URLs
+```
+
+- **A download URL is minted only against a paid order**, checked server-side
+  every time. The check happens *before* the URL exists, not after: a presigned
+  link expires, but a leaked one is still a copy of the weights.
+- **A charge references the order, not the listing**, so a charge can only ever
+  settle the purchase it was minted for.
+- **Free listings entitle directly.** Zero is a real price — plenty of good open
+  models should cost nothing and still carry a certificate.
+- **One payout row per order.** The unique constraint on `order_id` is what stops
+  a replayed confirmation from paying a creator twice.
+- **The split is integer arithmetic** — the platform cut is computed and the
+  creator takes the remainder, so rounding can never strand a unit.
+
+Denials are typed (`Entitlement.payment_required`) rather than string-matched,
+so rewording a message can never silently change a status code.
+
 ## Payments
 
 Crypto first — no chargebacks, which matters when the product is a file that

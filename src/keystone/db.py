@@ -34,6 +34,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, rela
 from sqlalchemy.pool import StaticPool
 
 from keystone.listing import Attempt, Listing, ListingState
+from keystone.orders import Order, OrderStatus
 from keystone.payments import Charge, ChargeStatus, Currency, Money
 from keystone.schema import CertificationReport, FileEntry
 
@@ -89,8 +90,15 @@ class ListingRow(Base):
     state: Mapped[str] = mapped_column(String(32), index=True)
     flagged_for_review: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     title: Mapped[str | None] = mapped_column(String(200), default=None)
+    # Zero is a real price, not a missing one: plenty of good open models
+    # should cost nothing and still carry a certificate.
+    price_minor: Mapped[int] = mapped_column(Integer, default=0)
+    currency: Mapped[str] = mapped_column(String(8), default="USDC")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+    def price(self) -> Money:
+        return Money(self.price_minor, Currency(self.currency))
 
     attempts: Mapped[list["AttemptRow"]] = relationship(
         back_populates="listing", order_by="AttemptRow.created_at", cascade="all, delete-orphan"
@@ -130,6 +138,39 @@ class ReportRow(Base):
 
     def report(self) -> CertificationReport:
         return CertificationReport.model_validate_json(self.payload)
+
+
+class OrderRow(Base):
+    """One buyer's entitlement to one listing."""
+
+    __tablename__ = "orders"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    buyer_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    listing_id: Mapped[str] = mapped_column(String(64), ForeignKey("listings.id"), index=True)
+    artifact_digest: Mapped[str] = mapped_column(String(64), index=True)
+    amount_minor: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(8))
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    charge_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+
+class PayoutRow(Base):
+    """What a creator is owed, and whether it has been sent."""
+
+    __tablename__ = "payouts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    creator_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    order_id: Mapped[str] = mapped_column(String(64), ForeignKey("orders.id"), unique=True)
+    amount_minor: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(8))
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    destination: Mapped[str | None] = mapped_column(String(128), default=None)
+    tx_hash: Mapped[str | None] = mapped_column(String(80), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 class ChargeRow(Base):
@@ -174,6 +215,20 @@ def to_domain_listing(row: ListingRow) -> Listing:
             for a in row.attempts
         ],
         flagged_for_review=row.flagged_for_review,
+    )
+
+
+def to_domain_order(row: OrderRow) -> Order:
+    return Order(
+        order_id=row.id,
+        buyer_id=row.buyer_id,
+        listing_id=row.listing_id,
+        artifact_digest=row.artifact_digest,
+        amount=Money(row.amount_minor, Currency(row.currency)),
+        created_at=row.created_at,
+        charge_id=row.charge_id,
+        status=OrderStatus(row.status),
+        paid_at=row.paid_at,
     )
 
 
@@ -332,6 +387,94 @@ class Store:
         ).first()
         return row.report() if row else None
 
+    # -- orders ----------------------------------------------------------
+
+    def create_order(self, s: Session, order: Order) -> OrderRow:
+        row = OrderRow(
+            id=order.order_id,
+            buyer_id=order.buyer_id,
+            listing_id=order.listing_id,
+            artifact_digest=order.artifact_digest,
+            amount_minor=order.amount.amount_minor,
+            currency=order.amount.currency.value,
+            status=order.status.value,
+            charge_id=order.charge_id,
+            created_at=order.created_at,
+        )
+        s.add(row)
+        return row
+
+    def get_order(self, s: Session, order_id: str) -> Order | None:
+        row = s.get(OrderRow, order_id)
+        return to_domain_order(row) if row else None
+
+    def save_order(self, s: Session, order: Order) -> OrderRow:
+        row = s.get(OrderRow, order.order_id)
+        if row is None:
+            raise KeyError(order.order_id)
+        row.status = order.status.value
+        row.charge_id = order.charge_id
+        row.paid_at = order.paid_at
+        return row
+
+    def entitling_order(self, s: Session, buyer_id: str, listing_id: str) -> Order | None:
+        """The buyer's paid order for this listing, if any.
+
+        Paid orders win over pending ones, so an abandoned checkout never masks
+        a completed purchase.
+        """
+        rows = list(
+            s.scalars(
+                select(OrderRow)
+                .where(OrderRow.buyer_id == buyer_id, OrderRow.listing_id == listing_id)
+                .order_by(OrderRow.created_at.desc())
+            )
+        )
+        paid = next((r for r in rows if r.status == OrderStatus.PAID.value), None)
+        chosen = paid or (rows[0] if rows else None)
+        return to_domain_order(chosen) if chosen else None
+
+    def orders_for_buyer(self, s: Session, buyer_id: str) -> list[Order]:
+        rows = s.scalars(
+            select(OrderRow)
+            .where(OrderRow.buyer_id == buyer_id)
+            .order_by(OrderRow.created_at.desc())
+        )
+        return [to_domain_order(r) for r in rows]
+
+    # -- payouts ---------------------------------------------------------
+
+    def record_payout(
+        self,
+        s: Session,
+        payout_id: str,
+        creator_id: str,
+        order_id: str,
+        amount: Money,
+        *,
+        status: str = "pending",
+        destination: str | None = None,
+        tx_hash: str | None = None,
+    ) -> PayoutRow:
+        """One payout per order. The unique constraint is the double-pay guard."""
+        row = s.get(PayoutRow, payout_id)
+        if row is None:
+            row = PayoutRow(id=payout_id, order_id=order_id)
+            s.add(row)
+        row.creator_id = creator_id
+        row.amount_minor = amount.amount_minor
+        row.currency = amount.currency.value
+        row.status = status
+        row.destination = destination
+        row.tx_hash = tx_hash
+        return row
+
+    def payout_for_order(self, s: Session, order_id: str) -> PayoutRow | None:
+        return s.scalars(select(PayoutRow).where(PayoutRow.order_id == order_id)).first()
+
+    def unpaid_payouts(self, s: Session) -> list[PayoutRow]:
+        return list(s.scalars(select(PayoutRow).where(PayoutRow.status == "pending")))
+
     # -- charges ---------------------------------------------------------
 
     def put_charge(self, s: Session, charge: Charge) -> ChargeRow:
@@ -354,5 +497,6 @@ class Store:
 
 __all__ = [
     "Base", "Store", "UserRow", "ArtifactRow", "ListingRow", "AttemptRow",
-    "ReportRow", "ChargeRow", "to_domain_listing", "to_domain_charge",
+    "ReportRow", "ChargeRow", "OrderRow", "PayoutRow",
+    "to_domain_listing", "to_domain_charge", "to_domain_order",
 ]

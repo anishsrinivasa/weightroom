@@ -24,8 +24,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from keystone.auth import Authenticator, Principal, StaticTokenAuth, audience_for
-from keystone.db import ArtifactRow, ListingRow, Store
+from keystone.db import ArtifactRow, ListingRow, Store, UserRow
 from keystone.listing import DEFAULT_POLICY, AttemptPolicy, ListingState, transition
+from keystone.orders import (
+    DEFAULT_SPLIT,
+    Order,
+    OrderStatus,
+    RevenueSplit,
+    check_entitlement,
+    settle,
+)
 from keystone.payments import MockPaymentProvider, PaymentProvider
 from keystone.schema import Audience, CertificationReport, FileEntry
 from keystone.signing import Ed25519Signer
@@ -48,6 +56,7 @@ class Deps:
         auth: Authenticator,
         policy: AttemptPolicy = DEFAULT_POLICY,
         signer=None,
+        split: RevenueSplit = DEFAULT_SPLIT,
     ) -> None:
         self.store = store
         self.artifacts = artifacts
@@ -55,6 +64,7 @@ class Deps:
         self.auth = auth
         self.policy = policy
         self.signer = signer
+        self.split = split
 
 
 def get_deps(request: Request) -> Deps:
@@ -163,7 +173,11 @@ def create_app(deps: Deps) -> FastAPI:
         listing_id = f"lst_{uuid.uuid4().hex[:16]}"
         with d.store.session() as s:
             d.store.upsert_user(s, me.user_id, me.email)
-            d.store.create_listing(s, listing_id, me.user_id, body.artifact_digest, body.title)
+            row = d.store.create_listing(
+                s, listing_id, me.user_id, body.artifact_digest, body.title
+            )
+            row.price_minor = body.price_minor
+            row.currency = body.currency
             s.commit()
         return {"listing_id": listing_id, "state": ListingState.DRAFT.value}
 
@@ -179,6 +193,8 @@ def create_app(deps: Deps) -> FastAPI:
                         "title": r.title,
                         "artifact_digest": r.artifact_digest,
                         "state": r.state,
+                        "price": str(r.price()),
+                        "price_minor": r.price_minor,
                         "created_at": r.created_at.isoformat(),
                     }
                     for r in rows
@@ -195,6 +211,7 @@ def create_app(deps: Deps) -> FastAPI:
                 "title": row.title,
                 "state": row.state,
                 "artifact_digest": row.artifact_digest,
+                "price": str(row.price()),
                 "attempts": len(row.attempts),
             }
             if audience_for(principal, row.creator_id) is not Audience.BUYER:
@@ -293,16 +310,129 @@ def create_app(deps: Deps) -> FastAPI:
             creator_id = listing_row.creator_id if listing_row else None
             return _view(d, report, principal, creator_id)
 
-    @app.get("/v1/listings/{listing_id}/download")
-    def download(listing_id: str, d: D, principal: P) -> dict:
-        """Presigned URLs for a listed model. Entitlement is checked here."""
-        require(principal)
+    @app.post("/v1/listings/{listing_id}/purchase", status_code=201)
+    def purchase(listing_id: str, d: D, principal: P) -> dict:
+        """Start a purchase. Returns a charge to settle."""
+        me = require(principal)
         with d.store.session() as s:
             row = _row_or_404(d, s, listing_id)
-            if row.state != ListingState.LISTED.value and row.creator_id != (
-                principal.user_id if principal else None
-            ):
-                raise HTTPException(403, "listing is not published")
+            if row.state != ListingState.LISTED.value:
+                raise HTTPException(409, "this model is not published")
+            if row.creator_id == me.user_id:
+                raise HTTPException(409, "you already own this listing")
+            if row.price_minor == 0:
+                raise HTTPException(409, "this model is free -- download directly")
+            existing = d.store.entitling_order(s, me.user_id, listing_id)
+            if existing is not None and existing.status is OrderStatus.PAID:
+                raise HTTPException(409, "already purchased")
+
+            d.store.upsert_user(s, me.user_id, me.email)
+            order = Order(
+                order_id=f"ord_{uuid.uuid4().hex[:16]}",
+                buyer_id=me.user_id,
+                listing_id=listing_id,
+                artifact_digest=row.artifact_digest,
+                amount=row.price(),
+                created_at=datetime.now(timezone.utc),
+            )
+            # The charge references the ORDER, not the listing, so a charge can
+            # only ever settle the purchase it was minted for.
+            charge = d.payments.create_charge(
+                order.amount, order.order_id, metadata={"listing_id": listing_id}
+            )
+            order.charge_id = charge.charge_id
+            d.store.create_order(s, order)
+            d.store.put_charge(s, charge)
+            s.commit()
+
+        return {
+            "order_id": order.order_id,
+            "amount": str(order.amount),
+            "charge_id": charge.charge_id,
+            "chain": charge.chain,
+            "address": charge.address,
+            "checkout_url": charge.checkout_url,
+        }
+
+    @app.post("/v1/orders/{order_id}/confirm")
+    def confirm_order(order_id: str, d: D, principal: P) -> dict:
+        """Settle an order against provider state, then credit the creator."""
+        me = require(principal)
+        now = datetime.now(timezone.utc)
+
+        with d.store.session() as s:
+            order = d.store.get_order(s, order_id)
+            if order is None:
+                raise HTTPException(404, "no such order")
+            if order.buyer_id != me.user_id:
+                raise HTTPException(403, "not your order")
+
+            already_paid = order.status is OrderStatus.PAID
+            charge = d.payments.get_charge(order.charge_id)
+            d.store.put_charge(s, charge)
+            settle(order, charge, now)
+            d.store.save_order(s, order)
+
+            if order.status is OrderStatus.PAID and not already_paid:
+                # One payout row per order; the unique constraint on order_id is
+                # what stops a replayed confirmation from paying twice.
+                listing = d.store.get_listing(s, order.listing_id)
+                seller = s.get(UserRow, listing.creator_id)
+                d.store.record_payout(
+                    s,
+                    payout_id=f"pay_{uuid.uuid4().hex[:16]}",
+                    creator_id=listing.creator_id,
+                    order_id=order.order_id,
+                    amount=d.split.creator_cut(order.amount),
+                    destination=seller.payout_address if seller else None,
+                )
+            s.commit()
+            status = order.status.value
+
+        if status != OrderStatus.PAID.value:
+            raise HTTPException(402, f"payment not settled ({status})")
+        return {"order_id": order_id, "status": status, "entitled": True}
+
+    @app.get("/v1/orders")
+    def my_orders(d: D, principal: P) -> dict:
+        me = require(principal)
+        with d.store.session() as s:
+            return {
+                "orders": [
+                    {
+                        "order_id": o.order_id,
+                        "listing_id": o.listing_id,
+                        "amount": str(o.amount),
+                        "status": o.status.value,
+                        "created_at": o.created_at.isoformat(),
+                    }
+                    for o in d.store.orders_for_buyer(s, me.user_id)
+                ]
+            }
+
+    @app.get("/v1/listings/{listing_id}/download")
+    def download(listing_id: str, d: D, principal: P) -> dict:
+        """Presigned URLs, minted only against entitlement.
+
+        The check happens before the URL exists rather than after: a presigned
+        link expires, but a leaked one is still a copy of the weights.
+        """
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            order = d.store.entitling_order(s, me.user_id, listing_id)
+            verdict = check_entitlement(
+                buyer_id=me.user_id,
+                listing_id=listing_id,
+                listing_state=row.state,
+                listing_creator_id=row.creator_id,
+                price=row.price(),
+                order=order,
+            )
+            if not verdict.allowed:
+                raise HTTPException(
+                    402 if verdict.payment_required else 403, verdict.reason
+                )
             art = s.get(ArtifactRow, row.artifact_digest)
             if art is None:
                 raise HTTPException(404, "artifact missing")
@@ -393,6 +523,9 @@ class DeclareArtifact(BaseModel):
 class CreateListing(BaseModel):
     artifact_digest: str = Field(pattern="^[0-9a-f]{64}$")
     title: str | None = None
+    # Minor units. Zero is a real price -- a free model still gets certified.
+    price_minor: int = Field(default=0, ge=0)
+    currency: str = "USDC"
 
 
 class ConfirmPayment(BaseModel):
