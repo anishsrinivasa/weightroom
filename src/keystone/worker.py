@@ -56,10 +56,15 @@ def record_outcome(
             raise KeyError(listing_id)
 
         report = outcome.report
+        # Deliberately belt-and-braces. `rating.certified` is the verdict, but
+        # this is the last checkpoint before a model becomes publicly listed,
+        # so the gate results are re-derived rather than taken on trust. A bug
+        # in grading, or a report constructed by hand, must not be able to put
+        # an unsafe model in the catalogue.
         gates = [r for r in report.suite_results if r.gate] if report else []
         passed = bool(
             report is not None
-            and report.rating.grade not in ("F", "unrated")
+            and report.rating.certified
             and gates
             and all(r.status is Status.PASS for r in gates)
             and not any(r.status is Status.ERROR for r in report.suite_results)

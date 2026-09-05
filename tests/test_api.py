@@ -119,7 +119,7 @@ def _report(grade="B", held_out_score=0.88, report_id=None) -> CertificationRepo
             )
         ],
         cost=Cost(gpu_seconds=81.0, usd_estimate=0.0248),
-        rating=Rating(grade=grade, as_tested_at=NOW),
+        rating=Rating(grade=grade, certified=grade not in ("F", "unrated"), as_tested_at=NOW),
     )
 
 

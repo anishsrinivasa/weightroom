@@ -250,7 +250,7 @@ def smoke(
         seed=seed,
     )
 
-    letter, rationale = grade([], results, sandboxed=False)
+    letter, certified, rationale = grade([], results, sandboxed=False)
     report = CertificationReport(
         report_id=str(uuid.uuid4()),
         created_at=datetime.now(timezone.utc),
@@ -264,7 +264,12 @@ def smoke(
         capabilities=caps,
         environment=Environment(seed=seed, sandboxed=False),
         suite_results=results,
-        rating=Rating(grade=letter, rationale=rationale, as_tested_at=datetime.now(timezone.utc)),
+        rating=Rating(
+            grade=letter,
+            certified=certified,
+            rationale=rationale,
+            as_tested_at=datetime.now(timezone.utc),
+        ),
     )
 
     path = _write(report, out_dir)

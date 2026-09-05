@@ -490,8 +490,14 @@
       "type": "object"
     },
     "Rating": {
-      "description": "We rate and measure; we do not warrant. See design doc \u00a76.3.",
+      "description": "We rate and measure; we do not warrant. See design doc \u00a76.3.\n\nTwo separate questions, deliberately not collapsed into one letter:\n\n`certified` is the gate -- did every mandatory safety check pass. It is\nbinary and fail-closed, and only a certified model may be listed.\n\n`grade` is capability, and it says nothing about safety. It is \"unrated\"\nwhen no capability benchmark was purchased, because \"we did not measure\nthis\" and \"this scored badly\" are different facts and a buyer reading a\nletter cannot tell them apart.",
       "properties": {
+        "certified": {
+          "default": false,
+          "description": "Every mandatory safety gate passed. Required for listing.",
+          "title": "Certified",
+          "type": "boolean"
+        },
         "grade": {
           "default": "unrated",
           "enum": [

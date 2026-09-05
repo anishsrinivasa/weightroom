@@ -275,8 +275,23 @@ class Cost(BaseModel):
 
 
 class Rating(BaseModel):
-    """We rate and measure; we do not warrant. See design doc §6.3."""
+    """We rate and measure; we do not warrant. See design doc §6.3.
 
+    Two separate questions, deliberately not collapsed into one letter:
+
+    `certified` is the gate -- did every mandatory safety check pass. It is
+    binary and fail-closed, and only a certified model may be listed.
+
+    `grade` is capability, and it says nothing about safety. It is "unrated"
+    when no capability benchmark was purchased, because "we did not measure
+    this" and "this scored badly" are different facts and a buyer reading a
+    letter cannot tell them apart.
+    """
+
+    certified: bool = Field(
+        default=False,
+        description="Every mandatory safety gate passed. Required for listing.",
+    )
     grade: Literal["A", "B", "C", "D", "F", "unrated"] = "unrated"
     rationale: str | None = None
     as_tested_at: datetime

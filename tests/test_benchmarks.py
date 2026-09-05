@@ -181,7 +181,7 @@ def test_declined_survives_redaction_for_every_audience() -> None:
                 error="declined by the creator",
             )
         ],
-        rating=Rating(grade="B", as_tested_at=NOW),
+        rating=Rating(grade="B", certified=True, as_tested_at=NOW),
     )
 
     for audience in (Audience.BUYER, Audience.CREATOR, Audience.INTERNAL):

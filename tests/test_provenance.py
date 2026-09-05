@@ -224,10 +224,11 @@ def test_build_license_info_populates_the_report(tmp_path: Path) -> None:
     assert not verdict.sellable
 
 
-def test_a_licence_failure_grades_f() -> None:
-    """An undistributable model is a hard fail, not a low score."""
+def test_a_licence_failure_blocks_certification() -> None:
+    """An undistributable model is refused, not given a poor capability score."""
     from keystone.pipeline import grade
 
-    letter, rationale = grade([], [], license_chain_ok=False)
-    assert letter == "F"
+    letter, certified, rationale = grade([], [], license_chain_ok=False)
+    assert certified is False
+    assert letter == "unrated"  # capability was never the problem
     assert "Licence chain" in rationale

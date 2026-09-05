@@ -183,7 +183,14 @@ export function ModelDetail({ id }: { id: string }) {
           <section className="content-block" aria-labelledby="certification-title">
             <div className="block-heading"><h2 id="certification-title">Certification</h2></div>
             <dl className="metadata-list">
-              <dt>Grade</dt><dd>{report?.rating.grade || "—"}</dd>
+              <dt>Safety</dt>
+              <dd>{report?.rating.certified ? "Certified" : "Not certified"}</dd>
+              <dt>Capability</dt>
+              <dd>
+                {!report?.rating.grade || report.rating.grade === "unrated"
+                  ? "Not measured"
+                  : report.rating.grade}
+              </dd>
               <dt>Methodology</dt><dd>{report?.rating.methodology_version || "—"}</dd>
               <dt>Environment</dt><dd>{report ? report.environment.sandboxed ? "Sandboxed" : "Not sandboxed" : "—"}</dd>
               <dt>Signed by</dt><dd className="mono">{report?.signature?.key_id || "Pending"}</dd>

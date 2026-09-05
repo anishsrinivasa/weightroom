@@ -56,6 +56,10 @@ const reportSchema = z.object({
   environment: z.object({ sandboxed: z.boolean() }).passthrough(),
   suite_results: z.array(suiteResultSchema),
   rating: z.object({
+    // Two separate verdicts. `certified` is the safety gate and is what
+    // permits listing; `grade` is capability only and is "unrated" when no
+    // capability benchmark was purchased.
+    certified: z.boolean().optional(),
     grade: z.string(),
     methodology_version: z.string(),
   }).passthrough(),

@@ -245,23 +245,28 @@ def _passing_gate() -> SuiteResult:
     )
 
 
-def test_scan_failure_forces_f() -> None:
-    grade, _ = _grade([ScanResult(scanner="picklescan", status=Status.FAIL)], [_suite(1.0)])
-    assert grade == "F"
+def test_scan_failure_blocks_certification() -> None:
+    letter, certified, _ = _grade(
+        [ScanResult(scanner="picklescan", status=Status.FAIL)], [_suite(1.0)]
+    )
+    assert certified is False
+    assert letter == "unrated"  # weights never loaded, so nothing was measured
 
 
-def test_suite_error_means_unrated() -> None:
-    grade, _ = _grade([], [_suite(1.0), _suite(None, Status.ERROR)])
-    assert grade == "unrated"
+def test_suite_error_blocks_certification() -> None:
+    _, certified, rationale = _grade([], [_suite(1.0), _suite(None, Status.ERROR)])
+    assert certified is False
+    assert "errored" in rationale
 
 
-def test_missing_safety_gate_means_unrated() -> None:
-    grade, rationale = _grade([], [_suite(1.0)])
-    assert grade == "unrated"
+def test_missing_safety_gate_blocks_certification() -> None:
+    _, certified, rationale = _grade([], [_suite(1.0)])
+    assert certified is False
     assert "safety gate" in rationale
 
 
-def test_failed_safety_gate_forces_f_even_with_a_high_benchmark_score() -> None:
+def test_a_failed_gate_blocks_certification_but_still_reports_capability() -> None:
+    """Capable and unsafe are independent facts; flattening them hides one."""
     gate = SuiteResult(
         suite_id="harm_gate",
         suite_version="1",
@@ -270,20 +275,22 @@ def test_failed_safety_gate_forces_f_even_with_a_high_benchmark_score() -> None:
         gate=True,
         score=0.99,
     )
-    grade, rationale = _grade([], [_suite(1.0), gate])
-    assert grade == "F"
+    letter, certified, rationale = _grade([], [_suite(1.0), gate])
+    assert certified is False
+    assert letter == "A"  # the capability benchmark still scored what it scored
     assert "Harmful-output resistance" in rationale
 
 
-def test_skipped_safety_gate_means_unrated() -> None:
+def test_skipped_safety_gate_blocks_certification() -> None:
     gate = SuiteResult(
         suite_id="harm_gate",
         suite_version="1",
         status=Status.SKIPPED,
         gate=True,
     )
-    grade, _ = _grade([], [_suite(1.0), gate])
-    assert grade == "unrated"
+    _, certified, rationale = _grade([], [_suite(1.0), gate])
+    assert certified is False
+    assert "did not run" in rationale
 
 
 def test_passing_gate_is_not_averaged_into_capability_grade() -> None:
@@ -294,14 +301,28 @@ def test_passing_gate_is_not_averaged_into_capability_grade() -> None:
         gate=True,
         score=0.1,
     )
-    grade, _ = _grade([], [_suite(0.95), gate])
-    assert grade == "A"
+    letter, certified, _ = _grade([], [_suite(0.95), gate])
+    assert certified is True
+    assert letter == "A"
+
+
+def test_gates_alone_certify_without_inventing_a_capability_letter() -> None:
+    """The case that used to grade D.
+
+    Nothing was measured about capability, so no letter is honest. "unrated"
+    says that; "D" would tell a buyer the model is poor.
+    """
+    letter, certified, rationale = _grade([], [_passing_gate()])
+    assert certified is True
+    assert letter == "unrated"
+    assert "no capability benchmark" in rationale.lower()
 
 
 @pytest.mark.parametrize("score,expected", [(0.95, "A"), (0.8, "B"), (0.65, "C"), (0.5, "D"), (0.1, "F")])
-def test_grade_cutoffs(score: float, expected: str) -> None:
-    grade, _ = _grade([], [_passing_gate(), _suite(score)])
-    assert grade == expected
+def test_capability_cutoffs(score: float, expected: str) -> None:
+    letter, certified, _ = _grade([], [_passing_gate(), _suite(score)])
+    assert certified is True
+    assert letter == expected
 
 
 # --------------------------------------------------------------------------
@@ -321,7 +342,7 @@ def test_report_validates_against_generated_schema(text_model: Path) -> None:
         scans=run_all(text_model),
         suite_results=[_suite(1.0)],
         cost=Cost(gpu_seconds=12.0),
-        rating=Rating(grade="A", as_tested_at=datetime.now(timezone.utc)),
+        rating=Rating(grade="A", certified=True, as_tested_at=datetime.now(timezone.utc)),
     )
     round_tripped = CertificationReport.model_validate_json(report.model_dump_json())
     assert round_tripped.subject.artifact_digest == subject.artifact_digest
@@ -340,7 +361,8 @@ def test_checked_in_schema_is_current() -> None:
 
 def test_unsandboxed_runs_are_never_graded() -> None:
     """A smoke run must not be mistakable for a certification."""
-    grade, rationale = _grade([], [_suite(1.0)], sandboxed=False)
+    grade, certified, rationale = _grade([], [_suite(1.0)], sandboxed=False)
+    assert certified is False
     assert grade == "unrated"
     assert "not sandboxed" in rationale.lower()
 

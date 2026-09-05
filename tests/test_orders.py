@@ -91,7 +91,7 @@ def _report(digest: str) -> CertificationReport:
             )
         ],
         cost=Cost(gpu_seconds=80.0),
-        rating=Rating(grade="A", as_tested_at=NOW),
+        rating=Rating(grade="A", certified=True, as_tested_at=NOW),
     )
 
 
