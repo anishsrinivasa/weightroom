@@ -26,6 +26,9 @@ MANIFEST = SuiteManifest(
     # Not on the menu. A creator who could decline the safety check would, and
     # a badge that only appears when the seller expects to pass means nothing.
     mandatory=True,
+    # Compared against the base: over-refusal is a regression a seller
+    # optimising for capability will not notice they introduced.
+    differential=True,
     price_minor=15_000_000,  # 15 USDC
     modality=[Modality.TEXT],
     required_capabilities=["chat"],

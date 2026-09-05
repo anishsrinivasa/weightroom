@@ -911,6 +911,34 @@
           "default": null,
           "title": "Score"
         },
+        "baseline_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Same suite run against the declared base model, when one could be verified. Absent means no comparison was possible, never that the base scored zero.",
+          "title": "Baseline Score"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "score - baseline_score. Negative means this fine-tune is worse than the model it was derived from.",
+          "title": "Delta"
+        },
         "score_band": {
           "anyOf": [
             {

@@ -182,9 +182,9 @@ def test_only_filter_declines_the_rest() -> None:
     """Unselected optional suites are declined, and say so."""
     suites = discover()
     eligible, skipped = select(suites, Capabilities(), [Modality.TEXT], only=[])
-    # stub_safety is mandatory, so it runs whatever the creator picked.
-    assert [s.manifest.id for s in eligible] == ["stub_safety"]
-    assert {s.suite_id for s in skipped} == {"stub_capability", "stub_reasoning"}
+    # Mandatory suites run whatever the creator picked.
+    assert {s.manifest.id for s in eligible} == {"stub_safety", "stub_capability"}
+    assert {s.suite_id for s in skipped} == {"stub_reasoning"}
     assert all(s.declined for s in skipped)
 
 
@@ -438,8 +438,8 @@ def test_declined_benchmarks_appear_in_the_results() -> None:
     ran = [r for r in results if r.status is not Status.SKIPPED]
     declined = [r for r in results if r.declined]
 
-    assert [r.suite_id for r in ran] == ["stub_safety"]  # mandatory still ran
-    assert {r.suite_id for r in declined} == {"stub_capability", "stub_reasoning"}
+    assert {r.suite_id for r in ran} == {"stub_safety", "stub_capability"}
+    assert {r.suite_id for r in declined} == {"stub_reasoning"}
     # Every offered benchmark is accounted for, run or not.
     assert len(results) == 3
 

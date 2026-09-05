@@ -236,6 +236,19 @@ class SuiteResult(BaseModel):
         default=None, description="Human-readable name, for the report and the menu."
     )
     score: float | None = Field(default=None, ge=0.0, le=1.0)
+    baseline_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Same suite run against the declared base model, when one "
+        "could be verified. Absent means no comparison was possible, never "
+        "that the base scored zero.",
+    )
+    delta: float | None = Field(
+        default=None,
+        description="score - baseline_score. Negative means this fine-tune is "
+        "worse than the model it was derived from.",
+    )
     score_band: str | None = Field(
         default=None,
         description="Coarse bucket of `score`. Populated during redaction so that "

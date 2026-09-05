@@ -20,7 +20,11 @@ MANIFEST = SuiteManifest(
     id="stub_capability",
     version="0.1.0",
     display_name="Instruction following",
-    mandatory=False,
+    # Buyers shop on capability and assume safety, so every listing needs a
+    # populated comparison table. Leaving this optional means a
+    # cost-conscious seller ships a page with no evidence on it.
+    mandatory=True,
+    differential=True,
     price_minor=10_000_000,  # 10 USDC
     modality=[Modality.TEXT],
     required_capabilities=["chat"],

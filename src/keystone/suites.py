@@ -73,6 +73,10 @@ class SuiteManifest:
     # creator who could opt out of the safety check would, and the badge would
     # then mean nothing.
     mandatory: bool = False
+    # Run this suite against the declared base model too and report the
+    # difference. The suite is unchanged and never knows -- the platform runs
+    # it twice and diffs, so authoring stays single-model.
+    differential: bool = False
     # Gates are fail-closed and do not get averaged into a capability grade.
     # A mandatory benchmark need not be a gate (for example, a marketplace may
     # always report a quality diagnostic), so this is deliberately separate.

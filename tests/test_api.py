@@ -364,10 +364,10 @@ def test_publish_returns_a_charge(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     r = client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": []},
                        headers=_hdr("tok-creator")).json()
-    # Mandatory safety only -- nothing optional was selected.
-    assert r["amount"] == "15.000000 USDC"
-    assert r["running"] == ["stub_safety"]
-    assert set(r["declined"]) == {"stub_capability", "stub_reasoning"}
+    # Both mandatory items -- nothing optional was selected.
+    assert r["amount"] == "25.000000 USDC"
+    assert set(r["running"]) == {"stub_safety", "stub_capability"}
+    assert set(r["declined"]) == {"stub_reasoning"}
     assert r["chain"] == "base" and r["address"]
 
 

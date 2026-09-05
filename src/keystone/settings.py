@@ -116,8 +116,12 @@ def build_auth(s: Settings) -> tuple[Authenticator, bool]:
 
 
 def build_payments(s: Settings) -> tuple[PaymentProvider, bool]:
-    # No real vendor is wired yet. When one is, return it here and flip the
-    # flag; the production guard below is what stops the demo shipping.
+    """Hosted checkout when configured, the simulated chain otherwise."""
+    from keystone.providers.hosted_checkout import from_env as hosted_from_env
+
+    hosted = hosted_from_env()
+    if hosted is not None:
+        return hosted, False
     return (
         DemoChainProvider(
             chain=s.chain,

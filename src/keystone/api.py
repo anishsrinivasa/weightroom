@@ -12,6 +12,7 @@ because a leak here is not a bug, it is the end of the moat.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -261,6 +262,39 @@ def create_app(deps: Deps) -> FastAPI:
                     }
                 )
             return {"listings": listings}
+
+    @app.patch("/v1/listings/{listing_id}")
+    def update_listing(
+        listing_id: str, body: UpdateListing, d: D, principal: P
+    ) -> dict:
+        """Change price or title. Seller only, and allowed after listing.
+
+        Repricing does not disturb existing orders: an order records the amount
+        it was created at, so a buyer mid-checkout pays what they were quoted
+        and a completed sale is not retroactively rewritten.
+        """
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            if row.creator_id != me.user_id:
+                raise HTTPException(403, "not your listing")
+            if row.state == ListingState.WITHDRAWN.value:
+                raise HTTPException(409, "this listing has been withdrawn")
+
+            if body.price_minor is not None:
+                row.price_minor = body.price_minor
+            if body.currency is not None:
+                row.currency = body.currency
+            if body.title is not None:
+                row.title = body.title
+            s.commit()
+            return {
+                "listing_id": row.id,
+                "title": row.title,
+                "price": str(row.price()),
+                "price_minor": row.price_minor,
+                "state": row.state,
+            }
 
     @app.get("/v1/listings/{listing_id}")
     def get_listing(listing_id: str, d: D, principal: P) -> dict:
@@ -675,6 +709,45 @@ def create_app(deps: Deps) -> FastAPI:
                 raise HTTPException(404, "no such charge") from None
             return {"charge_id": charge.charge_id, "tx_hash": charge.tx_hash}
 
+    @app.post("/v1/webhooks/payments", include_in_schema=False)
+    async def payment_webhook(request: Request, d: D) -> dict:
+        """Processor callback. A prompt to re-read, never a source of truth.
+
+        Anyone can POST here, so the signature check comes first -- over the
+        raw bytes, because re-serialising JSON can reorder keys and invalidate
+        a good signature. Even once it passes, the payload's claims about
+        status and amount are discarded: the only thing taken from it is which
+        charge to go and look up.
+        """
+        from keystone.providers.hosted_checkout import (
+            HostedCheckoutProvider,
+            verify_webhook,
+        )
+
+        if not isinstance(d.payments, HostedCheckoutProvider):
+            raise HTTPException(404, "no webhook for this payment provider")
+
+        raw = await request.body()
+        signature = request.headers.get("x-webhook-signature", "")
+        if not verify_webhook(d.payments.config.webhook_secret, raw, signature):
+            raise HTTPException(401, "bad signature")
+
+        try:
+            payload = json.loads(raw or b"{}")
+        except ValueError:
+            raise HTTPException(400, "malformed payload") from None
+
+        charge_id = d.payments.charge_id_from_webhook(payload)
+        if not charge_id:
+            raise HTTPException(400, "payload names no charge")
+
+        # Re-read from the processor. This is the whole point of the endpoint.
+        charge = d.payments.get_charge(charge_id)
+        with d.store.session() as s:
+            d.store.put_charge(s, charge)
+            s.commit()
+        return {"charge_id": charge.charge_id, "status": charge.status.value}
+
     @app.get("/v1/health")
     def health() -> dict:
         return {"ok": True}
@@ -703,6 +776,14 @@ class CreateListing(BaseModel):
     # Minor units. Zero is a real price -- a free model still gets certified.
     price_minor: int = Field(default=0, ge=0)
     currency: str = "USDC"
+
+
+class UpdateListing(BaseModel):
+    """Every field optional: a reprice should not require restating the title."""
+
+    price_minor: int | None = Field(default=None, ge=0)
+    currency: str | None = None
+    title: str | None = None
 
 
 class ConfirmPayment(BaseModel):

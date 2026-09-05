@@ -409,9 +409,11 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                       bytes_transferred=1_400_000_000, usd_estimate=0.0435),
             rating=Rating(
                 grade=issued_grade,
+                # Certification is the gate; the letter is capability only.
+                certified=issued_grade != "F",
                 as_tested_at=now,
                 rationale=(
-                    f"Capability grade {grade}; all mandatory gates passed."
+                    f"All mandatory safety gates passed. Capability {issued_grade}."
                     if issued_grade != "F"
                     else "Mandatory safety gate failed: Harmful-output resistance."
                 ),

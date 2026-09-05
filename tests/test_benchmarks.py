@@ -85,9 +85,15 @@ def test_menu_carries_prices(suites) -> None:
     assert prices[REASONING] == 20_000_000
 
 
-def test_safety_is_the_mandatory_one(suites) -> None:
-    assert mandatory_ids(suites) == [SAFETY]
-    assert set(optional_ids(suites)) == {CAPABILITY, REASONING}
+def test_every_listing_gets_a_populated_product_page(suites) -> None:
+    """Safety and one capability benchmark are both mandatory.
+
+    Buyers shop on capability and assume safety, so leaving the capability
+    benchmark optional means a cost-conscious seller ships a listing with no
+    evidence on it.
+    """
+    assert set(mandatory_ids(suites)) == {SAFETY, CAPABILITY}
+    assert optional_ids(suites) == [REASONING]
 
 
 def test_menu_exposes_gate_metadata(suites) -> None:
@@ -102,9 +108,9 @@ def test_menu_exposes_gate_metadata(suites) -> None:
 @pytest.mark.parametrize(
     "selected,expected_minor",
     [
-        ([], 15_000_000),                          # mandatory only
-        ([CAPABILITY], 25_000_000),
-        ([REASONING], 35_000_000),
+        ([], 25_000_000),                          # both mandatory items
+        ([CAPABILITY], 25_000_000),                # already required
+        ([REASONING], 45_000_000),
         ([CAPABILITY, REASONING], 45_000_000),     # everything
     ],
 )
@@ -125,8 +131,10 @@ def test_duplicate_picks_are_billed_once(suites) -> None:
 # --------------------------------------------------------------------------
 
 def test_mandatory_is_folded_in_when_omitted(suites) -> None:
-    assert normalise_selection(suites, []) == [SAFETY]
-    assert normalise_selection(suites, [CAPABILITY]) == [SAFETY, CAPABILITY]
+    assert set(normalise_selection(suites, [])) == {SAFETY, CAPABILITY}
+    assert set(normalise_selection(suites, [REASONING])) == {
+        SAFETY, CAPABILITY, REASONING,
+    }
 
 
 def test_safety_is_never_declined(suites) -> None:
@@ -145,9 +153,8 @@ def test_unknown_benchmark_is_an_error_not_a_silent_drop(suites) -> None:
 # --------------------------------------------------------------------------
 
 def test_declined_are_reported(suites) -> None:
-    assert set(declined_ids(suites, [CAPABILITY])) == {REASONING}
-    assert set(declined_ids(suites, [])) == {CAPABILITY, REASONING}
-    assert declined_ids(suites, [CAPABILITY, REASONING]) == []
+    assert set(declined_ids(suites, [])) == {REASONING}
+    assert declined_ids(suites, [REASONING]) == []
 
 
 def test_declined_survives_redaction_for_every_audience() -> None:
@@ -235,7 +242,7 @@ def _listing(client: TestClient, deps: Deps) -> str:
 def test_menu_endpoint_is_public(client: TestClient) -> None:
     body = client.get("/v1/benchmarks").json()
     assert {b["suite_id"] for b in body["benchmarks"]} == {SAFETY, CAPABILITY, REASONING}
-    assert body["mandatory_total"] == "15.000000 USDC"
+    assert body["mandatory_total"] == "25.000000 USDC"
 
 
 def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
@@ -246,9 +253,9 @@ def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert r["amount"] == "35.000000 USDC"       # 15 mandatory + 20 reasoning
-    assert r["running"] == [SAFETY, REASONING]
-    assert r["declined"] == [CAPABILITY]
+    assert r["amount"] == "45.000000 USDC"       # 25 mandatory + 20 reasoning
+    assert set(r["running"]) == {SAFETY, CAPABILITY, REASONING}
+    assert r["declined"] == []
 
 
 def test_publish_rejects_an_unknown_benchmark(client: TestClient, deps: Deps) -> None:
@@ -270,7 +277,7 @@ def test_selection_is_persisted_for_the_worker(client: TestClient, deps: Deps) -
     )
     with deps.store.session() as s:
         row = deps.store.get_listing(s, listing_id)
-        assert row.selected_benchmarks == [SAFETY, CAPABILITY]
+        assert set(row.selected_benchmarks) == {SAFETY, CAPABILITY}
 
 
 def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> None:
@@ -297,4 +304,4 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
         return Outcome(digest)
 
     process_pending(deps.store, certify=fake_certify)
-    assert seen == [[SAFETY, CAPABILITY]]
+    assert set(seen[0]) == {SAFETY, CAPABILITY}
