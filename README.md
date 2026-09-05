@@ -316,6 +316,13 @@ Money is always integer minor units, and the currency carries its own precision
 — USDC has six decimals, USD has two, and conflating them is a 10,000x error.
 `Money` rejects floats at construction.
 
+`DemoChainProvider` is a stablecoin provider with a simulated chain behind it —
+a charge gets an address, a wallet broadcasts, the transaction accrues
+confirmations block by block, and only then does the charge settle. Nothing
+short-circuits: the caller polls and waits exactly as it would against Base.
+Blocks come from a clock instead of a chain watcher; that is the only
+difference, and swapping in a real provider replaces that one class.
+
 The fee is charged **per attempt**, not per listing: that is what prices the
 cost of sampling our held-out eval set. Rate limits are checked *before*
 payment, so we never take money from someone we are about to reject on cooldown.

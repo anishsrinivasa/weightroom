@@ -26,7 +26,7 @@ Check it works:
 # .venv/bin/python -m pytest -q           # macOS / Linux
 ```
 
-You should see **230 passed**. If that runs, everything below will.
+You should see **263 passed**. If that runs, everything below will.
 
 > The commands below use `.venv/Scripts/python.exe -m keystone.cli` so you never
 > have to activate anything. If you'd rather activate the venv
@@ -88,10 +88,20 @@ tokens:
 Same report, three views. The audience comes from the token, never from the
 URL — adding `?audience=internal` does nothing.
 
-**See entitlement working.** Click **buy** on a priced listing. The log shows
-the download being refused first (402), then the order, then the refusal to
-confirm without settlement. That last one is the point: the page cannot talk
-itself into being paid.
+**Watch a payment settle.** Open a priced listing and click **Buy**. A payment
+panel appears with a network, an address, and a confirmation counter. Click
+**Pay from wallet** — a transaction is broadcast on the simulated chain and
+confirmations accrue one block at a time until the charge settles, at which
+point the download unlocks.
+
+**Underpay** on the same panel sends too little: the transaction confirms, the
+charge never settles, and the download stays refused. Same flow for the
+certification fee on the Publish tab.
+
+The simulated chain is the only piece that differs from production. Blocks come
+from a clock instead of a chain watcher; everything above it — polling the
+provider, waiting on confirmations, refusing to take the client's word — is the
+real path.
 
 **Upload a model.** Publish tab → **pick folder** (or **use a sample** if you
 don't have a checkpoint handy). Your browser hashes each file with WebCrypto,

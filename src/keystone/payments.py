@@ -16,9 +16,10 @@ decimals -- USDC has six, and getting that wrong is a 10,000x error.
 from __future__ import annotations
 
 import abc
+import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 
@@ -261,3 +262,137 @@ class HostedCryptoProvider(PaymentProvider):
 
     def create_payout(self, destination: str, amount: Money, reference: str) -> Payout:
         raise NotImplementedError
+
+
+class DemoChainProvider(PaymentProvider):
+    """A stablecoin provider with a simulated chain behind it.
+
+    Structurally identical to a real one: a charge gets an address, a wallet
+    broadcasts, the transaction gathers confirmations block by block, and only
+    then does the charge settle. Nothing short-circuits -- the caller polls and
+    waits exactly as it would against Base or Solana.
+
+    The only difference from production is where blocks come from. Here they
+    come from a clock; there they come from a chain watcher. Swapping in a real
+    provider replaces this class and nothing else.
+    """
+
+    def __init__(
+        self,
+        *,
+        chain: str = "base",
+        block_time_s: float = 2.0,
+        required_confirmations: int = 3,
+        clock=None,
+    ) -> None:
+        self.chain = chain
+        self.block_time_s = block_time_s
+        self.required_confirmations = required_confirmations
+        self._clock = clock or time.monotonic
+        self.charges: dict[str, Charge] = {}
+        self.payouts: dict[str, Payout] = {}
+        # charge_id -> when the paying transaction was broadcast
+        self._broadcast_at: dict[str, float] = {}
+        self._underpaid: dict[str, Money] = {}
+
+    # -- provider interface ----------------------------------------------
+
+    def create_charge(
+        self,
+        amount: Money,
+        reference: str,
+        *,
+        metadata: dict[str, str] | None = None,
+        ttl: timedelta = timedelta(hours=1),
+    ) -> Charge:
+        charge_id = f"ch_{uuid.uuid4().hex[:16]}"
+        now = datetime.now(timezone.utc)
+        charge = Charge(
+            charge_id=charge_id,
+            reference=reference,
+            amount=amount,
+            chain=self.chain,
+            address=f"0x{uuid.uuid4().hex}{uuid.uuid4().hex[:8]}",
+            required_confirmations=self.required_confirmations,
+            created_at=now,
+            expires_at=now + ttl,
+            metadata=metadata or {},
+        )
+        self.charges[charge_id] = charge
+        return charge
+
+    def get_charge(self, charge_id: str) -> Charge:
+        """Authoritative status, recomputed from the chain on every read.
+
+        The caller never tells us a payment landed; we look.
+        """
+        charge = self.charges[charge_id]
+        self._advance(charge)
+        return charge
+
+    def create_payout(self, destination: str, amount: Money, reference: str) -> Payout:
+        payout = Payout(
+            payout_id=f"po_{uuid.uuid4().hex[:16]}",
+            destination=destination,
+            amount=amount,
+            status=ChargeStatus.SETTLED,
+            tx_hash=f"0x{uuid.uuid4().hex}",
+            created_at=datetime.now(timezone.utc),
+        )
+        self.payouts[payout.payout_id] = payout
+        return payout
+
+    # -- the simulated wallet --------------------------------------------
+
+    def broadcast(self, charge_id: str, amount: Money | None = None) -> Charge:
+        """Stand in for a wallet sending the funds.
+
+        `amount` lets a demo send the wrong figure and watch the underpayment
+        path, which is a real failure worth being able to see.
+        """
+        charge = self.charges[charge_id]
+        if charge.status in (ChargeStatus.SETTLED, ChargeStatus.EXPIRED):
+            return charge
+        if amount is not None and amount.amount_minor != charge.amount.amount_minor:
+            self._underpaid[charge_id] = amount
+
+        charge.tx_hash = charge.tx_hash or f"0x{uuid.uuid4().hex}"
+        self._broadcast_at[charge_id] = self._clock()
+        self._advance(charge)
+        return charge
+
+    def _advance(self, charge: Charge) -> None:
+        if charge.status in (ChargeStatus.SETTLED, ChargeStatus.EXPIRED):
+            return
+
+        broadcast_at = self._broadcast_at.get(charge.charge_id)
+        if broadcast_at is None:
+            if charge.expires_at and datetime.now(timezone.utc) >= charge.expires_at:
+                charge.status = ChargeStatus.EXPIRED
+            return
+
+        elapsed = max(0.0, self._clock() - broadcast_at)
+        # +1 because inclusion in a block is itself the first confirmation.
+        charge.confirmations = min(
+            charge.required_confirmations, int(elapsed // self.block_time_s) + 1
+        )
+
+        sent = self._underpaid.get(charge.charge_id, charge.amount)
+        if sent.amount_minor < charge.amount.amount_minor:
+            # The funds arrived but do not cover the charge. It stays unsettled
+            # and the amount received is what the caller sees.
+            charge.amount = charge.amount
+            charge.status = ChargeStatus.CONFIRMING
+            return
+
+        if charge.confirmations >= charge.required_confirmations:
+            charge.status = ChargeStatus.SETTLED
+            charge.settled_at = charge.settled_at or datetime.now(timezone.utc)
+        else:
+            charge.status = ChargeStatus.CONFIRMING
+
+    def received(self, charge_id: str) -> Money | None:
+        """What the simulated wallet actually sent, if anything."""
+        if charge_id not in self._broadcast_at:
+            return None
+        return self._underpaid.get(charge_id, self.charges[charge_id].amount)

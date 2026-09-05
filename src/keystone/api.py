@@ -36,7 +36,7 @@ from keystone.orders import (
     check_entitlement,
     settle,
 )
-from keystone.payments import MockPaymentProvider, PaymentProvider
+from keystone.payments import DemoChainProvider, MockPaymentProvider, PaymentProvider
 from keystone.schema import Audience, CertificationReport, FileEntry
 from keystone.signing import Ed25519Signer
 from keystone.storage import ArtifactStore, LocalStore, artifact_key
@@ -541,6 +541,55 @@ def create_app(deps: Deps) -> FastAPI:
             target.write_bytes(body)
             return {"key": key, "bytes": len(body)}
 
+    @app.get("/v1/charges/{charge_id}")
+    def get_charge(charge_id: str, d: D, principal: P) -> dict:
+        """Current chain state for a charge. Read from the provider, every time."""
+        require(principal)
+        try:
+            charge = d.payments.get_charge(charge_id)
+        except KeyError:
+            raise HTTPException(404, "no such charge") from None
+
+        with d.store.session() as s:
+            d.store.put_charge(s, charge)
+            s.commit()
+
+        received = None
+        if isinstance(d.payments, DemoChainProvider):
+            got = d.payments.received(charge_id)
+            received = str(got) if got else None
+
+        return {
+            "charge_id": charge.charge_id,
+            "reference": charge.reference,
+            "status": charge.status.value,
+            "amount": str(charge.amount),
+            "received": received,
+            "chain": charge.chain,
+            "address": charge.address,
+            "tx_hash": charge.tx_hash,
+            "confirmations": charge.confirmations,
+            "required_confirmations": charge.required_confirmations,
+            "settled": charge.is_settled,
+        }
+
+    # Development only: stands in for a wallet broadcasting the payment. In
+    # production the funds arrive on chain and a watcher sees them.
+    if isinstance(deps.payments, DemoChainProvider):
+
+        @app.post("/v1/charges/{charge_id}/demo-pay", include_in_schema=False)
+        def demo_pay(charge_id: str, body: DemoPay, d: D, principal: P) -> dict:
+            require(principal)
+            try:
+                amount = None
+                if body.amount_minor is not None:
+                    original = d.payments.charges[charge_id].amount
+                    amount = Money(body.amount_minor, original.currency)
+                charge = d.payments.broadcast(charge_id, amount)
+            except KeyError:
+                raise HTTPException(404, "no such charge") from None
+            return {"charge_id": charge.charge_id, "tx_hash": charge.tx_hash}
+
     @app.get("/v1/health")
     def health() -> dict:
         return {"ok": True}
@@ -585,6 +634,11 @@ class ConfirmPayment(BaseModel):
     charge_id: str
 
 
+class DemoPay(BaseModel):
+    # Send the wrong amount to watch the underpayment path.
+    amount_minor: int | None = None
+
+
 class PublishRequest(BaseModel):
     # Optional capability benchmarks. Mandatory suites are added server-side,
     # so omitting them here does not skip them.
@@ -605,6 +659,7 @@ def dev_app() -> FastAPI:
     # KEYSTONE_SIGNING_KEY so the key survives a restart.
     signer = Ed25519Signer.from_env() or Ed25519Signer.generate()
     artifacts = LocalStore(Path(".keystone-store"), base_url="/v1/dev-upload")
+    payments = DemoChainProvider(block_time_s=1.5, required_confirmations=3)
     return create_app(
-        Deps(store, artifacts, MockPaymentProvider(), auth, signer=signer)
+        Deps(store, artifacts, payments, auth, signer=signer)
     )
