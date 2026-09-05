@@ -149,6 +149,27 @@ nothing HF reports is load-bearing — we re-hash everything ourselves.
 
 ---
 
+## Signing
+
+A rating nobody can verify is a screenshot. [`signing.py`](src/keystone/signing.py)
+signs every stored report with Ed25519, and the public key is served at
+`/v1/signing-key`.
+
+Canonicalisation matters more than the algorithm: if two honest parties
+serialise the same report differently, verification fails and the mechanism is
+worthless. The payload is JSON with sorted keys, no whitespace, signature field
+excluded. Any edit — a bumped grade, a swapped artifact digest, a different
+engine version, a flipped `sandboxed` flag — breaks it, and there is a
+parametrised test for each.
+
+**What is signed is the internal report, not a redacted view.** Redacted views
+are derived and do not verify against the signature, deliberately: signing
+redacted views would let anyone with a creator token mint a differently-redacted
+"valid" report.
+
+Set `KEYSTONE_SIGNING_KEY` (base64 raw Ed25519 private key) so the key survives
+a restart. Dev generates an ephemeral one.
+
 ## API and worker
 
 ```bash
@@ -354,11 +375,12 @@ Expect that ratio to hold.
   you at buyers who can pay in stablecoin.
 - `_GPU_USD_PER_S` in [`cli.py`](src/keystone/cli.py) is approximate. Verify
   against current Modal pricing.
-- No signing yet. `Signature` exists in the schema; sigstore/cosign is not wired.
+
 - No license-chain checking. `LicenseInfo.chain_ok` is always `None`.
 - `_grade()` is placeholder logic; the real rubric belongs to the harness side.
-- `StaticTokenAuth` is a development stand-in. Real auth (Clerk, Supabase) drops
-  in behind `Authenticator`, but nothing production-grade is wired.
+- `StaticTokenAuth` backs the dev server. `JWTAuth` is production-shaped
+  (JWKS, issuer/audience/expiry checks, fixed algorithm list) but is not wired
+  into `dev_app` and has no provider configured.
 - The frontend is a placeholder: one static file, no build step, no framework.
 - `finalize` trusts declared hashes; enforcement happens at materialize time,
   before weights are ever loaded. Fine, but it means a bad manifest is caught

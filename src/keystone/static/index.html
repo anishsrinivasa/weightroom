@@ -97,6 +97,9 @@
     <p class="hint">
       Only listings that passed certification appear here. Every report shown is
       redacted for the audience your token resolves to — never for one you ask for.
+      Reports are signed; the public verification key is at
+      <a href="/v1/signing-key" style="color:inherit">/v1/signing-key</a>, so a
+      buyer can check a report without trusting us at the moment of checking.
     </p>
     <div class="row" style="margin-bottom:14px">
       <button onclick="loadBrowse()">refresh</button>
@@ -124,6 +127,8 @@
         <tbody id="dSuites"></tbody>
       </table></div>
       <p class="note" id="dNote"></p>
+      <h3>Signature</h3>
+      <p class="mono-sm" id="dSig">—</p>
       <details><summary class="muted" style="cursor:pointer;margin:10px 0">raw json</summary>
         <pre id="dRaw"></pre></details>
     </div>
@@ -265,6 +270,11 @@ async function openListing(id) {
     $("dSuites").appendChild(tr);
   }
   $("dNote").textContent = r.rating.rationale || "";
+
+  const sig = r.signature;
+  $("dSig").textContent = sig
+    ? `${sig.algorithm} · key ${sig.key_id} · ${sig.value.slice(0, 32)}…`
+    : "unsigned — this report cannot be independently verified";
 }
 
 // ---- publish ---------------------------------------------------------

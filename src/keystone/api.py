@@ -28,6 +28,7 @@ from keystone.db import ArtifactRow, ListingRow, Store
 from keystone.listing import DEFAULT_POLICY, AttemptPolicy, ListingState, transition
 from keystone.payments import MockPaymentProvider, PaymentProvider
 from keystone.schema import Audience, CertificationReport, FileEntry
+from keystone.signing import Ed25519Signer
 from keystone.storage import ArtifactStore, LocalStore, artifact_key
 from keystone.visibility import assert_no_leak, redact
 
@@ -46,12 +47,14 @@ class Deps:
         payments: PaymentProvider,
         auth: Authenticator,
         policy: AttemptPolicy = DEFAULT_POLICY,
+        signer=None,
     ) -> None:
         self.store = store
         self.artifacts = artifacts
         self.payments = payments
         self.auth = auth
         self.policy = policy
+        self.signer = signer
 
 
 def get_deps(request: Request) -> Deps:
@@ -338,6 +341,23 @@ def create_app(deps: Deps) -> FastAPI:
                 ]
             }
 
+    @app.get("/v1/signing-key")
+    def signing_key(d: D) -> dict:
+        """Public verification key. Meant to be public -- that is the point.
+
+        A buyer verifies a signed report against this without trusting us at
+        the moment of verification.
+        """
+        import base64
+
+        if d.signer is None:
+            raise HTTPException(503, "no signing key configured")
+        return {
+            "algorithm": "ed25519",
+            "key_id": d.signer.key_id,
+            "public_key": base64.b64encode(d.signer.public_key_bytes()).decode(),
+        }
+
     @app.get("/v1/health")
     def health() -> dict:
         return {"ok": True}
@@ -389,6 +409,10 @@ def dev_app() -> FastAPI:
             "dev-admin": Principal("u_admin", "admin@example.com", is_admin=True),
         }
     )
+    # A generated key means dev reports verify end to end. Production sets
+    # KEYSTONE_SIGNING_KEY so the key survives a restart.
+    signer = Ed25519Signer.from_env() or Ed25519Signer.generate()
     return create_app(
-        Deps(store, LocalStore(Path(".keystone-store")), MockPaymentProvider(), auth)
+        Deps(store, LocalStore(Path(".keystone-store")), MockPaymentProvider(), auth,
+             signer=signer)
     )

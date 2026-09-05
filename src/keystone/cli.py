@@ -319,6 +319,95 @@ def worker(
 
 
 @app.command()
+def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
+    """Populate the dev database so the placeholder UI has something to show.
+
+    Uses fabricated reports -- no GPU, no spend. The signatures are real.
+    """
+    import uuid as _uuid
+    from datetime import timedelta
+
+    from keystone.db import Store
+    from keystone.listing import Attempt, ListingState
+    from keystone.pipeline import Outcome
+    from keystone.schema import Cost, Environment, Rating, ScanResult, SuiteResult
+    from keystone.signing import Ed25519Signer
+    from keystone.worker import publish_certified, record_outcome
+
+    store = Store(db)
+    store.create_all()
+    signer = Ed25519Signer.from_env() or Ed25519Signer.generate()
+    now = datetime.now(timezone.utc)
+
+    def report(grade: str, digest: str, held: float) -> CertificationReport:
+        return CertificationReport(
+            report_id=f"rep_{_uuid.uuid4().hex[:12]}",
+            created_at=now,
+            status=Status.PASS if grade != "F" else Status.FAIL,
+            subject=Subject(
+                source=Source(kind=SourceKind.UPLOAD, ref=f"rcpt_{digest[:8]}"),
+                artifact_digest=digest,
+                files=[],
+                total_bytes=1_400_000_000,
+            ),
+            environment=Environment(sandboxed=True, seed=0, gpu="NVIDIA A10",
+                                    engine_version="0.28.0", python_version="3.12.10"),
+            scans=[ScanResult(scanner="picklescan", status=Status.PASS),
+                   ScanResult(scanner="format_hygiene", status=Status.PASS)],
+            suite_results=[
+                SuiteResult(suite_id="heldout_harm", suite_version="1.2.0",
+                            status=Status.PASS if held >= 0.75 else Status.FAIL,
+                            held_out=True, score=held, metrics={"refusal_rate": held},
+                            n_items=200,
+                            categories=[] if held >= 0.75 else ["harmful_content_refusal"],
+                            remediation=None if held >= 0.75 else "public/harm_practice_v1"),
+                SuiteResult(suite_id="public_capability", suite_version="0.4.0",
+                            status=Status.PASS, held_out=False, score=0.91,
+                            metrics={"accuracy": 0.91}, n_items=50),
+            ],
+            cost=Cost(gpu_seconds=142.0, cpu_seconds=9.0,
+                      bytes_transferred=1_400_000_000, usd_estimate=0.0435),
+            rating=Rating(grade=grade, as_tested_at=now,
+                          rationale=f"Mean suite score across 2 suite(s); grade {grade}."),
+        )
+
+    fixtures = [
+        ("Legalese-7B (contract QA)", "1" * 64, "A", 0.94, True),
+        ("MedNote-3B (clinical summaries)", "2" * 64, "B", 0.81, True),
+        ("Sentinel-1B (log triage)", "3" * 64, "D", 0.62, False),
+    ]
+
+    with store.session() as s:
+        store.upsert_user(s, "u_creator", "creator@example.com")
+        for _, digest, *_ in fixtures:
+            store.put_artifact(s, digest, [], 1_400_000_000)
+        s.commit()
+
+    for title, digest, grade, held, go_live in fixtures:
+        listing_id = f"lst_{_uuid.uuid4().hex[:16]}"
+        with store.session() as s:
+            store.create_listing(s, listing_id, "u_creator", digest, title)
+            s.commit()
+        record_outcome(store, listing_id, Outcome(digest, report=report(grade, digest, held)),
+                       signer=signer, now=now)
+        if go_live:
+            publish_certified(store, listing_id)
+        console.print(f"  {title}  [bold]{grade}[/]  {'listed' if go_live else 'rejected'}")
+
+    # A listing that looks like eval-set probing, for the admin queue.
+    probe_id = f"lst_{_uuid.uuid4().hex[:16]}"
+    with store.session() as s:
+        store.put_artifact(s, "9" * 64, [], 900_000_000)
+        store.create_listing(s, probe_id, "u_creator", "9" * 64, "Nudged-2B (attempt 4)")
+        s.commit()
+    for i, score in enumerate((0.700, 0.720, 0.735)):
+        record_outcome(store, probe_id, Outcome("9" * 64, report=report("D", "9" * 64, score)),
+                       signer=signer, now=now + timedelta(days=i))
+    console.print("  Nudged-2B  [yellow]flagged for review[/] (monotonic score creep)")
+    console.print(f"\nseeded {db}")
+
+
+@app.command()
 def suites() -> None:
     """List discoverable suites and what they require."""
     from keystone.registry import discover

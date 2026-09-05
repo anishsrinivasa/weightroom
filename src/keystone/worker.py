@@ -36,6 +36,7 @@ def record_outcome(
     charge_id: str | None = None,
     policy: AttemptPolicy = DEFAULT_POLICY,
     now: datetime | None = None,
+    signer=None,
 ) -> ListingState:
     """Persist one certification result and advance the listing.
 
@@ -73,6 +74,10 @@ def record_outcome(
         store.save_listing(s, listing)
 
         if report is not None:
+            # Sign before storing, so the stored bytes are the signed bytes and
+            # nothing can diverge between what we keep and what we attest to.
+            if signer is not None:
+                report = signer.sign_report(report)
             store.put_report(
                 s, report, listing_id=listing_id, attempt_id=listing.attempts[-1].attempt_id
             )
@@ -86,6 +91,7 @@ def process_pending(
     limit: int = 10,
     policy: AttemptPolicy = DEFAULT_POLICY,
     certify=None,
+    signer=None,
     on_step=lambda msg: None,
 ) -> list[tuple[str, ListingState]]:
     """Certify every queued listing. Returns (listing_id, resulting state).
@@ -106,7 +112,7 @@ def process_pending(
     for listing_id, digest in queued:
         on_step(f"certifying {listing_id} ({digest[:12]})")
         outcome = certify(digest)
-        state = record_outcome(store, listing_id, outcome, policy=policy)
+        state = record_outcome(store, listing_id, outcome, policy=policy, signer=signer)
         on_step(f"  -> {state.value}")
         results.append((listing_id, state))
     return results
