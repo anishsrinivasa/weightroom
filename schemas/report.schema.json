@@ -1,5 +1,15 @@
 {
   "$defs": {
+    "Audience": {
+      "description": "Who is allowed to see a piece of the report.\n\nOrdered from least to most privileged. A field tagged BUYER is visible to\neveryone; CREATOR is visible to the model's owner and to us; INTERNAL never\nleaves the platform.\n\nThis boundary is load-bearing. Certification gates listing, so a rejected\ncreator will resubmit -- and every bit of detail we hand back is a bit of\nour held-out eval set leaked. Coarse categories go out; per-item results\nnever do. See `keystone.visibility`.",
+      "enum": [
+        "buyer",
+        "creator",
+        "internal"
+      ],
+      "title": "Audience",
+      "type": "string"
+    },
     "Capabilities": {
       "description": "SEAM 5: one object, so VLM fields are additive.",
       "properties": {
@@ -278,6 +288,11 @@
           "default": null,
           "description": "Pointer into stored transcripts. Never inline held-out prompt text.",
           "title": "Evidence Ref"
+        },
+        "visibility": {
+          "$ref": "#/$defs/Audience",
+          "default": "internal",
+          "description": "Minimum audience. Findings from held-out suites stay INTERNAL; their coarse category surfaces via SuiteResult.categories instead."
         }
       },
       "required": [
@@ -502,7 +517,7 @@
           "type": "string"
         },
         "methodology_version": {
-          "default": "0.1.0",
+          "default": "0.2.0",
           "title": "Methodology Version",
           "type": "string"
         }
@@ -839,6 +854,12 @@
         "status": {
           "$ref": "#/$defs/Status"
         },
+        "held_out": {
+          "default": false,
+          "description": "If true, redaction is strict: no metrics or findings escape, and the score is bucketed before a creator or buyer sees it.",
+          "title": "Held Out",
+          "type": "boolean"
+        },
         "score": {
           "anyOf": [
             {
@@ -853,6 +874,19 @@
           "default": null,
           "title": "Score"
         },
+        "score_band": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Coarse bucket of `score`. Populated during redaction so that repeated submissions cannot binary-search an exact threshold.",
+          "title": "Score Band"
+        },
         "metrics": {
           "additionalProperties": {
             "type": "number"
@@ -866,6 +900,27 @@
           },
           "title": "Findings",
           "type": "array"
+        },
+        "categories": {
+          "description": "Coarse failing dimensions, e.g. ['harmful_content_refusal']. The only failure detail a creator receives from a held-out suite.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "remediation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pointer to the public practice suite for this dimension. Creators iterate against that, never against the held-out set.",
+          "title": "Remediation"
         },
         "n_items": {
           "anyOf": [
@@ -915,7 +970,7 @@
   },
   "properties": {
     "report_version": {
-      "default": "0.1.0",
+      "default": "0.2.0",
       "title": "Report Version",
       "type": "string"
     },
@@ -958,7 +1013,16 @@
       "type": "array"
     },
     "cost": {
-      "$ref": "#/$defs/Cost"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Cost"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "INTERNAL only. Stripped for buyer and creator views."
     },
     "rating": {
       "$ref": "#/$defs/Rating"

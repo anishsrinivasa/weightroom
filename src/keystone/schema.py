@@ -15,7 +15,32 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-REPORT_VERSION = "0.1.0"
+REPORT_VERSION = "0.2.0"
+
+
+class Audience(str, Enum):
+    """Who is allowed to see a piece of the report.
+
+    Ordered from least to most privileged. A field tagged BUYER is visible to
+    everyone; CREATOR is visible to the model's owner and to us; INTERNAL never
+    leaves the platform.
+
+    This boundary is load-bearing. Certification gates listing, so a rejected
+    creator will resubmit -- and every bit of detail we hand back is a bit of
+    our held-out eval set leaked. Coarse categories go out; per-item results
+    never do. See `keystone.visibility`.
+    """
+
+    BUYER = "buyer"
+    CREATOR = "creator"
+    INTERNAL = "internal"
+
+    @property
+    def rank(self) -> int:
+        return {"buyer": 0, "creator": 1, "internal": 2}[self.value]
+
+    def can_see(self, required: Audience) -> bool:
+        return self.rank >= required.rank
 
 
 # --------------------------------------------------------------------------
@@ -170,6 +195,11 @@ class Finding(BaseModel):
         default=None,
         description="Pointer into stored transcripts. Never inline held-out prompt text.",
     )
+    visibility: Audience = Field(
+        default=Audience.INTERNAL,
+        description="Minimum audience. Findings from held-out suites stay INTERNAL; "
+        "their coarse category surfaces via SuiteResult.categories instead.",
+    )
 
 
 class SuiteResult(BaseModel):
@@ -179,9 +209,29 @@ class SuiteResult(BaseModel):
     suite_version: str
     modality: list[Modality] = Field(default_factory=lambda: [Modality.TEXT])  # SEAM 1
     status: Status
+    held_out: bool = Field(
+        default=False,
+        description="If true, redaction is strict: no metrics or findings escape, "
+        "and the score is bucketed before a creator or buyer sees it.",
+    )
     score: float | None = Field(default=None, ge=0.0, le=1.0)
+    score_band: str | None = Field(
+        default=None,
+        description="Coarse bucket of `score`. Populated during redaction so that "
+        "repeated submissions cannot binary-search an exact threshold.",
+    )
     metrics: dict[str, float] = Field(default_factory=dict)
     findings: list[Finding] = Field(default_factory=list)
+    categories: list[str] = Field(
+        default_factory=list,
+        description="Coarse failing dimensions, e.g. ['harmful_content_refusal']. "
+        "The only failure detail a creator receives from a held-out suite.",
+    )
+    remediation: str | None = Field(
+        default=None,
+        description="Pointer to the public practice suite for this dimension. "
+        "Creators iterate against that, never against the held-out set.",
+    )
     n_items: int | None = None
     duration_s: float | None = None
     error: str | None = None
@@ -236,7 +286,9 @@ class CertificationReport(BaseModel):
     scans: list[ScanResult] = Field(default_factory=list)
     suite_results: list[SuiteResult] = Field(default_factory=list)
 
-    cost: Cost = Field(default_factory=Cost)
+    cost: Cost | None = Field(
+        default=None, description="INTERNAL only. Stripped for buyer and creator views."
+    )
     rating: Rating
     signature: Signature | None = None
 

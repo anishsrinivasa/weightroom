@@ -5,9 +5,13 @@
 
 ## What this is
 
-The **platform side** of Keystone: a certification pipeline for open-weight
-models. Read [README.md](README.md) first, then
-[model-marketplace-design-doc.md](model-marketplace-design-doc.md) for strategy.
+The **platform side** of Keystone: one self-contained marketplace where
+certification is the gate on publishing, not a separate product. Creators
+upload models; asking to publish triggers certification; passing lists it.
+Read [README.md](README.md) first, then
+[model-marketplace-design-doc.md](model-marketplace-design-doc.md) for strategy
+(note: the doc proposes selling certification standalone -- that was overridden,
+it is one platform).
 
 Two people, two lanes:
 
@@ -29,6 +33,14 @@ They meet at [`schema.py`](src/keystone/schema.py) and
 - **Never commit adversarial eval content.** Held-out probes live outside this
   repo and only execute inside the sandbox. A leaked probe set makes the rating
   worthless.
+- **Always `redact()` at the boundary.** Certification gates listing, so
+  rejected creators resubmit and each attempt samples the held-out set. Never
+  serialise a raw report outside the platform; never return exact held-out
+  scores, metrics, or per-item findings. Coarse band plus failing category only.
+  Creators iterate against the PUBLIC practice suites -- that is the release
+  valve that makes strict redaction acceptable.
+- **Uploaded artifacts have no upstream.** `storage.py` is the system of record;
+  the Modal Volume is only a cache. Never treat a Volume copy as durable.
 - **`schema.py` is authoritative**; `schemas/report.schema.json` is generated
   (`keystone schema`). A test enforces they match — regenerate, never hand-edit.
 - **Reproducibility is a legal requirement, not a nicety.** Anything that

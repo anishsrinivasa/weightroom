@@ -9,8 +9,12 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from keystone.schema import FileEntry, Source, SourceKind, Subject
+
+if TYPE_CHECKING:
+    from keystone.storage import ArtifactStore
 
 _CHUNK = 8 * 1024 * 1024
 
@@ -75,3 +79,29 @@ def build_subject(ref: str, local: Path, revision: str) -> Subject:
         files=files,
         total_bytes=sum(f.size_bytes for f in files),
     )
+
+
+# ---------------------------------------------------------------------------
+# Upload path -- the primary flow. A creator submits weights to us, so we are
+# the origin and the artifact store is the system of record.
+# ---------------------------------------------------------------------------
+
+def ingest_upload(local: Path, receipt_id: str, store: "ArtifactStore") -> tuple[Subject, int]:
+    """Hash an uploaded tree, persist it, and return (subject, bytes_written).
+
+    Content-addressed, so re-uploading identical weights writes nothing. The
+    store verifies every file against the manifest on the way in -- a mismatch
+    is a hard error, not a warning.
+    """
+    files = hash_tree(local)
+    digest = manifest_digest(files)
+    written = store.upload_tree(local, files, digest)
+
+    subject = Subject(
+        source=Source(kind=SourceKind.UPLOAD, ref=receipt_id, revision=digest),
+        artifact_digest=digest,
+        files=files,
+        total_bytes=sum(f.size_bytes for f in files),
+    )
+    return subject, written
+
