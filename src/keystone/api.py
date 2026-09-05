@@ -286,6 +286,14 @@ def create_app(deps: Deps) -> FastAPI:
             }
             if audience is not Audience.BUYER:
                 payload["flagged_for_review"] = row.flagged_for_review
+                progress = d.store.get_evaluation_progress(s, listing_id)
+                if progress is not None:
+                    payload["evaluation_progress"] = {
+                        "percent": progress.percent,
+                        "stage": progress.stage,
+                        "gates": progress.gates,
+                        "updated_at": progress.updated_at.isoformat(),
+                    }
             if report is not None:
                 payload |= _view(d, report, principal, row.creator_id)
             return payload
@@ -408,6 +416,17 @@ def create_app(deps: Deps) -> FastAPI:
             row.state = transition(
                 ListingState(row.state), ListingState.PENDING_CERTIFICATION
             ).value
+            # A rejected listing may be submitted again. Never expose the
+            # previous attempt's 100% progress while this one is queued.
+            from keystone.public_safety import initial_progress_gates
+
+            d.store.set_evaluation_progress(
+                s,
+                listing_id,
+                percent=0,
+                stage="Waiting for worker",
+                gates=initial_progress_gates(),
+            )
             s.commit()
             state = row.state
 

@@ -144,6 +144,26 @@ def process_pending(
             if not store.claim_for_certification(s, listing_id):
                 continue  # another worker got there first, or the state moved
 
+        from keystone.public_safety import initial_progress_gates
+
+        live_gates = initial_progress_gates()
+
+        def persist_progress(event: dict) -> None:
+            nonlocal live_gates
+            if event.get("gates"):
+                live_gates = event["gates"]
+            with store.session() as progress_session:
+                store.set_evaluation_progress(
+                    progress_session,
+                    listing_id,
+                    percent=int(event.get("percent", 0)),
+                    stage=str(event.get("stage", "Evaluating")),
+                    gates=live_gates,
+                )
+                progress_session.commit()
+
+        persist_progress({"percent": 0, "stage": "Preparing evaluation"})
+
         # Pass the selection through as `only`; anything not chosen comes back
         # marked declined rather than simply missing.
         try:
@@ -158,6 +178,7 @@ def process_pending(
                     artifacts,
                     only=selected or None,
                     on_step=on_step,
+                    on_progress=persist_progress,
                 )
             else:
                 outcome = certify(digest, only=selected or None)
@@ -176,6 +197,27 @@ def process_pending(
                 detail=repr(exc)[:400],
             )
         state = record_outcome(store, listing_id, outcome, policy=policy, signer=signer)
+        final_gates = live_gates
+        if outcome.report is not None:
+            final_gates = [
+                {
+                    "gate_id": result.suite_id,
+                    "display_name": result.display_name or result.suite_id,
+                    "status": result.status.value,
+                    "completed": result.n_items or 0,
+                    "total": result.n_items or 0,
+                    "score": result.score,
+                }
+                for result in outcome.report.suite_results
+                if result.gate
+            ]
+        persist_progress(
+            {
+                "percent": 100,
+                "stage": "Evaluation complete",
+                "gates": final_gates,
+            }
+        )
         on_step(f"  -> {state.value}")
         results.append((listing_id, state))
     return results

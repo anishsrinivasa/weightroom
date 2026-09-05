@@ -95,6 +95,25 @@ export function ModelDetail({ id }: { id: string }) {
     ? license.spdx
     : typeof license?.declared === "string" ? license.declared : "Undeclared";
   const parents = report?.subject.lineage.map((parent) => parent.ref).join(", ") || "None declared";
+  const progressRecord = model.evaluation_progress ?? (activeEvaluation ? {
+    percent: 0,
+    stage: model.state === "pending_certification" ? "Waiting for worker" : "Preparing evaluation",
+    updated_at: model.updated_at,
+    gates: [
+      { gate_id: "harmbench", display_name: "HarmBench harmful-output resistance", status: "pending", completed: 0, total: 400, score: null },
+      { gate_id: "jailbreakbench", display_name: "JailbreakBench harmful-request resistance", status: "pending", completed: 0, total: 200, score: null },
+    ],
+  } : undefined);
+  const visibleGates = model.safety_gates?.gates ?? progressRecord?.gates.map((gate) => ({
+    ...gate,
+    blocking: true,
+    evidence: gate.total
+      ? `${Math.min(gate.completed, gate.total)} of ${gate.total} evaluation steps completed.`
+      : "Waiting for the evaluation worker.",
+    n_items: null,
+  })) ?? [];
+  const gateOverall = model.safety_gates?.overall
+    ?? (visibleGates.some((gate) => gate.status === "fail") ? "fail" : "pending");
 
   return (
     <>
@@ -119,8 +138,14 @@ export function ModelDetail({ id }: { id: string }) {
               : progress?.detail || "This submission is not currently being evaluated."}</p>
             {progress ? (
               <p className="evaluation-refresh" aria-live="polite">
-                {refreshing ? "Checking for an update…" : `Last update ${formatDateTime(model.updated_at)} · refreshes automatically`}
+                {refreshing ? "Checking for an update…" : `Last update ${formatDateTime(progressRecord?.updated_at ?? model.updated_at)} · refreshes automatically`}
               </p>
+            ) : null}
+            {activeEvaluation && progressRecord ? (
+              <div className="evaluation-meter" aria-label={`Evaluation ${progressRecord.percent}% complete`}>
+                <div><span>{progressRecord.stage}</span><strong>{progressRecord.percent}%</strong></div>
+                <div className="score-track" aria-hidden="true"><span style={{ width: `${progressRecord.percent}%` }} /></div>
+              </div>
             ) : null}
           </div>
           {model.state === "certified" ? (
@@ -135,20 +160,35 @@ export function ModelDetail({ id }: { id: string }) {
 
       <div className="detail-grid">
         <div>
-          {model.safety_gates ? (
+          {visibleGates.length ? (
             <section className="content-block" aria-labelledby="safety-title">
               <div className="block-heading">
                 <div><p className="private-label">Seller only</p><h2 id="safety-title">Safety gates</h2></div>
-                <GatePill status={model.safety_gates.overall} />
+                <GatePill status={gateOverall} />
               </div>
               <ul className="gate-list">
-                {model.safety_gates.gates.map((gate) => (
-                  <li key={gate.gate_id} className="gate-row">
-                    <span className="gate-symbol" aria-hidden="true">{gate.status === "pass" ? "✓" : gate.status === "fail" ? "×" : "…"}</span>
-                    <span><strong>{gate.display_name}</strong><small>{gate.evidence || "No evidence available."}</small></span>
-                    <GatePill status={gate.status} />
-                  </li>
-                ))}
+                {visibleGates.map((gate) => {
+                  const waiting = gate.status === "pending" || gate.status === "running";
+                  const score = gate.score == null ? null : Math.round(gate.score * 100);
+                  return (
+                    <li key={gate.gate_id} className="gate-row">
+                      <span className={`gate-symbol${waiting ? " loading" : ""}`} aria-hidden="true">
+                        {gate.status === "pass" ? "✓" : gate.status === "fail" ? "×" : ""}
+                      </span>
+                      <span>
+                        <strong>{gate.display_name}</strong>
+                        <small>{gate.evidence || "No evidence available."}</small>
+                        {score != null ? (
+                          <div className="gate-score-track score-track" aria-hidden="true"><span style={{ width: `${score}%` }} /></div>
+                        ) : null}
+                      </span>
+                      <span className="gate-result">
+                        {score != null ? <strong>{score}%</strong> : null}
+                        <GatePill status={gate.status} />
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ) : null}

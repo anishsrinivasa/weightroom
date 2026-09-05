@@ -72,6 +72,17 @@ const safetyGateSchema = z.object({
   status: z.string(),
   evidence: z.string().nullable().optional(),
   blocking: z.boolean(),
+  score: z.number().nullable().optional(),
+  n_items: z.number().int().nonnegative().nullable().optional(),
+});
+
+const evaluationProgressGateSchema = z.object({
+  gate_id: z.string(),
+  display_name: z.string(),
+  status: z.string(),
+  completed: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  score: z.number().nullable().optional(),
 });
 
 export const listingDetailSchema = z.object({
@@ -90,6 +101,12 @@ export const listingDetailSchema = z.object({
   safety_gates: z.object({
     overall: z.string(),
     gates: z.array(safetyGateSchema),
+  }).optional(),
+  evaluation_progress: z.object({
+    percent: z.number().int().min(0).max(100),
+    stage: z.string(),
+    gates: z.array(evaluationProgressGateSchema),
+    updated_at: z.string(),
   }).optional(),
 });
 

@@ -174,6 +174,60 @@ def test_listing_exposes_redacted_safety_gate_summary(client: TestClient, deps: 
     assert body["report"]["suite_results"][0]["score"] is None
 
 
+def test_public_safety_percentage_is_visible_to_the_seller(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    report = _report()
+    result = report.suite_results[0]
+    result.suite_id = "harmbench"
+    result.display_name = "HarmBench harmful-output resistance"
+    result.held_out = False
+    result.score = 0.91
+    result.n_items = 200
+    with deps.store.session() as s:
+        deps.store.put_report(s, report, listing_id=listing_id)
+        s.commit()
+
+    body = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()
+    gate = next(g for g in body["safety_gates"]["gates"] if g["gate_id"] == "harmbench")
+    assert gate["score"] == 0.91
+    assert gate["n_items"] == 200
+
+
+def test_live_evaluation_progress_is_seller_only(client: TestClient, deps: Deps) -> None:
+    listing_id = _upload_and_list(client, deps)
+    with deps.store.session() as s:
+        deps.store.set_evaluation_progress(
+            s,
+            listing_id,
+            percent=42,
+            stage="Generating HarmBench",
+            gates=[
+                {
+                    "gate_id": "harmbench",
+                    "display_name": "HarmBench",
+                    "status": "running",
+                    "completed": 168,
+                    "total": 400,
+                    "score": None,
+                }
+            ],
+        )
+        s.commit()
+
+    creator = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()
+    assert creator["evaluation_progress"]["percent"] == 42
+    assert creator["evaluation_progress"]["gates"][0]["completed"] == 168
+    assert client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-other")
+    ).status_code == 404
+
+
 def test_missing_behavioral_gate_is_visible_and_blocking(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     report = _report()
@@ -491,8 +545,24 @@ def test_worker_uses_uploaded_artifact_manifest_by_default(
     listing_id = _queue(client, deps)
     seen = {}
 
-    def fake_uploaded(digest, files, artifacts, *, only=None, on_step=None):
+    def fake_uploaded(
+        digest, files, artifacts, *, only=None, on_step=None, on_progress=None
+    ):
         seen.update(digest=digest, files=files, artifacts=artifacts, only=only)
+        on_progress({
+            "percent": 50,
+            "stage": "Scoring HarmBench",
+            "gates": [
+                {
+                    "gate_id": "harmbench",
+                    "display_name": "HarmBench",
+                    "status": "running",
+                    "completed": 200,
+                    "total": 400,
+                    "score": None,
+                }
+            ],
+        })
         return Outcome(digest, report=_report("B"))
 
     monkeypatch.setattr("keystone.pipeline.certify_uploaded", fake_uploaded)
@@ -504,6 +574,7 @@ def test_worker_uses_uploaded_artifact_manifest_by_default(
     assert seen["only"] is not None
     with deps.store.session() as s:
         assert deps.store.get_listing(s, listing_id).state == ListingState.CERTIFIED.value
+        assert deps.store.get_evaluation_progress(s, listing_id).percent == 100
 
 
 def test_worker_can_target_one_queued_listing(client: TestClient, deps: Deps) -> None:

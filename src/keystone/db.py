@@ -128,6 +128,20 @@ class AttemptRow(Base):
     listing: Mapped[ListingRow] = relationship(back_populates="attempts")
 
 
+class EvaluationProgressRow(Base):
+    """Live seller-visible progress, separate from immutable signed reports."""
+
+    __tablename__ = "evaluation_progress"
+
+    listing_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("listings.id"), primary_key=True
+    )
+    percent: Mapped[int] = mapped_column(Integer, default=0)
+    stage: Mapped[str] = mapped_column(String(160), default="Queued")
+    gates: Mapped[list] = mapped_column(JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class ReportRow(Base):
     __tablename__ = "reports"
 
@@ -384,6 +398,30 @@ class Store:
             )
         )
 
+    def set_evaluation_progress(
+        self,
+        s: Session,
+        listing_id: str,
+        *,
+        percent: int,
+        stage: str,
+        gates: list[dict],
+    ) -> EvaluationProgressRow:
+        row = s.get(EvaluationProgressRow, listing_id)
+        if row is None:
+            row = EvaluationProgressRow(listing_id=listing_id)
+            s.add(row)
+        row.percent = min(100, max(0, int(percent)))
+        row.stage = stage[:160]
+        row.gates = gates
+        row.updated_at = _utcnow()
+        return row
+
+    def get_evaluation_progress(
+        self, s: Session, listing_id: str
+    ) -> EvaluationProgressRow | None:
+        return s.get(EvaluationProgressRow, listing_id)
+
     def flagged_listings(self, s: Session) -> list[ListingRow]:
         return list(s.scalars(select(ListingRow).where(ListingRow.flagged_for_review.is_(True))))
 
@@ -535,6 +573,7 @@ class Store:
 
 __all__ = [
     "Base", "Store", "UserRow", "ArtifactRow", "ListingRow", "AttemptRow",
+    "EvaluationProgressRow",
     "ReportRow", "ChargeRow", "OrderRow", "PayoutRow",
     "to_domain_listing", "to_domain_charge", "to_domain_order",
 ]

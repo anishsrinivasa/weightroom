@@ -233,6 +233,7 @@ def certify_uploaded(
     seed: int = 0,
     max_context: int | None = None,
     on_step=lambda msg: None,
+    on_progress=lambda event: None,
 ) -> Outcome:
     """Certify a seller upload, transferring it from the artifact store to Modal."""
     from keystone.runner import modal_app
@@ -280,6 +281,7 @@ def certify_uploaded(
         seed=seed,
         max_context=max_context,
         on_step=on_step,
+        on_progress=on_progress,
         started=started,
     )
 
@@ -292,6 +294,7 @@ def _certify_fetched(
     seed: int,
     max_context: int | None,
     on_step,
+    on_progress=lambda event: None,
     started: float,
 ) -> Outcome:
     """Run scan/evaluation after either an HF or uploaded artifact is cached."""
@@ -321,6 +324,7 @@ def _certify_fetched(
 
     try:
         on_step("scan")
+        on_progress({"percent": 5, "stage": "Scanning artifact", "gates": []})
         scans = [ScanResult.model_validate(s) for s in modal_app.scan.remote(fetched["cache_key"])]
     except Exception as exc:
         return Outcome(ref, failure=classify(exc), detail=repr(exc)[:400],
@@ -345,6 +349,7 @@ def _certify_fetched(
         gpu = profile.resource_class or "A10G"
         tp = int(gpu.split(":")[1]) if ":" in gpu else 1
         on_step("prefetch pinned public safety assets")
+        on_progress({"percent": 10, "stage": "Preparing safety suites", "gates": []})
         try:
             modal_app.prefetch_public_safety_assets.remote()
         except Exception as exc:
@@ -356,7 +361,8 @@ def _certify_fetched(
             )
         on_step(f"eval on {gpu}")
         try:
-            evaluated = modal_app.evaluate.with_options(gpu=gpu).remote(
+            evaluated = None
+            for event in modal_app.evaluate.with_options(gpu=gpu).remote_gen(
                 fetched["cache_key"],
                 caps.model_dump(mode="json"),
                 [m.value for m in subject.modality],
@@ -364,7 +370,13 @@ def _certify_fetched(
                 tp,
                 only,
                 seed,
-            )
+            ):
+                if event.get("type") == "progress":
+                    on_progress(event)
+                elif event.get("type") == "result":
+                    evaluated = event["payload"]
+            if evaluated is None:
+                raise RuntimeError("Modal evaluation ended without a result")
             suite_results = [SuiteResult.model_validate(r) for r in evaluated["suite_results"]]
             environment = Environment.model_validate(evaluated["environment"])
             gpu_seconds = float(evaluated["gpu_seconds"])
