@@ -116,7 +116,6 @@ class VLLMServer:
             str(_PORT),
             "--tensor-parallel-size",
             str(self.tensor_parallel_size),
-            "--disable-log-requests",
         ]
         if self.max_context:
             # Cap context so a model advertising 1M tokens does not fail to
@@ -126,8 +125,17 @@ class VLLMServer:
 
     def __enter__(self) -> str:
         env = dict(os.environ)
-        env.setdefault("VLLM_LOGGING_LEVEL", "WARNING")
         env.setdefault("HF_HUB_OFFLINE", "1")  # egress is blocked anyway; fail loudly
+        # Egress is blocked, so telemetry cannot succeed -- it can only hang or
+        # fail engine init. Off explicitly rather than by accident.
+        env.setdefault("VLLM_NO_USAGE_STATS", "1")
+        env.setdefault("DO_NOT_TRACK", "1")
+        # flashinfer JIT-compiles sampling kernels on first use, which needs the
+        # full CUDA toolkit (nvcc) and sometimes the network. Both are absent by
+        # design here. The native sampler is deterministic, needs neither, and
+        # is plenty for evaluation -- we are measuring behaviour, not chasing
+        # serving throughput.
+        env.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
         self._log = self.log_path.open("wb")
         self.proc = subprocess.Popen(
             self._command(), stdout=self._log, stderr=subprocess.STDOUT, env=env
@@ -157,7 +165,7 @@ class VLLMServer:
             f"vLLM did not become ready in {self.startup_timeout_s}s\n{self._tail_log()}"
         )
 
-    def _tail_log(self, n: int = 60) -> str:
+    def _tail_log(self, n: int = 250) -> str:
         try:
             lines = self.log_path.read_text(errors="replace").splitlines()
             return "\n".join(lines[-n:])

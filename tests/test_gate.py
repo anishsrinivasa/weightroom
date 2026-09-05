@@ -7,6 +7,7 @@ stand between a determined creator and our held-out eval set.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,14 @@ from keystone.schema import (
     Status,
     Subject,
     SuiteResult,
+)
+from keystone.payments import (
+    ChargeStatus,
+    Currency,
+    Money,
+    MockPaymentProvider,
+    PaymentProvider,
+    RefundNotSupported,
 )
 from keystone.storage import LocalStore, artifact_key
 from keystone.visibility import assert_no_leak, band, redact
@@ -269,8 +278,68 @@ def _listing(**kw) -> Listing:
     return Listing(listing_id="l1", creator_id="c1", artifact_digest="a" * 64, **kw)
 
 
-def test_first_attempt_allowed() -> None:
-    assert _listing().can_attempt(NOW)[0]
+def _paid(provider: MockPaymentProvider, listing_id: str = "l1"):
+    """A settled charge for the default fee."""
+    charge = provider.create_charge(AttemptPolicy().fee, listing_id)
+    return provider.settle(charge.charge_id)
+
+
+@pytest.fixture
+def payments() -> MockPaymentProvider:
+    return MockPaymentProvider()
+
+
+def test_first_attempt_allowed(payments: MockPaymentProvider) -> None:
+    assert _listing().can_attempt(NOW, charge=_paid(payments))[0]
+
+
+def test_attempt_requires_payment() -> None:
+    ok, reason = _listing().can_attempt(NOW)
+    assert not ok and "payment required" in reason
+
+
+def test_unsettled_charge_is_refused(payments: MockPaymentProvider) -> None:
+    charge = payments.create_charge(AttemptPolicy().fee, "l1")
+    ok, reason = _listing().can_attempt(NOW, charge=charge)
+    assert not ok and "not settled" in reason
+
+
+def test_partially_confirmed_charge_is_refused() -> None:
+    provider = MockPaymentProvider(required_confirmations=3)
+    charge = provider.create_charge(AttemptPolicy().fee, "l1")
+    provider.confirm(charge.charge_id, confirmations=1)
+    ok, reason = _listing().can_attempt(NOW, charge=provider.get_charge(charge.charge_id))
+    assert not ok and "confirming" in reason
+
+
+def test_underpayment_is_refused(payments: MockPaymentProvider) -> None:
+    charge = payments.create_charge(Money(1, Currency.USDC), "l1")
+    payments.settle(charge.charge_id)
+    ok, reason = _listing().can_attempt(NOW, charge=charge)
+    assert not ok and "underpaid" in reason
+
+
+def test_charge_for_another_listing_is_refused(payments: MockPaymentProvider) -> None:
+    ok, reason = _listing().can_attempt(NOW, charge=_paid(payments, "someone-elses-listing"))
+    assert not ok and "does not reference" in reason
+
+
+def test_a_charge_cannot_be_spent_twice(payments: MockPaymentProvider) -> None:
+    charge = _paid(payments)
+    listing = _listing(state=ListingState.REJECTED)
+    listing.attempts = [
+        Attempt("a1", "b" * 64, NOW - timedelta(days=1), charge_id=charge.charge_id)
+    ]
+    ok, reason = listing.can_attempt(NOW, charge=charge)
+    assert not ok and "already spent" in reason
+
+
+def test_rate_limit_is_checked_before_payment() -> None:
+    """Never take money from someone we are about to reject on cooldown."""
+    listing = _listing(state=ListingState.REJECTED)
+    listing.attempts = [Attempt("a1", "b" * 64, NOW - timedelta(hours=1))]
+    ok, reason = listing.can_attempt(NOW)  # no charge supplied at all
+    assert not ok and "cooldown" in reason  # not "payment required"
 
 
 def test_cooldown_blocks_rapid_resubmission() -> None:
@@ -280,10 +349,10 @@ def test_cooldown_blocks_rapid_resubmission() -> None:
     assert not ok and "cooldown" in reason
 
 
-def test_cooldown_expires() -> None:
+def test_cooldown_expires(payments: MockPaymentProvider) -> None:
     listing = _listing(state=ListingState.REJECTED)
     listing.attempts = [Attempt("a1", "b" * 64, NOW - timedelta(hours=7))]
-    assert listing.can_attempt(NOW)[0]
+    assert listing.can_attempt(NOW, charge=_paid(payments))[0]
 
 
 def test_unchanged_artifact_is_refused() -> None:
@@ -346,3 +415,84 @@ def test_recording_a_pass_certifies() -> None:
     listing.record(Attempt("a1", "b" * 64, NOW, grade="A", passed=True, internal_score=0.95))
     assert listing.state is ListingState.CERTIFIED
     assert not listing.flagged_for_review
+
+
+# --------------------------------------------------------------------------
+# money  -- USDC has six decimals, and getting that wrong is a 10,000x error
+# --------------------------------------------------------------------------
+
+def test_usdc_and_usd_have_different_precision() -> None:
+    assert Currency.USDC.decimals == 6
+    assert Currency.USD.decimals == 2
+
+
+def test_from_decimal_scales_by_currency() -> None:
+    assert Money.from_decimal("25.00", Currency.USDC).amount_minor == 25_000_000
+    assert Money.from_decimal("25.00", Currency.USD).amount_minor == 2_500
+
+
+def test_round_trip() -> None:
+    money = Money.from_decimal("1234.567890", Currency.USDC)
+    assert money.amount_minor == 1_234_567_890
+    assert money.to_decimal() == Decimal("1234.56789")
+
+
+def test_floats_are_rejected() -> None:
+    with pytest.raises(TypeError):
+        Money(25.0, Currency.USDC)  # type: ignore[arg-type]
+
+
+def test_negative_amounts_are_rejected() -> None:
+    with pytest.raises(ValueError):
+        Money(-1, Currency.USDC)
+
+
+def test_convert_between_pegged_units() -> None:
+    assert Money(2_500, Currency.USD).convert_to(Currency.USDC).amount_minor == 25_000_000
+    assert Money(25_000_000, Currency.USDC).convert_to(Currency.USD).amount_minor == 2_500
+
+
+def test_formatting() -> None:
+    assert str(Money(25_000_000, Currency.USDC)) == "25.000000 USDC"
+
+
+# --------------------------------------------------------------------------
+# payment provider
+# --------------------------------------------------------------------------
+
+def test_mock_is_a_payment_provider(payments: MockPaymentProvider) -> None:
+    assert isinstance(payments, PaymentProvider)
+
+
+def test_charge_starts_pending(payments: MockPaymentProvider) -> None:
+    charge = payments.create_charge(Money(25_000_000), "l1")
+    assert charge.status is ChargeStatus.PENDING
+    assert not charge.is_settled
+    assert charge.chain == "base"  # stablecoin charges carry chain + address
+    assert charge.address
+
+
+def test_confirmations_gate_settlement() -> None:
+    provider = MockPaymentProvider(required_confirmations=3)
+    charge = provider.create_charge(Money(25_000_000), "l1")
+    for n, expected in ((1, ChargeStatus.CONFIRMING), (2, ChargeStatus.CONFIRMING), (3, ChargeStatus.SETTLED)):
+        assert provider.confirm(charge.charge_id, n).status is expected
+
+
+def test_expiry(payments: MockPaymentProvider) -> None:
+    charge = payments.create_charge(Money(25_000_000), "l1", ttl=timedelta(hours=1))
+    assert not charge.is_expired(charge.created_at)
+    assert charge.is_expired(charge.created_at + timedelta(hours=2))
+
+
+def test_refund_is_not_supported_on_chain(payments: MockPaymentProvider) -> None:
+    """On-chain transfers are irreversible; a refund is a fresh outbound payout."""
+    charge = _paid(payments)
+    with pytest.raises(RefundNotSupported):
+        payments.refund(charge.charge_id)
+
+
+def test_payout_settles(payments: MockPaymentProvider) -> None:
+    payout = payments.create_payout("0xcreator", Money(10_000_000), "l1")
+    assert payout.status is ChargeStatus.SETTLED
+    assert payout.tx_hash

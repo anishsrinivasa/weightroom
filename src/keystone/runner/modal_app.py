@@ -19,10 +19,10 @@ from pathlib import Path
 
 import modal
 
-# TODO(pin): once a vLLM version is validated end to end, pin it here. A rating
-# is only defensible if it is reproducible, and a floating engine version breaks
-# that. The resolved version is recorded in report.environment either way.
-VLLM_SPEC = "vllm"
+# Pinned: validated end to end on 2026-09-05 against Qwen2.5-0.5B-Instruct on
+# an A10G. A rating is only defensible if it reproduces, and a floating engine
+# version breaks that. Bump deliberately, and re-validate when you do.
+VLLM_SPEC = "vllm==0.28.0"
 
 APP_NAME = "keystone"
 CACHE_ROOT = "/cache"
@@ -85,7 +85,8 @@ _HF_SECRETS = [modal.Secret.from_name(_HF_SECRET_NAME)] if _HF_SECRET_NAME else 
     volumes={CACHE_ROOT: cache},
     timeout=4 * 60 * 60,
     secrets=_HF_SECRETS,
-    ephemeral_disk=1024 * 1024,
+    # TODO: raise ephemeral_disk once we know the tier limit; big
+    # checkpoints will need it. Default is fine for small models.
 )
 def fetch(ref: str, revision: str | None = None) -> dict:
     from keystone.ingest import build_subject, resolve_and_download

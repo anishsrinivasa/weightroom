@@ -126,12 +126,28 @@ nothing HF reports is load-bearing — we re-hash everything ourselves.
 
 ---
 
+## Payments
+
+Crypto first — no chargebacks, which matters when the product is a file that
+can be copied infinitely and reclaimed never. [`payments.py`](src/keystone/payments.py)
+puts it behind a `PaymentProvider` interface so a fiat rail drops in later;
+procurement at a bank pays by PO and wire and cannot send USDC, so the sovereign
+tier needs one eventually.
+
+Money is always integer minor units, and the currency carries its own precision
+— USDC has six decimals, USD has two, and conflating them is a 10,000x error.
+`Money` rejects floats at construction.
+
+The fee is charged **per attempt**, not per listing: that is what prices the
+cost of sampling our held-out eval set. Rate limits are checked *before*
+payment, so we never take money from someone we are about to reject on cooldown.
+
 ## Setup
 
 ```bash
 uv venv --python 3.12          # 3.13+ has no torch/vLLM wheels yet
 uv pip install -e .
-python -m pytest -q            # 64 offline tests, no GPU needed
+python -m pytest -q            # 84 offline tests, no GPU needed
 ```
 
 Modal (for anything that actually runs a model):
@@ -225,10 +241,26 @@ ceiling.
 
 ---
 
+## Serving-plane gotchas (learned the hard way)
+
+Both first-run failures were in the serving plane, neither in pipeline logic.
+Expect that ratio to hold.
+
+- **No runtime kernel JIT.** flashinfer compiles sampling kernels on first use,
+  which needs the CUDA toolkit (`nvcc`, absent from the vLLM pip wheel) and
+  sometimes network (absent by design). `VLLM_USE_FLASHINFER_SAMPLER=0` uses the
+  native sampler instead — deterministic, no compiler, no egress. A rating that
+  silently depends on which kernels happened to compile is not reproducible.
+- **Telemetry off explicitly.** `VLLM_NO_USAGE_STATS` and `DO_NOT_TRACK`. With
+  egress blocked, phoning home can only hang or fail init.
+- **Keep the log tail generous.** The root cause of an engine failure sits well
+  above the traceback; a short tail truncates exactly the line worth reading.
+
 ## Known gaps
 
-- `VLLM_SPEC` is unpinned. **Pin it** once a version is validated end to end —
-  a floating engine version breaks the reproducibility the rating rests on.
+- Only the crypto rail is real. `HostedCryptoProvider` is a skeleton awaiting a
+  vendor; `MockPaymentProvider` backs dev and tests. No fiat rail, which caps
+  you at buyers who can pay in stablecoin.
 - `_GPU_USD_PER_S` in [`cli.py`](src/keystone/cli.py) is approximate. Verify
   against current Modal pricing.
 - No signing yet. `Signature` exists in the schema; sigstore/cosign is not wired.

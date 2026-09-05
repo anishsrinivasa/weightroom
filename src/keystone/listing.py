@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 
+from keystone.payments import Charge, Currency, Money
+
 
 class ListingState(str, Enum):
     DRAFT = "draft"
@@ -73,7 +75,9 @@ class AttemptPolicy:
     cooldown: timedelta = timedelta(hours=6)
     max_attempts_per_listing: int = 5
     rotate_held_out_after: int = 2
-    fee_cents_per_attempt: int = 2500
+    # Charged per ATTEMPT, not per listing. That is the point: it prices the
+    # cost of sampling our held-out eval set. USDC minor units (6 decimals).
+    fee: Money = Money(25_000_000, Currency.USDC)
     # Consecutive near-identical submissions before a human is asked to look.
     probing_similarity_threshold: int = 3
 
@@ -88,6 +92,7 @@ class Attempt:
     created_at: datetime
     grade: str | None = None
     passed: bool = False
+    charge_id: str | None = None
     # Mean held-out score, retained INTERNALLY only. Never surfaced -- it is
     # precisely the signal a prober wants.
     internal_score: float | None = None
@@ -105,8 +110,16 @@ class Listing:
     # -- gating ---------------------------------------------------------
 
     def can_attempt(
-        self, now: datetime, policy: AttemptPolicy = DEFAULT_POLICY
+        self,
+        now: datetime,
+        policy: AttemptPolicy = DEFAULT_POLICY,
+        charge: Charge | None = None,
     ) -> tuple[bool, str]:
+        """Rate limits are checked BEFORE payment, deliberately.
+
+        Taking money from someone we are about to reject on cooldown is a
+        refund request and a support ticket. Free rejections first.
+        """
         if self.state not in (ListingState.DRAFT, ListingState.REJECTED, ListingState.LISTED):
             return False, f"listing is {self.state.value}"
 
@@ -127,10 +140,24 @@ class Listing:
             if last.artifact_digest == self.artifact_digest:
                 return False, "artifact unchanged since the last attempt"
 
+        if policy.fee.amount_minor > 0:
+            if charge is None:
+                return False, f"payment required: {policy.fee}"
+            if charge.reference != self.listing_id:
+                return False, "charge does not reference this listing"
+            if not charge.is_settled:
+                return False, f"payment not settled ({charge.status.value})"
+            if charge.amount.currency is not policy.fee.currency:
+                return False, f"wrong currency: expected {policy.fee.currency.value}"
+            if charge.amount.amount_minor < policy.fee.amount_minor:
+                return False, f"underpaid: {charge.amount} < {policy.fee}"
+            if any(a.charge_id == charge.charge_id for a in self.attempts):
+                return False, "charge already spent on a previous attempt"
+
         return True, ""
 
-    def fee_cents(self, policy: AttemptPolicy = DEFAULT_POLICY) -> int:
-        return policy.fee_cents_per_attempt
+    def fee(self, policy: AttemptPolicy = DEFAULT_POLICY) -> Money:
+        return policy.fee
 
     def rotation_index(self, policy: AttemptPolicy = DEFAULT_POLICY) -> int:
         """Which held-out slice this attempt should draw.
