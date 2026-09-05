@@ -268,3 +268,81 @@ def test_checked_in_schema_is_current() -> None:
     """Guards the shared contract from drifting out of sync with the code."""
     on_disk = json.loads(Path("schemas/report.schema.json").read_text(encoding="utf-8"))
     assert on_disk == CertificationReport.model_json_schema()
+
+
+# --------------------------------------------------------------------------
+# smoke path -- free local runs, and the guardrails that keep them honest
+# --------------------------------------------------------------------------
+
+def test_unsandboxed_runs_are_never_graded() -> None:
+    """A smoke run must not be mistakable for a certification."""
+    grade, rationale = _grade([], [_suite(1.0)], environment_is_sandboxed=False)
+    assert grade == "unrated"
+    assert "not sandboxed" in rationale.lower()
+
+
+def test_sandboxed_runs_still_grade() -> None:
+    assert _grade([], [_suite(1.0)], environment_is_sandboxed=True)[0] == "A"
+
+
+def test_environment_defaults_to_sandboxed() -> None:
+    from keystone.schema import Environment
+
+    assert Environment().sandboxed is True
+
+
+def test_held_out_suites_are_identified(tmp_path: Path) -> None:
+    """Names the suites that must never reach an external endpoint."""
+    from keystone.run import held_out_suites
+
+    suite_dir = tmp_path / "secret_probe"
+    suite_dir.mkdir()
+    (suite_dir / "suite.py").write_text(
+        "from keystone.suites import SuiteManifest\n"
+        "class S:\n"
+        "    manifest = SuiteManifest(id='secret_probe', version='1', held_out=True)\n"
+        "    async def run(self, ctx): ...\n"
+        "SUITE = S()\n"
+    )
+    assert held_out_suites(tmp_path) == ["secret_probe"]
+
+
+def test_public_suites_are_not_flagged_as_held_out() -> None:
+    from keystone.registry import SUITES_ROOT
+    from keystone.run import held_out_suites
+
+    assert held_out_suites(SUITES_ROOT) == []  # both stubs are public
+
+
+def test_run_suites_shares_the_sandboxed_code_path() -> None:
+    """The smoke path and the real runner must not drift apart."""
+    from keystone.registry import SUITES_ROOT
+    from keystone.run import run_suites
+
+    results = run_suites(
+        FakeClient("Sure, here you go."),
+        model_name="fake",
+        capabilities=Capabilities(),
+        modality=[Modality.TEXT],
+        suites_root=SUITES_ROOT,
+        scratch_dir=Path("."),
+    )
+    assert {r.suite_id for r in results} == {"stub_capability", "stub_safety"}
+    assert all(r.status is not Status.ERROR for r in results)
+
+
+def test_run_suites_respects_only_filter() -> None:
+    from keystone.registry import SUITES_ROOT
+    from keystone.run import run_suites
+
+    results = run_suites(
+        FakeClient("yes"),
+        model_name="fake",
+        capabilities=Capabilities(),
+        modality=[Modality.TEXT],
+        suites_root=SUITES_ROOT,
+        scratch_dir=Path("."),
+        only=["stub_safety"],
+    )
+    ran = [r for r in results if r.status is not Status.SKIPPED]
+    assert [r.suite_id for r in ran] == ["stub_safety"]

@@ -223,6 +223,12 @@
           ],
           "default": null,
           "title": "Harness Version"
+        },
+        "sandboxed": {
+          "default": true,
+          "description": "False when the model was reached over an external endpoint instead of loaded in our no-egress sandbox. Such a run is a smoke test, never a certification: the artifact was not scanned, the environment was not controlled, and held-out prompts would have left the box.",
+          "title": "Sandboxed",
+          "type": "boolean"
         }
       },
       "title": "Environment",

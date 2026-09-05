@@ -170,10 +170,33 @@ R2 (for the durable store): `KEYSTONE_BUCKET`, `R2_ENDPOINT_URL`,
 
 ```bash
 keystone suites                                    # what's discoverable
-keystone certify Qwen/Qwen2.5-0.5B-Instruct        # full run
+keystone certify Qwen/Qwen2.5-0.5B-Instruct        # full run (Modal + GPU)
 keystone certify <ref> --suite stub_safety         # one suite
 keystone schema                                    # regenerate the JSON Schema
 ```
+
+### Free path — `keystone smoke`
+
+Runs suites against any OpenAI-compatible endpoint. No Modal, no GPU, no spend.
+
+```bash
+keystone smoke --endpoint http://localhost:8080/v1 --model my-model
+```
+
+Point it at llama.cpp's `llama-server`, LM Studio, Ollama, or a hosted API. Use
+it for demos, for suite development, and in CI.
+
+**It is not a certification, and the code makes sure it can't pretend to be.**
+Nothing is fetched, hashed, or scanned; the model runs outside our sandbox. The
+report is stamped `environment.sandboxed=False` and forced to `unrated`.
+
+Held-out suites are **refused** in this mode. An external endpoint sees every
+prompt sent to it, so running held-out probes through one would burn the eval
+set outright — the exact thing the whole redaction layer exists to prevent.
+
+A real certification and a smoke run execute the same `run_suites()` code, so
+the free path exercises the real thing rather than a parallel implementation
+that can drift.
 
 ---
 

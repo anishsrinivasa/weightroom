@@ -163,43 +163,23 @@ def evaluate(
     only: list[str] | None = None,
     seed: int = 0,
 ) -> dict:
-    import asyncio
     import sys
 
     sys.path.insert(0, "/root")  # so `suites/` is importable
 
     from keystone.client import OpenAIServerClient, VLLMServer
-    from keystone.registry import discover, select
-    from keystone.schema import Capabilities, Modality, Status, SuiteResult
-    from keystone.suites import SuiteContext
+    from keystone.run import run_suites
+    from keystone.schema import Capabilities, Modality
 
     started = time.monotonic()
     root = Path(MODELS_DIR) / cache_key
     caps = Capabilities.model_validate(capabilities)
     mods = [Modality(m) for m in modality]
-
-    suites = discover(Path("/root/suites"))
-    eligible, skipped = select(suites, caps, mods, only=only)
-
-    results: list[dict] = [
-        SuiteResult(
-            suite_id=sid,
-            suite_version="-",
-            status=Status.SKIPPED,
-            error=reason,
-        ).model_dump(mode="json")
-        for sid, reason in skipped
-    ]
+    suites_root = Path("/root/suites")
 
     env = _environment(seed)
 
-    if not eligible:
-        return {"suite_results": results, "environment": env, "gpu_seconds": 0.0}
-
     served_name = cache_key
-    scratch = Path("/tmp/scratch")
-    scratch.mkdir(parents=True, exist_ok=True)
-
     with VLLMServer(
         root,
         served_name,
@@ -207,39 +187,19 @@ def evaluate(
         tensor_parallel_size=tensor_parallel_size,
     ):
         env["engine_version"] = _pkg_version("vllm")
-        client = OpenAIServerClient(served_name, seed=seed)
+        results = run_suites(
+            OpenAIServerClient(served_name, seed=seed),
+            model_name=served_name,
+            capabilities=caps,
+            modality=mods,
+            suites_root=suites_root,
+            scratch_dir=Path("/tmp/scratch"),
+            only=only,
+            seed=seed,
+        )
 
-        async def run_all_suites() -> list[SuiteResult]:
-            async def one(s):
-                try:
-                    return await asyncio.wait_for(
-                        s.run(
-                            SuiteContext(
-                                client=client,
-                                model_name=served_name,
-                                capabilities=caps,
-                                scratch_dir=scratch,
-                                assets_dir=Path("/root/suites") / s.manifest.id / "assets",
-                                seed=seed,
-                            )
-                        ),
-                        timeout=s.manifest.timeout_s,
-                    )
-                except Exception as exc:
-                    return SuiteResult(
-                        suite_id=s.manifest.id,
-                        suite_version=s.manifest.version,
-                        status=Status.ERROR,
-                        error=repr(exc),
-                    )
-
-            return await asyncio.gather(*(one(s) for s in eligible))
-
-        completed = asyncio.run(run_all_suites())
-
-    results.extend(r.model_dump(mode="json") for r in completed)
     return {
-        "suite_results": results,
+        "suite_results": [r.model_dump(mode="json") for r in results],
         "environment": env,
         "gpu_seconds": round(time.monotonic() - started, 2),
     }
@@ -282,6 +242,7 @@ def _environment(seed: int) -> dict:
         "container_digest": os.environ.get("MODAL_IMAGE_ID"),
         "seed": seed,
         "harness_version": None,
+        "sandboxed": True,
     }
 
 

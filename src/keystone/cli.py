@@ -21,6 +21,8 @@ from rich.table import Table
 from keystone.schema import (
     REPORT_VERSION,
     Capabilities,
+    Source,
+    SourceKind,
     CertificationReport,
     Cost,
     Environment,
@@ -48,11 +50,20 @@ _GPU_USD_PER_S: dict[str, float] = {
 }
 
 
-def _grade(scans: list[ScanResult], suites: list[SuiteResult]) -> tuple[str, str]:
+def _grade(
+    scans: list[ScanResult],
+    suites: list[SuiteResult],
+    environment_is_sandboxed: bool = True,
+) -> tuple[str, str]:
     """Placeholder rating logic. The real rubric is the harness side's call.
 
     We rate and measure; we do not warrant (design doc section 6.3).
     """
+    if not environment_is_sandboxed:
+        return "unrated", (
+            "Run was not sandboxed: the artifact was not scanned and the "
+            "environment was not controlled. Smoke test only."
+        )
     if any(s.status is Status.FAIL for s in scans):
         return "F", "Security scan failed; artifact is not safe to load."
     if any(s.status is Status.ERROR for s in suites):
@@ -185,14 +196,93 @@ def _render(report: CertificationReport, wall_s: float) -> None:
         )
     console.print(table)
 
-    cost = report.cost
-    console.print(
-        f"[bold]wall[/] {wall_s:.0f}s   "
-        f"[bold]gpu[/] {cost.gpu_seconds:.0f}s   "
-        f"[bold]transferred[/] {cost.bytes_transferred / 1024**3:.2f} GiB   "
-        f"[bold]est[/] "
-        + (f"${cost.usd_estimate:.2f}" if cost.usd_estimate is not None else "n/a")
+    line = f"[bold]wall[/] {wall_s:.0f}s"
+    # Absent for smoke runs, and for any report that has been redacted --
+    # cost is INTERNAL only.
+    if report.cost is not None:
+        cost = report.cost
+        line += (
+            f"   [bold]gpu[/] {cost.gpu_seconds:.0f}s"
+            f"   [bold]transferred[/] {cost.bytes_transferred / 1024**3:.2f} GiB"
+            "   [bold]est[/] "
+            + (f"${cost.usd_estimate:.2f}" if cost.usd_estimate is not None else "n/a")
+        )
+    console.print(line)
+
+
+@app.command()
+def smoke(
+    endpoint: str = typer.Option(
+        "http://localhost:8080/v1", help="Any OpenAI-compatible base URL."
+    ),
+    model: str = typer.Option("local", help="Model name the endpoint serves."),
+    suite: list[str] = typer.Option(None, "--suite", help="Only run these suite ids."),
+    seed: int = typer.Option(0),
+    out_dir: Path = typer.Option(Path("out")),
+) -> None:
+    """Run suites against an existing endpoint. No Modal, no GPU, no spend.
+
+    This is NOT a certification. Nothing is fetched, hashed, or scanned, and the
+    model runs outside our sandbox. The report is stamped `sandboxed=False` and
+    forced to `unrated` so it can never be mistaken for the real thing.
+
+    Point it at llama.cpp's `llama-server`, LM Studio, Ollama, or a hosted API.
+    """
+    from keystone.client import OpenAIServerClient
+    from keystone.registry import SUITES_ROOT
+    from keystone.run import held_out_suites, run_suites
+
+    # Held-out prompts must never leave our sandbox. An external endpoint sees
+    # every prompt sent to it, which would burn the eval set outright.
+    blocked = held_out_suites(SUITES_ROOT, list(suite) if suite else None)
+    if blocked:
+        console.print(
+            "[red]refused[/] held-out suites cannot run against an external "
+            f"endpoint: {', '.join(blocked)}\n"
+            "        Their prompts are the moat; sending them out would burn it."
+        )
+        raise typer.Exit(code=2)
+
+    wall_start = time.monotonic()
+    report_id = str(uuid.uuid4())
+    console.rule(f"[bold]smoke[/] {model} @ {endpoint}")
+
+    caps = Capabilities()
+    results = run_suites(
+        OpenAIServerClient(model, base_url=endpoint, seed=seed),
+        model_name=model,
+        capabilities=caps,
+        modality=[Modality.TEXT],
+        suites_root=SUITES_ROOT,
+        scratch_dir=Path(".keystone-scratch"),
+        only=list(suite) if suite else None,
+        seed=seed,
     )
+
+    grade, rationale = _grade([], results, environment_is_sandboxed=False)
+    report = CertificationReport(
+        report_id=report_id,
+        created_at=datetime.now(timezone.utc),
+        status=Status.PASS,
+        subject=Subject(
+            source=Source(kind=SourceKind.UPLOAD, ref=f"endpoint:{endpoint}"),
+            artifact_digest="0" * 64,  # nothing was hashed; there is no artifact
+            files=[],
+            total_bytes=0,
+        ),
+        capabilities=caps,
+        environment=Environment(seed=seed, sandboxed=False),
+        suite_results=results,
+        rating=Rating(grade=grade, rationale=rationale, as_tested_at=datetime.now(timezone.utc)),
+    )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{report_id}.json"
+    path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    _render(report, time.monotonic() - wall_start)
+    console.print("[yellow]not a certification[/] — unsandboxed, unscanned, unrated")
+    console.print(f"report: [bold]{path}[/]")
 
 
 @app.command()

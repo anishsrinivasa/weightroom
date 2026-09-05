@@ -156,6 +156,13 @@ class Environment(BaseModel):
     engine_version: str | None = None
     seed: int | None = None
     harness_version: str | None = None
+    sandboxed: bool = Field(
+        default=True,
+        description="False when the model was reached over an external endpoint "
+        "instead of loaded in our no-egress sandbox. Such a run is a smoke test, "
+        "never a certification: the artifact was not scanned, the environment was "
+        "not controlled, and held-out prompts would have left the box.",
+    )
 
 
 # --------------------------------------------------------------------------
