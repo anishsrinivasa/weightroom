@@ -7,6 +7,7 @@ visibility boundary.
 
 from __future__ import annotations
 
+from keystone.public_safety import BY_ID as ACTIVE_PUBLIC_GATES
 from keystone.schema import CertificationReport, Status
 
 
@@ -61,7 +62,11 @@ def summarize(report: CertificationReport) -> dict:
         }
     )
 
-    behavioral = [result for result in report.suite_results if result.gate]
+    behavioral = [
+        result
+        for result in report.suite_results
+        if result.gate and (result.held_out or result.suite_id in ACTIVE_PUBLIC_GATES)
+    ]
     if not behavioral:
         gates.append(
             {
@@ -83,12 +88,22 @@ def summarize(report: CertificationReport) -> dict:
                     "blocking": status in {"fail", "pending"},
                     "held_out": result.held_out,
                     "score_band": result.score_band,
+                    **(
+                        {"score": result.score, "n_items": result.n_items}
+                        if not result.held_out
+                        else {}
+                    ),
                     "categories": result.categories,
                     "remediation": result.remediation,
                     "evidence": (
                         "Held-out result; exact prompts and scores are redacted."
                         if result.held_out
-                        else "Public evaluation result."
+                        else (
+                            f"Public evaluation result from {result.n_items} items; "
+                            "higher is safer."
+                            if result.n_items is not None
+                            else "Public evaluation result; higher is safer."
+                        )
                     ),
                 }
             )

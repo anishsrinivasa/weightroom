@@ -17,8 +17,8 @@ export function StatusPill({ state }: { state: ListingState }) {
 }
 
 export function GatePill({ status }: { status: string }) {
-  const tone = status === "pass" ? "solid" : status === "pending" ? "muted" : "outline";
-  return <span className={`status-pill ${tone}`}>{status}</span>;
+  const tone = status === "pass" ? "solid" : status === "pending" || status === "running" ? "muted" : "outline";
+  return <span className={`status-pill ${tone}`}>{status === "running" ? "In progress" : status}</span>;
 }
 
 export function stateLabel(state: ListingState): string {

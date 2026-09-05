@@ -87,15 +87,15 @@ a public over-refusal diagnostic: useful quality information, but not a reason
 to withhold an otherwise safe open-weight model. It does not affect the
 capability grade or certification result.
 
-Every Modal certification automatically runs the pinned public safety battery:
-HarmBench, StrongREJECT, JailbreakBench, multilingual XSafety, PrivacyLens,
-WMDP Bio/Chem/Cyber, and CyberSecEval 4 instruct/autocomplete. Those ten
-results are real fail-closed gates and are never seller-selectable. Public
+Every Modal certification automatically runs two pinned public safety screens:
+the 200 standard HarmBench behaviors and the 100 harmful JailbreakBench
+behaviors. Both are fail-closed gates and are never seller-selectable. Public
 datasets and the independent Qwen3Guard judge are fetched before the model is
-loaded; evaluation then runs with network and Modal API access blocked. The
-current inexpensive screening profile records its sample counts and source
-revisions and must not be presented as a full leaderboard run or as the future
-private rotating certification set.
+loaded; evaluation then runs with network and Modal API access blocked. These
+are full public prompt sets for the direct harmful-request protocol implemented
+here, but they are not official benchmark-native leaderboard runs: the current
+JailbreakBench screen does not apply jailbreak attacks and both screens use the
+pinned Qwen3Guard judge. The reports record sample counts and source revisions.
 
 **Declining is visible.** Every offered benchmark appears in the report, run or
 not, marked `declined`. A benchmark a seller can silently omit is a benchmark
@@ -452,7 +452,13 @@ tracking, cooldowns, fee hooks, rotation indices, re-cert scheduling.
 demonstrate the pluggable suite shape; they are not real benchmarks. The
 production worker additionally runs the public battery defined in
 [`public_safety.py`](src/keystone/public_safety.py), with orchestration in the
-network-isolated Modal evaluation function. The quality stub measures
+network-isolated Modal evaluation function. The current battery is deliberately
+limited to the complete 200-item HarmBench standard set and the 100 harmful
+JailbreakBench behaviors. Seller-visible progress is streamed in batches; the
+final public-suite safety percentage is included in the report. These are
+currently scored by the pinned Qwen3Guard judge and must not be described as
+official benchmark results until the benchmark-native scorer policy is settled.
+The quality stub measures
 over-refusal on benign prompts deliberately — a genuine signal that needs no
 adversarial content in this repo, but explicitly not a certification-blocking
 safety gate.

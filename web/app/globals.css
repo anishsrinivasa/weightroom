@@ -106,6 +106,9 @@ tbody tr:hover { background: var(--wash); }
 .decision-card h2 { font-size: 20px; }
 .decision-card p { margin-top: 7px; color: var(--muted); font-size: 12px; }
 .decision-card .evaluation-refresh { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 10px; line-height: 1.45; }
+.evaluation-meter { width: 100%; margin-top: 13px; }
+.evaluation-meter > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
+.evaluation-meter strong { color: var(--ink); font-size: 12px; }
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 58px; padding-top: 42px; }
 .content-block { margin-bottom: 44px; }
 .block-heading { min-height: 47px; display: flex; align-items: center; justify-content: space-between; gap: 15px; border-bottom: 1px solid var(--ink); }
@@ -113,8 +116,12 @@ tbody tr:hover { background: var(--wash); }
 .gate-list { margin: 0; padding: 0; list-style: none; }
 .gate-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .gate-symbol { width: 22px; height: 22px; display: inline-grid; place-items: center; border: 1px solid var(--ink); font-size: 12px; }
+.gate-symbol.loading { border-radius: 50%; border-color: var(--line); border-top-color: var(--ink); animation: gate-spin 850ms linear infinite; }
 .gate-row strong { display: block; }
 .gate-row small { display: block; margin-top: 3px; color: var(--muted); line-height: 1.45; }
+.gate-result { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+.gate-result > strong { font-size: 15px; font-weight: 570; }
+.gate-score-track { max-width: 220px; height: 5px; margin-top: 9px; }
 .metadata-list { display: grid; grid-template-columns: 125px minmax(0, 1fr); gap: 12px 18px; margin: 18px 0 0; }
 .metadata-list dt { color: var(--muted); }
 .metadata-list dd { margin: 0; overflow-wrap: anywhere; }
@@ -123,6 +130,8 @@ tbody tr:hover { background: var(--wash); }
 .benchmark-row strong { font-weight: 550; }
 .score-track { height: 8px; margin-top: 11px; border: 1px solid var(--line); background: var(--wash); }
 .score-track span { display: block; height: 100%; background: var(--ink); }
+
+@keyframes gate-spin { to { transform: rotate(360deg); } }
 
 .wizard { max-width: 880px; }
 .wizard-header { margin-bottom: 39px; }
@@ -214,4 +223,5 @@ input, select { min-height: 43px; border: 1px solid var(--line); border-radius: 
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+  .gate-symbol.loading { animation: none; border-color: var(--ink); }
 }
