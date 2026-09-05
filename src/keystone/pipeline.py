@@ -113,9 +113,17 @@ def _capability_grade(suites: list[SuiteResult]) -> str:
     """Letter for the capability benchmarks only. Gates never contribute.
 
     A gate is pass/fail and would distort an average; a model that barely
-    cleared safety is not thereby a mediocre model.
+    cleared safety is not thereby a mediocre model. Mandatory non-gate suites
+    are diagnostics (currently over-refusal), so they are excluded too.
     """
-    scored = [s.score for s in suites if not s.gate and s.score is not None]
+    from keystone.registry import discover
+
+    mandatory_ids = {suite.manifest.id for suite in discover() if suite.manifest.mandatory}
+    scored = [
+        s.score
+        for s in suites
+        if not s.gate and s.suite_id not in mandatory_ids and s.score is not None
+    ]
     if not scored:
         return "unrated"
     mean = sum(scored) / len(scored)
@@ -336,6 +344,16 @@ def _certify_fetched(
     else:
         gpu = profile.resource_class or "A10G"
         tp = int(gpu.split(":")[1]) if ":" in gpu else 1
+        on_step("prefetch pinned public safety assets")
+        try:
+            modal_app.prefetch_public_safety_assets.remote()
+        except Exception as exc:
+            return Outcome(
+                ref,
+                failure=classify(exc),
+                detail=f"public safety asset prefetch failed: {repr(exc)[:320]}",
+                wall_s=time.monotonic() - started,
+            )
         on_step(f"eval on {gpu}")
         try:
             evaluated = modal_app.evaluate.with_options(gpu=gpu).remote(
