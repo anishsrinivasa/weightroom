@@ -87,6 +87,22 @@
     border: 1px solid var(--fg); font-weight: 600; max-width: 640px;
   }
   .declined { color: var(--muted); text-decoration: line-through; }
+  .drop {
+    border: 1px dashed var(--line); padding: 26px 18px; text-align: center;
+    max-width: 640px; cursor: pointer;
+  }
+  .drop:hover, .drop.over { border-color: var(--fg); background: var(--hover); }
+  .drop strong { display: block; margin-bottom: 4px; }
+  .drop span { color: var(--muted); font-size: 12px; }
+  .files { max-width: 640px; margin-top: 10px; }
+  .files table { min-width: 0; }
+  .files td { font-size: 12px; padding: 5px 10px 5px 0; }
+  .files .h { color: var(--muted); }
+  .digest {
+    max-width: 640px; margin-top: 10px; padding: 9px 12px;
+    border: 1px solid var(--line); font-size: 12px; word-break: break-all;
+  }
+  .digest b { color: var(--fg); }
 </style>
 </head>
 <body>
@@ -169,21 +185,30 @@
       <li id="s5">5 certify</li>
     </ol>
     <p class="hint">
-      Weights never cross the API — the server hands back presigned URLs and the
-      client uploads straight to object storage. Files already held come back
-      instantly, which is content-addressed dedup showing through.
+      Your browser hashes each file and computes the artifact digest, then
+      uploads straight to storage using presigned URLs. Weights never cross the
+      API — which is what makes multi-gigabyte models possible at all. Files we
+      already hold are skipped, which is content-addressed dedup showing through
+      as "instant".
     </p>
 
     <label>title</label>
     <input id="pTitle" value="My fine-tune">
-    <label>artifact digest (sha256 of the manifest)</label>
-    <input id="pDigest" placeholder="64 hex characters">
-    <div class="row" style="margin-top:6px">
-      <button onclick="fakeDigest()">generate demo digest</button>
-    </div>
 
-    <label>files — path:bytes:sha256, one per line</label>
-    <textarea id="pFiles" rows="4" style="max-width:640px"></textarea>
+    <label>model files</label>
+    <div class="drop" id="drop">
+      <strong>Choose a model folder, or drop files here</strong>
+      <span>config.json, tokenizer files, *.safetensors — hashed in your browser</span>
+      <input type="file" id="pFiles" multiple webkitdirectory style="display:none">
+      <input type="file" id="pFilesFlat" multiple style="display:none">
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button onclick="document.getElementById('pFiles').click()">pick folder</button>
+      <button onclick="document.getElementById('pFilesFlat').click()">pick files</button>
+      <button onclick="useSampleFiles()">use a sample</button>
+    </div>
+    <div class="files" id="fileList"></div>
+    <div class="digest" id="digestBox" style="display:none"></div>
 
     <label>benchmarks</label>
     <p class="hint" style="margin:0 0 4px">
@@ -402,51 +427,143 @@ async function acquire(listingId, priceMinor) {
   } catch (e) { say("error: " + e.message); }
 }
 
+// ---- files -----------------------------------------------------------
+// The browser hashes what you pick and computes the manifest digest exactly as
+// the server does: sha256 over "path:sha256\n" lines, sorted by path. Weights
+// then go straight to storage via a presigned URL -- they never pass through
+// the API, which is what makes multi-GB uploads possible at all.
+
+let PICKED = [];          // {path, size_bytes, sha256, blob}
+let DIGEST = null;
+
+// Whole-file hashing needs the file in memory. Fine for a demo; a real
+// multi-gigabyte upload belongs in a CLI that can stream.
+const BROWSER_FILE_LIMIT = 64 * 1024 * 1024;
+
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function manifestDigest(files) {
+  const lines = [...files]
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .map((f) => `${f.path}:${f.sha256}\n`).join("");
+  return sha256Hex(new TextEncoder().encode(lines));
+}
+
+function relPath(file) {
+  // webkitdirectory gives "folder/config.json"; the top folder is the upload,
+  // not part of the model, so strip it.
+  const rel = file.webkitRelativePath || file.name;
+  const parts = rel.split("/");
+  return parts.length > 1 ? parts.slice(1).join("/") : rel;
+}
+
+async function takeFiles(fileList) {
+  const files = [...fileList].filter((f) => f.size > 0);
+  if (!files.length) return;
+
+  const tooBig = files.filter((f) => f.size > BROWSER_FILE_LIMIT);
+  if (tooBig.length) {
+    renderFiles([], `${tooBig.length} file(s) over 64 MB — hash and upload those with the CLI`);
+    return;
+  }
+
+  renderFiles([], `hashing ${files.length} file(s)…`);
+  PICKED = [];
+  for (const file of files) {
+    const bytes = await file.arrayBuffer();
+    PICKED.push({
+      path: relPath(file),
+      size_bytes: file.size,
+      sha256: await sha256Hex(bytes),
+      blob: file,
+    });
+  }
+  DIGEST = await manifestDigest(PICKED);
+  renderFiles(PICKED);
+}
+
+function renderFiles(files, note) {
+  const host = $("fileList");
+  if (note) { host.innerHTML = `<p class="muted" style="margin:8px 0">${note}</p>`; }
+  else if (!files.length) { host.innerHTML = ""; }
+  else {
+    const rows = files.map((f) => `<tr>
+      <td>${f.path}</td>
+      <td class="h">${(f.size_bytes / 1024).toFixed(1)} KB</td>
+      <td class="h">${f.sha256.slice(0, 16)}…</td></tr>`).join("");
+    host.innerHTML = `<table><tbody>${rows}</tbody></table>`;
+  }
+  const box = $("digestBox");
+  if (DIGEST && files.length) {
+    box.style.display = "block";
+    box.innerHTML = `artifact digest &nbsp;<b>${DIGEST}</b><br>
+      <span class="muted">sha256 over the sorted file manifest — the same value the server computes</span>`;
+  } else if (!note) {
+    box.style.display = "none";
+  }
+}
+
+for (const id of ["pFiles", "pFilesFlat"]) {
+  $(id).onchange = (e) => takeFiles(e.target.files);
+}
+const drop = $("drop");
+drop.onclick = () => $("pFilesFlat").click();
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => {
+  e.preventDefault();
+  drop.classList.remove("over");
+  takeFiles(e.dataTransfer.files);
+};
+
+async function useSampleFiles() {
+  // A tiny stand-in so the flow is walkable without a real checkpoint.
+  const config = new TextEncoder().encode(
+    JSON.stringify({architectures: ["LlamaForCausalLM"], model_type: "llama"}, null, 2));
+  const weights = new Uint8Array(4096);
+  const files = [
+    new File([config], "config.json"),
+    new File([weights], "model.safetensors"),
+  ];
+  await takeFiles(files);
+}
+
 // ---- publish ---------------------------------------------------------
-function fakeDigest() {
-  const hex = (n) => Array.from({length: n}, () =>
-    "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
-  $("pDigest").value = hex(64);
-  $("pFiles").value = `config.json:120:${hex(64)}\nmodel.safetensors:4096:${hex(64)}`;
-}
-
-function parseFiles() {
-  return $("pFiles").value.trim().split("\n").filter(Boolean).map(line => {
-    const [path, size, sha] = line.split(":");
-    return {path: path.trim(), size_bytes: parseInt(size, 10), sha256: sha.trim()};
-  });
-}
-
 let lastListing = null;
 
 async function doPublishFlow() {
   resetLog(); step(1); $("pGo").disabled = true; $("pCert").disabled = true;
   try {
-    const digest = $("pDigest").value.trim();
-    const files = parseFiles();
-    if (!/^[0-9a-f]{64}$/.test(digest) || !files.length) throw new Error("need a digest and files");
+    if (!PICKED.length || !DIGEST) throw new Error("choose some model files first");
+    const digest = DIGEST;
+    const files = PICKED.map(({path, size_bytes, sha256}) => ({path, size_bytes, sha256}));
 
     const declared = await api("/v1/artifacts", {
       method: "POST", body: JSON.stringify({digest, files})});
-    log(`declared: ${Object.keys(declared.upload_urls).length} to upload, ${declared.already_stored} already stored`);
+    const pending = Object.keys(declared.upload_urls);
+    log(`declared ${digest.slice(0, 16)}…`);
+    log(`  ${pending.length} to upload, ${declared.already_stored} already stored`);
+    if (declared.already_stored) log("  (content-addressed: identical weights are stored once)");
 
     step(2);
-    // A real client PUTs bytes to each presigned URL here. This demo has no
-    // bytes to send, so the browser cannot complete the upload -- the server
-    // will refuse finalize, which is the correct behaviour to show.
-    for (const p of Object.keys(declared.upload_urls)) log("  would PUT " + p);
-
-    let finalized = false;
-    try {
-      await api(`/v1/artifacts/${digest}/finalize`, {
-        method: "POST", body: JSON.stringify({digest, files})});
-      finalized = true;
-      log("finalized");
-    } catch (e) {
-      log("finalize refused: " + e.message);
-      log("(expected in the browser demo -- no bytes were actually uploaded)");
+    for (const [path, url] of Object.entries(declared.upload_urls)) {
+      const file = PICKED.find((f) => f.path === path);
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: token() ? {Authorization: "Bearer " + token()} : {},
+        body: file.blob,
+      });
+      if (!res.ok) throw new Error(`upload failed for ${path} (${res.status})`);
+      log(`  uploaded ${path}`);
     }
-    if (!finalized) { step(2); return; }
+
+    await api(`/v1/artifacts/${digest}/finalize`, {
+      method: "POST", body: JSON.stringify({digest, files})});
+    log("finalized");
 
     step(3);
     const listing = await api("/v1/listings", {method: "POST",
@@ -499,7 +616,6 @@ async function loadFlagged() {
   }
 }
 
-fakeDigest();
 loadBenchmarks();
 loadBrowse();
 </script>

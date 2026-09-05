@@ -368,3 +368,21 @@ def test_declined_benchmarks_appear_in_the_results() -> None:
     assert {r.suite_id for r in declined} == {"stub_capability", "stub_reasoning"}
     # Every offered benchmark is accounted for, run or not.
     assert len(results) == 3
+
+
+def test_manifest_digest_algorithm_is_pinned() -> None:
+    """The browser recomputes this independently, so the algorithm is a contract.
+
+    Sorted by path, one "path:sha256\n" line each, sha256 of the UTF-8 bytes.
+    If this value changes, the upload client in static/index.html must change
+    with it or every upload will be declared under the wrong digest.
+    """
+    from keystone.schema import FileEntry
+
+    files = [
+        FileEntry(path="model.safetensors", size_bytes=4096, sha256="b" * 64),
+        FileEntry(path="config.json", size_bytes=120, sha256="a" * 64),
+    ]
+    assert manifest_digest(files) == (
+        "9f51a3e20eaa31068289daf1a6e0845c0f738576335573c7fa8550b9d4d73962"
+    )

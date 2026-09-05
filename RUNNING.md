@@ -93,6 +93,17 @@ the download being refused first (402), then the order, then the refusal to
 confirm without settlement. That last one is the point: the page cannot talk
 itself into being paid.
 
+**Upload a model.** Publish tab → **pick folder** (or **use a sample** if you
+don't have a checkpoint handy). Your browser hashes each file with WebCrypto,
+computes the artifact digest, and uploads straight to storage via presigned
+URLs — the weights never pass through the API, which is what makes multi-GB
+models possible at all. Upload the same files twice and the second declare
+comes back `already_stored`, which is content-addressed dedup surfacing to the
+creator as "instant".
+
+Whole-file hashing needs the file in memory, so the browser path caps at 64 MB
+per file. Real checkpoints go through the CLI.
+
 **See a free model.** *Tokenizer-Bench-0.5B* is priced at zero and downloads
 directly. Zero is a real price.
 

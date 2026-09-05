@@ -525,6 +525,22 @@ def create_app(deps: Deps) -> FastAPI:
             "public_key": base64.b64encode(d.signer.public_key_bytes()).decode(),
         }
 
+    # Development only. In production the presigned URL points at R2 and the
+    # bytes never touch this process; this exists so the local demo can follow
+    # the same declare -> PUT -> finalize path instead of a special case.
+    if isinstance(deps.artifacts, LocalStore) and deps.artifacts.base_url:
+
+        @app.put("/v1/dev-upload/{key:path}", include_in_schema=False)
+        async def dev_upload(key: str, request: Request, principal: P) -> dict:
+            require(principal)
+            if ".." in key or key.startswith("/"):
+                raise HTTPException(400, "bad key")
+            target = deps.artifacts.root / key
+            target.parent.mkdir(parents=True, exist_ok=True)
+            body = await request.body()
+            target.write_bytes(body)
+            return {"key": key, "bytes": len(body)}
+
     @app.get("/v1/health")
     def health() -> dict:
         return {"ok": True}
@@ -588,7 +604,7 @@ def dev_app() -> FastAPI:
     # A generated key means dev reports verify end to end. Production sets
     # KEYSTONE_SIGNING_KEY so the key survives a restart.
     signer = Ed25519Signer.from_env() or Ed25519Signer.generate()
+    artifacts = LocalStore(Path(".keystone-store"), base_url="/v1/dev-upload")
     return create_app(
-        Deps(store, LocalStore(Path(".keystone-store")), MockPaymentProvider(), auth,
-             signer=signer)
+        Deps(store, artifacts, MockPaymentProvider(), auth, signer=signer)
     )

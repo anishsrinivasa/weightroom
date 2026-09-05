@@ -97,11 +97,18 @@ class ArtifactStore(abc.ABC):
 
 
 class LocalStore(ArtifactStore):
-    """Filesystem-backed. For tests and local development only."""
+    """Filesystem-backed. For tests and local development only.
 
-    def __init__(self, root: Path) -> None:
+    `base_url` makes presigned uploads work in a browser: R2 hands back a real
+    signed URL, and locally we hand back our own dev endpoint. Either way the
+    client does the same thing -- PUT the bytes to a URL -- so the local demo
+    exercises the real flow rather than a shortcut.
+    """
+
+    def __init__(self, root: Path, base_url: str | None = None) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self.base_url = base_url.rstrip("/") if base_url else None
 
     def _path(self, key: str) -> Path:
         return self.root / key
@@ -130,6 +137,8 @@ class LocalStore(ArtifactStore):
     def presign_put(self, key: str, ttl_s: int = 3600) -> str:
         target = self._path(key)
         target.parent.mkdir(parents=True, exist_ok=True)
+        if self.base_url:
+            return f"{self.base_url}/{key}"
         return target.as_uri()
 
 
