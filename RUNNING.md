@@ -73,6 +73,20 @@ npm run dev
 Open <http://127.0.0.1:3000>. `KEYSTONE_DEV_TOKEN` is read only by the Next.js
 server and is ignored by production builds. It never enters the browser bundle.
 
+## Install the sample model
+
+The submit flow uploads a real checkpoint rather than synthesised bytes, so it
+exercises architecture detection, chat-template resolution, lineage and the
+scanners -- not just hashing.
+
+```bash
+keystone sample-model      # ~6 MB, tiny-random Llama
+```
+
+Fetched rather than committed, so six megabytes of weights stay out of git
+history. The submit page loads it automatically when the demo wallet is
+enabled; the file picker still works without it.
+
 ## Walk through the seller flow
 
 1. **My models** lists every submission belonging to the seller, including

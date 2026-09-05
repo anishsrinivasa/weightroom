@@ -469,6 +469,57 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     console.print(f"\nseeded {db}")
 
 
+@app.command("sample-model")
+def sample_model(
+    repo: str = typer.Option(
+        "hf-internal-testing/tiny-random-LlamaForCausalLM",
+        help="Any small HuggingFace repo.",
+    ),
+    dest: Path = typer.Option(
+        Path("web/public/sample-model"), help="Served by the web app from /sample-model."
+    ),
+) -> None:
+    """Install a tiny real model for the submit flow to upload.
+
+    A real checkpoint rather than synthesised bytes: it has a genuine config,
+    tokenizer and safetensors, so the demo exercises architecture detection,
+    chat-template resolution, lineage and the scanners -- not just hashing.
+
+    Not committed. Six megabytes of weights would live in git history forever.
+    """
+    import json as _json
+    import shutil
+
+    from huggingface_hub import snapshot_download
+
+    dest.mkdir(parents=True, exist_ok=True)
+    console.print(f"fetching [bold]{repo}[/] -> {dest}")
+    snapshot_download(
+        repo_id=repo,
+        local_dir=str(dest),
+        allow_patterns=["*.json", "*.safetensors", "*.model", "*.txt"],
+    )
+    shutil.rmtree(dest / ".cache", ignore_errors=True)
+
+    files = sorted(
+        p.relative_to(dest).as_posix()
+        for p in dest.rglob("*")
+        if p.is_file() and p.name != "files.json"
+    )
+    # The browser cannot list a directory, so it reads this manifest first.
+    (dest / "files.json").write_text(
+        _json.dumps({"name": repo.split("/")[-1], "source": repo, "files": files}, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    total = sum((dest / f).stat().st_size for f in files)
+    for f in files:
+        console.print(f"  {f:<28} {(dest / f).stat().st_size:>10,} B")
+    console.print(f"\n[bold]{len(files)}[/] files, {total / 1024 / 1024:.2f} MB")
+    if total > 64 * 1024 * 1024:
+        console.print("[yellow]warning[/] over the 64 MB browser upload limit")
+
+
 @app.command()
 def suites() -> None:
     """List discoverable suites and what they require."""

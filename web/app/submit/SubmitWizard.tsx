@@ -63,6 +63,16 @@ export function SubmitWizard() {
   const chargeSettled = charge?.settled;
 
   useEffect(() => {
+    if (!demoPaymentEnabled) return;
+    void loadSampleFiles().catch(() => {
+      // Absent sample is not an error worth interrupting for -- the picker
+      // still works, and the button reports it if pressed deliberately.
+    });
+    // Runs once: choosing real files replaces this selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     void keystoneRequest("/v1/benchmarks", benchmarksSchema)
       .then((data) => setBenchmarks(data.benchmarks))
       .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load benchmarks"))
@@ -161,12 +171,23 @@ export function SubmitWizard() {
     void takeFiles(event.dataTransfer.files);
   }
 
+  // A real checkpoint rather than synthesised bytes: tiny-random Llama, ~6 MB,
+  // with a genuine config, tokenizer and safetensors. Synthetic files would
+  // exercise the hashing but skip everything downstream that reads the model
+  // -- architecture detection, chat template, lineage, the scanners.
   async function loadSampleFiles() {
-    const config = new TextEncoder().encode(JSON.stringify({ architectures: ["LlamaForCausalLM"], model_type: "llama" }, null, 2));
-    await takeFiles([
-      new File([config], "config.json", { type: "application/json" }),
-      new File([new Uint8Array(4096)], "model.safetensors", { type: "application/octet-stream" }),
-    ]);
+    const manifest = await fetch("/sample-model/files.json", { cache: "no-store" });
+    if (!manifest.ok) throw new Error("Sample model is not installed.");
+    const { files } = (await manifest.json()) as { files: string[] };
+
+    const loaded = await Promise.all(
+      files.map(async (path) => {
+        const response = await fetch(`/sample-model/${path}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Sample model file missing: ${path}`);
+        return new File([await response.blob()], path);
+      }),
+    );
+    await takeFiles(loaded);
   }
 
   function toggleBenchmark(id: string) {
@@ -310,7 +331,10 @@ export function SubmitWizard() {
             <div className="button-row">
               <button className="button primary" type="button" onClick={() => directoryInput.current?.click()}>Choose folder</button>
               <button className="button" type="button" onClick={() => fileInput.current?.click()}>Choose files</button>
-              {demoPaymentEnabled ? <button className="button quiet" type="button" onClick={() => void loadSampleFiles()}>Use sample</button> : null}
+              {demoPaymentEnabled ? <button className="button quiet" type="button" onClick={() => {
+                void loadSampleFiles().catch((caught: unknown) =>
+                  setError(caught instanceof Error ? caught.message : "Could not load the sample model"));
+              }}>Use sample model</button> : null}
             </div>
             <input ref={directoryInput} hidden type="file" multiple onChange={inputChanged} {...{ webkitdirectory: "" }} />
             <input ref={fileInput} hidden type="file" multiple onChange={inputChanged} />
