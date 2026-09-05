@@ -8,8 +8,8 @@ themselves.
 Concept and strategy live in [model-marketplace-design-doc.md](model-marketplace-design-doc.md).
 This repo is the platform that implements it.
 
-**To run it locally, see [RUNNING.md](RUNNING.md)** — two commands, no GPU, no
-Modal account, no spend.
+**To run it locally, see [RUNNING.md](RUNNING.md)** — two commands, no GPU, no Modal account, no spend.
+To ship it, see [DEPLOY.md](DEPLOY.md).
 
 **Scope right now: text-only LLMs.** VLM support is an additive layer, not a
 rewrite — see [Seams](#seams-kept-open-for-vlm).

@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+tests
+out
+keystone.db
+.keystone-store
+.keystone-key
+*.md
+!README.md

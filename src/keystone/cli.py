@@ -295,21 +295,37 @@ def worker(
     once: bool = typer.Option(False, "--once", help="Drain the queue and exit."),
     interval: int = typer.Option(15, help="Seconds between polls."),
     limit: int = typer.Option(5, help="Max listings per pass."),
-    db: str = typer.Option("sqlite:///keystone.db"),
+    db: str | None = typer.Option(None, help="Overrides DATABASE_URL."),
 ) -> None:
     """Certify queued listings. Separate process: no request thread waits on a GPU."""
-    from keystone.db import Store
+    from dataclasses import replace as _replace
+
     from keystone.runner import modal_app
+    from keystone.settings import Settings, build_signer, build_store
     from keystone.worker import process_pending
 
-    store = Store(db)
+    settings = Settings.from_env()
+    if db:
+        settings = _replace(settings, database_url=db)
+    store, _ = build_store(settings)
     store.create_all()
+
+    # Reports the worker writes are signed with the same key the API serves, so
+    # a report is verifiable no matter which process produced it.
+    signer, ephemeral = build_signer(settings)
+    if ephemeral and settings.is_production:
+        from keystone.settings import ConfigError
+
+        raise ConfigError("KEYSTONE_SIGNING_KEY must be set for the worker in production")
     console.print("[bold]worker[/] draining pending_certification" + ("" if once else f" every {interval}s"))
 
     while True:
         with modal_app.app.run():
             done = process_pending(
-                store, limit=limit, on_step=lambda m: console.print(f"  [cyan]·[/] {m}")
+                store,
+                limit=limit,
+                signer=signer,
+                on_step=lambda m: console.print(f"  [cyan]·[/] {m}"),
             )
         if not done:
             console.print("  [dim]nothing queued[/]")

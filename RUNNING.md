@@ -26,7 +26,7 @@ Check it works:
 # .venv/bin/python -m pytest -q           # macOS / Linux
 ```
 
-You should see **263 passed**. If that runs, everything below will.
+You should see **287 passed**. If that runs, everything below will.
 
 > The commands below use `.venv/Scripts/python.exe -m keystone.cli` so you never
 > have to activate anything. If you'd rather activate the venv
