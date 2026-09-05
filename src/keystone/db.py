@@ -31,6 +31,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+from sqlalchemy.pool import StaticPool
 
 from keystone.listing import Attempt, Listing, ListingState
 from keystone.payments import Charge, ChargeStatus, Currency, Money
@@ -196,7 +197,15 @@ class Store:
     """Thin repository. Callers own transactions via `session()`."""
 
     def __init__(self, url: str = "sqlite:///keystone.db", *, echo: bool = False) -> None:
-        self.engine = create_engine(url, echo=echo, future=True)
+        kwargs: dict = {}
+        if url.startswith("sqlite"):
+            # SQLite opens a *separate* database per connection when in-memory,
+            # so a threaded server would see an empty schema. Pin one shared
+            # connection and let other threads use it.
+            kwargs["connect_args"] = {"check_same_thread": False}
+            if ":memory:" in url or url == "sqlite://":
+                kwargs["poolclass"] = StaticPool
+        self.engine = create_engine(url, echo=echo, future=True, **kwargs)
 
     def create_all(self) -> None:
         Base.metadata.create_all(self.engine)
@@ -295,17 +304,19 @@ class Store:
         listing_id: str | None = None,
         attempt_id: str | None = None,
     ) -> ReportRow:
-        row = ReportRow(
-            id=report.report_id,
-            listing_id=listing_id,
-            attempt_id=attempt_id,
-            artifact_digest=report.subject.artifact_digest,
-            grade=report.rating.grade,
-            sandboxed=report.environment.sandboxed,
-            created_at=report.created_at,
-            payload=report.model_dump_json(),
-        )
-        s.add(row)
+        # Idempotent: a worker that retries after a partial failure must not
+        # crash on a duplicate id.
+        row = s.get(ReportRow, report.report_id)
+        if row is None:
+            row = ReportRow(id=report.report_id)
+            s.add(row)
+        row.listing_id = listing_id
+        row.attempt_id = attempt_id
+        row.artifact_digest = report.subject.artifact_digest
+        row.grade = report.rating.grade
+        row.sandboxed = report.environment.sandboxed
+        row.created_at = report.created_at
+        row.payload = report.model_dump_json()
         return row
 
     def get_report(self, s: Session, report_id: str) -> CertificationReport | None:

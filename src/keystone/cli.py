@@ -278,6 +278,47 @@ def smoke(
 # --------------------------------------------------------------------------
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1"),
+    port: int = typer.Option(8000),
+    reload: bool = typer.Option(False),
+) -> None:
+    """Run the API and the placeholder UI. Dev wiring: SQLite, local store, mock payments."""
+    import uvicorn
+
+    console.print(f"[bold]http://{host}:{port}[/]  (UI at /, docs at /docs)")
+    uvicorn.run("keystone.api:dev_app", factory=True, host=host, port=port, reload=reload)
+
+
+@app.command()
+def worker(
+    once: bool = typer.Option(False, "--once", help="Drain the queue and exit."),
+    interval: int = typer.Option(15, help="Seconds between polls."),
+    limit: int = typer.Option(5, help="Max listings per pass."),
+    db: str = typer.Option("sqlite:///keystone.db"),
+) -> None:
+    """Certify queued listings. Separate process: no request thread waits on a GPU."""
+    from keystone.db import Store
+    from keystone.runner import modal_app
+    from keystone.worker import process_pending
+
+    store = Store(db)
+    store.create_all()
+    console.print("[bold]worker[/] draining pending_certification" + ("" if once else f" every {interval}s"))
+
+    while True:
+        with modal_app.app.run():
+            done = process_pending(
+                store, limit=limit, on_step=lambda m: console.print(f"  [cyan]·[/] {m}")
+            )
+        if not done:
+            console.print("  [dim]nothing queued[/]")
+        if once:
+            return
+        time.sleep(interval)
+
+
+@app.command()
 def suites() -> None:
     """List discoverable suites and what they require."""
     from keystone.registry import discover

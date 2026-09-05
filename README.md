@@ -149,6 +149,45 @@ nothing HF reports is load-bearing — we re-hash everything ourselves.
 
 ---
 
+## API and worker
+
+```bash
+keystone serve            # API + placeholder UI on :8000
+keystone worker --once    # drain the certification queue
+```
+
+The API ([`api.py`](src/keystone/api.py)) is thin: it validates, writes rows,
+and queues. No request thread ever waits on a GPU — publishing moves a listing
+to `pending_certification` and returns in milliseconds, and
+[`worker.py`](src/keystone/worker.py) picks it up out of process.
+
+Flow:
+
+```
+declare manifest ──▶ PUT bytes straight to storage ──▶ finalize
+       │                  (presigned, never through us)
+       ▼
+   create listing ──▶ publish (mints a charge) ──▶ confirm (provider re-read)
+                                                        │
+                                                  pending_certification
+                                                        │
+                                                     worker ──▶ certified │ rejected
+```
+
+Three properties worth protecting:
+
+- **Audience is derived from the authenticated principal**, never requested.
+  `?audience=internal` does nothing; there is a test asserting it.
+- **Every report leaves through `redact()` plus `assert_no_leak()`.** Belt and
+  braces, because a leak here is not a bug, it is the end of the moat.
+- **Settlement is re-read from the payment provider.** A client saying it paid
+  is not evidence that it paid — also tested.
+
+The UI at `/` is a deliberate placeholder: one static file, black and white, no
+framework and no build step. Browse the catalogue, walk the publish flow, and
+see the admin review queue. Switch the token dropdown to watch the same report
+redact differently for buyer, creator, and admin.
+
 ## Payments
 
 Crypto first — no chargebacks, which matters when the product is a file that
@@ -318,7 +357,11 @@ Expect that ratio to hold.
 - No signing yet. `Signature` exists in the schema; sigstore/cosign is not wired.
 - No license-chain checking. `LicenseInfo.chain_ok` is always `None`.
 - `_grade()` is placeholder logic; the real rubric belongs to the harness side.
-- The upload path is a library function, not an API. There is no web surface,
-  no auth, and nothing calls the persistence layer yet.
+- `StaticTokenAuth` is a development stand-in. Real auth (Clerk, Supabase) drops
+  in behind `Authenticator`, but nothing production-grade is wired.
+- The frontend is a placeholder: one static file, no build step, no framework.
+- `finalize` trusts declared hashes; enforcement happens at materialize time,
+  before weights are ever loaded. Fine, but it means a bad manifest is caught
+  late rather than at upload.
 - Re-certification of live listings is modelled in the state machine but nothing
   schedules it.

@@ -54,6 +54,10 @@ class ArtifactStore(abc.ABC):
     def presign_get(self, key: str, ttl_s: int = 3600) -> str:
         """Time-limited download URL. Entitlement is checked before minting one."""
 
+    @abc.abstractmethod
+    def presign_put(self, key: str, ttl_s: int = 3600) -> str:
+        """Time-limited upload URL, so multi-GB weights never cross our API."""
+
     # -- higher level ------------------------------------------------------
 
     def upload_tree(self, root: Path, files: list[FileEntry], digest: str) -> int:
@@ -123,6 +127,11 @@ class LocalStore(ArtifactStore):
     def presign_get(self, key: str, ttl_s: int = 3600) -> str:
         return self._path(key).as_uri()
 
+    def presign_put(self, key: str, ttl_s: int = 3600) -> str:
+        target = self._path(key)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target.as_uri()
+
 
 class S3Store(ArtifactStore):
     """S3-compatible. Cloudflare R2 in production (set `endpoint_url`)."""
@@ -169,6 +178,11 @@ class S3Store(ArtifactStore):
     def presign_get(self, key: str, ttl_s: int = 3600) -> str:
         return self._s3.generate_presigned_url(
             "get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=ttl_s
+        )
+
+    def presign_put(self, key: str, ttl_s: int = 3600) -> str:
+        return self._s3.generate_presigned_url(
+            "put_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=ttl_s
         )
 
 

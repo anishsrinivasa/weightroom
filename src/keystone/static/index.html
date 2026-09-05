@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keystone</title>
+<style>
+  :root {
+    --fg: #000; --bg: #fff; --muted: #666; --line: #ddd; --hover: #f5f5f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #fff; --bg: #000; --muted: #999; --line: #333; --hover: #111; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  header {
+    border-bottom: 1px solid var(--line); padding: 18px 24px;
+    display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap;
+  }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .18em; text-transform: uppercase; }
+  nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+  main { padding: 24px; max-width: 1000px; }
+  section { display: none; }
+  section.active { display: block; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .12em;
+       margin: 0 0 14px; font-weight: 600; }
+  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em;
+       color: var(--muted); margin: 26px 0 10px; font-weight: 600; }
+  p.hint { color: var(--muted); margin: 0 0 18px; max-width: 68ch; }
+  button, .tab {
+    font: inherit; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--fg); padding: 6px 13px; cursor: pointer;
+  }
+  button:hover, .tab:hover { background: var(--fg); color: var(--bg); }
+  .tab { border-color: var(--line); }
+  .tab[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button:disabled:hover { background: var(--bg); color: var(--fg); }
+  input, select, textarea {
+    font: inherit; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); padding: 6px 9px; width: 100%; max-width: 460px;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--fg); outline-offset: -2px; }
+  label { display: block; margin: 12px 0 4px; color: var(--muted); font-size: 12px;
+          text-transform: uppercase; letter-spacing: .08em; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; }
+  th, td { text-align: left; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line);
+           vertical-align: top; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+       font-weight: 600; }
+  tbody tr:hover { background: var(--hover); }
+  .grade { border: 1px solid var(--fg); padding: 1px 8px; display: inline-block; font-weight: 600; }
+  .muted { color: var(--muted); }
+  .mono-sm { font-size: 12px; color: var(--muted); word-break: break-all; }
+  pre { background: var(--hover); border: 1px solid var(--line); padding: 12px;
+        overflow-x: auto; font-size: 12px; margin: 0; }
+  .note { border-left: 2px solid var(--fg); padding: 8px 0 8px 12px; margin: 16px 0;
+          color: var(--muted); max-width: 68ch; }
+  .steps { list-style: none; padding: 0; margin: 0 0 18px; display: flex;
+           gap: 6px; flex-wrap: wrap; font-size: 12px; }
+  .steps li { border: 1px solid var(--line); padding: 3px 9px; color: var(--muted); }
+  .steps li[data-on="1"] { border-color: var(--fg); color: var(--fg); }
+  #log { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Keystone</h1>
+  <span class="muted">certification gates publishing</span>
+  <nav>
+    <button class="tab" data-tab="browse" aria-selected="true">browse</button>
+    <button class="tab" data-tab="publish" aria-selected="false">publish</button>
+    <button class="tab" data-tab="admin" aria-selected="false">admin</button>
+  </nav>
+</header>
+
+<main>
+  <div class="row" style="margin-bottom:22px">
+    <label style="margin:0">token</label>
+    <select id="token" style="max-width:220px">
+      <option value="">anonymous (buyer)</option>
+      <option value="dev-creator" selected>dev-creator</option>
+      <option value="dev-admin">dev-admin</option>
+    </select>
+    <span class="muted" id="whoami"></span>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section id="browse" class="active">
+    <h2>Catalogue</h2>
+    <p class="hint">
+      Only listings that passed certification appear here. Every report shown is
+      redacted for the audience your token resolves to — never for one you ask for.
+    </p>
+    <div class="row" style="margin-bottom:14px">
+      <button onclick="loadBrowse()">refresh</button>
+      <select id="browseState" onchange="loadBrowse()" style="max-width:220px">
+        <option value="listed" selected>listed</option>
+        <option value="draft">draft</option>
+        <option value="pending_certification">pending_certification</option>
+        <option value="certified">certified</option>
+        <option value="rejected">rejected</option>
+      </select>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th>title</th><th>listing</th><th>digest</th><th>state</th><th></th></tr></thead>
+      <tbody id="browseRows"><tr><td colspan="5" class="muted">—</td></tr></tbody>
+    </table></div>
+
+    <div id="detail" style="display:none">
+      <h3>Report</h3>
+      <div class="row" style="margin-bottom:10px">
+        <span class="grade" id="dGrade">—</span>
+        <span class="muted" id="dAudience"></span>
+      </div>
+      <div class="scroll"><table>
+        <thead><tr><th>suite</th><th>status</th><th>band</th><th>score</th><th>categories</th></tr></thead>
+        <tbody id="dSuites"></tbody>
+      </table></div>
+      <p class="note" id="dNote"></p>
+      <details><summary class="muted" style="cursor:pointer;margin:10px 0">raw json</summary>
+        <pre id="dRaw"></pre></details>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section id="publish">
+    <h2>Publish a model</h2>
+    <ol class="steps">
+      <li data-on="1" id="s1">1 declare</li>
+      <li id="s2">2 upload</li>
+      <li id="s3">3 list</li>
+      <li id="s4">4 pay</li>
+      <li id="s5">5 certify</li>
+    </ol>
+    <p class="hint">
+      Weights never cross the API — the server hands back presigned URLs and the
+      client uploads straight to object storage. Files already held come back
+      instantly, which is content-addressed dedup showing through.
+    </p>
+
+    <label>title</label>
+    <input id="pTitle" value="My fine-tune">
+    <label>artifact digest (sha256 of the manifest)</label>
+    <input id="pDigest" placeholder="64 hex characters">
+    <div class="row" style="margin-top:6px">
+      <button onclick="fakeDigest()">generate demo digest</button>
+    </div>
+
+    <label>files — path:bytes:sha256, one per line</label>
+    <textarea id="pFiles" rows="4" style="max-width:640px"></textarea>
+
+    <div class="row" style="margin-top:18px">
+      <button onclick="doPublishFlow()" id="pGo">run publish flow</button>
+      <button onclick="doCertify()" id="pCert" disabled>run worker (certify)</button>
+    </div>
+
+    <h3>Log</h3>
+    <pre id="log" class="muted">idle</pre>
+
+    <p class="note">
+      Certification is queued, not run inline — no request thread waits on a GPU.
+      The worker picks up <code>pending_certification</code> separately. On
+      failure a creator gets a coarse band and a failing category, never per-item
+      results: each attempt otherwise samples the held-out eval set.
+    </p>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section id="admin">
+    <h2>Review queue</h2>
+    <p class="hint">
+      Listings whose attempts look like a search rather than a fix — small
+      monotonic score creep across submissions. Flagged for a human, never
+      auto-blocked: people are better at telling hill-climbing from a real fix.
+    </p>
+    <button onclick="loadFlagged()">refresh</button>
+    <div class="scroll" style="margin-top:14px"><table>
+      <thead><tr><th>listing</th><th>creator</th><th>state</th><th>attempts</th></tr></thead>
+      <tbody id="flaggedRows"><tr><td colspan="4" class="muted">—</td></tr></tbody>
+    </table></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const token = () => $("token").value;
+
+function headers(json) {
+  const h = json ? {"Content-Type": "application/json"} : {};
+  if (token()) h["Authorization"] = "Bearer " + token();
+  return h;
+}
+async function api(path, opts = {}) {
+  const res = await fetch(path, {...opts, headers: {...headers(!!opts.body), ...(opts.headers||{})}});
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || res.status);
+  return body;
+}
+function log(msg) { $("log").textContent += "\n" + msg; }
+function resetLog() { $("log").textContent = "—"; }
+function step(n) { for (let i = 1; i <= 5; i++) $("s" + i).dataset.on = i <= n ? "1" : ""; }
+
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === t));
+  document.querySelectorAll("section").forEach(s => s.classList.toggle("active", s.id === t.dataset.tab));
+  if (t.dataset.tab === "browse") loadBrowse();
+  if (t.dataset.tab === "admin") loadFlagged();
+});
+$("token").onchange = () => {
+  $("whoami").textContent = token() ? "" : "reports render as the buyer view";
+  loadBrowse();
+};
+
+// ---- browse ----------------------------------------------------------
+async function loadBrowse() {
+  const tbody = $("browseRows");
+  try {
+    const { listings } = await api("/v1/listings?state=" + $("browseState").value);
+    tbody.innerHTML = listings.length ? "" :
+      '<tr><td colspan="5" class="muted">nothing in this state</td></tr>';
+    for (const l of listings) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${l.title || "<span class='muted'>untitled</span>"}</td>
+        <td class="mono-sm">${l.listing_id}</td>
+        <td class="mono-sm">${l.artifact_digest.slice(0, 12)}</td>
+        <td class="muted">${l.state}</td><td></td>`;
+      const btn = document.createElement("button");
+      btn.textContent = "open";
+      btn.onclick = () => openListing(l.listing_id);
+      tr.lastElementChild.appendChild(btn);
+      tbody.appendChild(tr);
+    }
+    $("detail").style.display = "none";
+  } catch (e) { tbody.innerHTML = `<tr><td colspan="5">error: ${e.message}</td></tr>`; }
+}
+
+async function openListing(id) {
+  const data = await api("/v1/listings/" + id);
+  $("detail").style.display = "block";
+  $("dRaw").textContent = JSON.stringify(data, null, 2);
+  if (!data.report) {
+    $("dGrade").textContent = "no report";
+    $("dAudience").textContent = "state: " + data.state;
+    $("dSuites").innerHTML = '<tr><td colspan="5" class="muted">not certified yet</td></tr>';
+    $("dNote").textContent = "";
+    return;
+  }
+  const r = data.report;
+  $("dGrade").textContent = r.rating.grade;
+  $("dAudience").textContent = `audience: ${data.audience} · ${r.environment.sandboxed ? "sandboxed" : "NOT sandboxed"}`;
+  $("dSuites").innerHTML = "";
+  for (const s of r.suite_results) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${s.suite_id}${s.held_out ? ' <span class="muted">held-out</span>' : ""}</td>
+      <td>${s.status}</td><td>${s.score_band ?? "—"}</td>
+      <td>${s.score ?? '<span class="muted">redacted</span>'}</td>
+      <td class="muted">${(s.categories || []).join(", ") || "—"}</td>`;
+    $("dSuites").appendChild(tr);
+  }
+  $("dNote").textContent = r.rating.rationale || "";
+}
+
+// ---- publish ---------------------------------------------------------
+function fakeDigest() {
+  const hex = (n) => Array.from({length: n}, () =>
+    "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+  $("pDigest").value = hex(64);
+  $("pFiles").value = `config.json:120:${hex(64)}\nmodel.safetensors:4096:${hex(64)}`;
+}
+
+function parseFiles() {
+  return $("pFiles").value.trim().split("\n").filter(Boolean).map(line => {
+    const [path, size, sha] = line.split(":");
+    return {path: path.trim(), size_bytes: parseInt(size, 10), sha256: sha.trim()};
+  });
+}
+
+let lastListing = null;
+
+async function doPublishFlow() {
+  resetLog(); step(1); $("pGo").disabled = true; $("pCert").disabled = true;
+  try {
+    const digest = $("pDigest").value.trim();
+    const files = parseFiles();
+    if (!/^[0-9a-f]{64}$/.test(digest) || !files.length) throw new Error("need a digest and files");
+
+    const declared = await api("/v1/artifacts", {
+      method: "POST", body: JSON.stringify({digest, files})});
+    log(`declared: ${Object.keys(declared.upload_urls).length} to upload, ${declared.already_stored} already stored`);
+
+    step(2);
+    // A real client PUTs bytes to each presigned URL here. This demo has no
+    // bytes to send, so the browser cannot complete the upload -- the server
+    // will refuse finalize, which is the correct behaviour to show.
+    for (const p of Object.keys(declared.upload_urls)) log("  would PUT " + p);
+
+    let finalized = false;
+    try {
+      await api(`/v1/artifacts/${digest}/finalize`, {
+        method: "POST", body: JSON.stringify({digest, files})});
+      finalized = true;
+      log("finalized");
+    } catch (e) {
+      log("finalize refused: " + e.message);
+      log("(expected in the browser demo -- no bytes were actually uploaded)");
+    }
+    if (!finalized) { step(2); return; }
+
+    step(3);
+    const listing = await api("/v1/listings", {method: "POST",
+      body: JSON.stringify({artifact_digest: digest, title: $("pTitle").value})});
+    lastListing = listing.listing_id;
+    log(`listing ${lastListing} (${listing.state})`);
+
+    step(4);
+    const charge = await api(`/v1/listings/${lastListing}/publish`, {method: "POST"});
+    log(`charge ${charge.charge_id} for ${charge.amount} on ${charge.chain}`);
+    log(`  address ${charge.address}`);
+
+    try {
+      await api(`/v1/listings/${lastListing}/confirm`, {method: "POST",
+        body: JSON.stringify({charge_id: charge.charge_id})});
+    } catch (e) {
+      log("confirm refused: " + e.message);
+      log("(settlement is re-read from the provider -- saying you paid is not paying)");
+    }
+    step(5);
+    $("pCert").disabled = false;
+  } catch (e) {
+    log("error: " + e.message);
+  } finally { $("pGo").disabled = false; }
+}
+
+async function doCertify() {
+  log("the worker runs out of process: `keystone worker --once`");
+}
+
+// ---- admin -----------------------------------------------------------
+async function loadFlagged() {
+  const tbody = $("flaggedRows");
+  try {
+    const { listings } = await api("/v1/admin/flagged");
+    tbody.innerHTML = listings.length ? "" :
+      '<tr><td colspan="4" class="muted">nothing flagged</td></tr>';
+    for (const l of listings) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="mono-sm">${l.listing_id}</td><td>${l.creator_id}</td>
+        <td class="muted">${l.state}</td><td>${l.attempts}</td>`;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="4">error: ${e.message}${
+      e.message.includes("admin") ? " — switch the token to dev-admin" : ""}</td></tr>`;
+  }
+}
+
+fakeDigest();
+loadBrowse();
+</script>
+</body>
+</html>

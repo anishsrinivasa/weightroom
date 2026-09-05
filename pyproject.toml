@@ -15,6 +15,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "fastapi>=0.115",
     "python-multipart>=0.0.9",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
 ]
 
 [build-system]
@@ -23,6 +25,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/keystone"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/keystone/static" = "keystone/static"
 
 [project.scripts]
 keystone = "keystone.cli:app"
