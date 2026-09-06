@@ -190,3 +190,30 @@ def verify(out_dir: Path) -> list[str]:
         elif digest(path.read_bytes()) != entry["sha256"]:
             broken.append(f"{entry['path']}: digest mismatch")
     return broken
+
+
+def install(release_dir: Path, suites_root: Path) -> list[str]:
+    """Stage a published release into the suites tree as the runnable set.
+
+    The inverse of `export`. Used by the container build: `suites/*/assets` is
+    gitignored, so an image built from a clean checkout has no items and every
+    conditioning pair errors with "no items staged". Installing the published
+    release gives the image a working set.
+
+    Deliberately explicit about which direction is which. The runtime set is
+    the one the gate uses; the release is a snapshot of it. Installing a
+    release makes them the same, which is exactly why the gating sets should be
+    rotated with `keystone stage` before real traffic depends on them.
+    """
+    doc = json.loads((release_dir / "manifest.json").read_text(encoding="utf-8"))
+    broken = verify(release_dir)
+    if broken:
+        raise RuntimeError(f"release does not match its manifest: {broken}")
+
+    installed: list[str] = []
+    for entry in doc["datasets"]:
+        target = suites_root / entry["suite_id"] / "assets"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "items.json").write_bytes((release_dir / entry["path"]).read_bytes())
+        installed.append(entry["suite_id"])
+    return installed

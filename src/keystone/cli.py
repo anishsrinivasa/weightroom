@@ -985,6 +985,23 @@ def stage(
 
 
 @app.command()
+@app.command("install-benchmarks")
+def install_benchmarks(
+    source: Path = typer.Option(Path("benchmarks"), "--from", help="Published release directory."),
+    into: Path = typer.Option(Path("suites"), "--into", help="Suites tree to stage into."),
+) -> None:
+    """Stage a published release as the runnable set. Used by the image build.
+
+    `suites/*/assets` is gitignored, so a container built from a clean checkout
+    has no items and every conditioning pair errors. Digests are verified
+    before anything is written.
+    """
+    from keystone.release import install
+
+    for suite_id in install(source, into):
+        console.print(f"  staged {suite_id}")
+
+
 @app.command("export-benchmarks")
 def export_benchmarks(
     out: Path = typer.Option(Path("benchmarks"), help="Directory to write the release into."),
