@@ -43,7 +43,7 @@ from keystone.orders import (
     check_entitlement,
     settle,
 )
-from keystone.payments import DemoChainProvider, PaymentProvider
+from keystone.payments import DemoChainProvider, Money, PaymentProvider
 from keystone.public_benchmarks import (
     BY_ID as PUBLIC_BENCHMARKS_BY_ID,
     PublicBenchmarkSelectionError,
@@ -53,6 +53,7 @@ from keystone.public_benchmarks import (
     quote as quote_public_benchmarks,
 )
 from keystone.providers.dual import DualPaymentProvider
+from keystone.public_safety import evaluation_line_item as safety_evaluation_line_item
 from keystone.schema import Audience, CertificationReport, FileEntry
 from keystone.safety_gates import summarize as summarize_safety_gates
 from keystone.storage import ArtifactStore, LocalStore, artifact_key, image_key
@@ -575,6 +576,7 @@ def create_app(deps: Deps) -> FastAPI:
         stored weight bytes. With no size, the menu shows the 7B BF16 baseline.
         """
         return {
+            "safety_evaluation": safety_evaluation_line_item(model_weight_bytes),
             "benchmarks": public_benchmark_menu(model_weight_bytes),
             "pricing_basis": {
                 "estimated": True,
@@ -611,7 +613,12 @@ def create_app(deps: Deps) -> FastAPI:
             if artifact is None:
                 raise HTTPException(409, "listing artifact is missing")
             model_weight_bytes = _artifact_weight_bytes(artifact)
-            price = quote_public_benchmarks(body.benchmarks, model_weight_bytes)
+            capability_price = quote_public_benchmarks(body.benchmarks, model_weight_bytes)
+            safety_evaluation = safety_evaluation_line_item(model_weight_bytes)
+            price = Money(
+                capability_price.amount_minor + safety_evaluation["price_minor"],
+                capability_price.currency,
+            )
 
             listing = d.store.load_listing(s, listing_id)
             ok, reason = listing.can_attempt(now, d.policy)  # no charge yet
@@ -627,6 +634,7 @@ def create_app(deps: Deps) -> FastAPI:
                     "estimated_model_weight_bytes": model_weight_bytes,
                     "benchmark_sample_size": 100,
                     "benchmark_sampling": "deterministic_random_without_replacement",
+                    "safety_evaluation_price_minor": safety_evaluation["price_minor"],
                     **({"rail": body.rail} if body.rail else {}),
                 },
             )
@@ -636,6 +644,7 @@ def create_app(deps: Deps) -> FastAPI:
         return {
             "charge_id": charge.charge_id,
             "amount": str(charge.amount),
+            "safety_evaluation": safety_evaluation,
             "running": running,
             "declined": declined,
             "chain": charge.chain,

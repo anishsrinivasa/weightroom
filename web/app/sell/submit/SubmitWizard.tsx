@@ -18,6 +18,7 @@ import {
   tagCatalogueSchema,
   type Benchmark,
   type Charge,
+  type SafetyEvaluation,
   type SelectedFile,
 } from "@/lib/contracts";
 import {
@@ -63,6 +64,7 @@ export function SubmitWizard() {
   const [hashing, setHashing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
+  const [safetyEvaluation, setSafetyEvaluation] = useState<SafetyEvaluation | null>(null);
   const [benchmarksLoading, setBenchmarksLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
@@ -108,7 +110,10 @@ export function SubmitWizard() {
   useEffect(() => {
     const query = modelWeightBytes ? `?model_weight_bytes=${modelWeightBytes}` : "";
     void keystoneRequest(`/v1/benchmarks${query}`, benchmarksSchema)
-      .then((benchmarkData) => setBenchmarks(benchmarkData.benchmarks))
+      .then((benchmarkData) => {
+        setBenchmarks(benchmarkData.benchmarks);
+        setSafetyEvaluation(benchmarkData.safety_evaluation);
+      })
       .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load benchmarks"))
       .finally(() => setBenchmarksLoading(false));
   }, [modelWeightBytes]);
@@ -152,10 +157,11 @@ export function SubmitWizard() {
   }, [charge, listingId]);
 
   const evaluationTotal = useMemo(() => {
-    return benchmarks
+    const capabilityTotal = benchmarks
       .filter((benchmark) => selected.has(benchmark.suite_id))
       .reduce((total, benchmark) => total + benchmark.price_minor, 0);
-  }, [benchmarks, selected]);
+    return (safetyEvaluation?.price_minor ?? 0) + capabilityTotal;
+  }, [benchmarks, safetyEvaluation, selected]);
 
   const billed = useMemo(
     () => benchmarks.filter((benchmark) => running.includes(benchmark.suite_id)),
@@ -364,6 +370,7 @@ export function SubmitWizard() {
         setPendingChargeId(currentChargeId);
         // Use the server's normalized selection as the final billed line-up.
         setRunning(quote.running);
+        setSafetyEvaluation(quote.safety_evaluation);
       }
       const currentCharge = await keystoneRequest(
         `/v1/charges/${encodeURIComponent(currentChargeId)}`,
@@ -530,7 +537,7 @@ export function SubmitWizard() {
                   <strong>Safety Evaluation</strong>
                   <small>HarmBench and JailbreakBench safety gates · required for every model</small>
                 </span>
-                <b>Required</b>
+                <b>{safetyEvaluation ? `≈ ${formatUsdc(safetyEvaluation.price_minor)}` : "Required"}</b>
               </label>
               {benchmarks.map((benchmark) => (
                 <label key={benchmark.suite_id}>
@@ -564,10 +571,14 @@ export function SubmitWizard() {
             <div className="payment-progress" role="progressbar" aria-valuemin={0} aria-valuemax={charge.required_confirmations} aria-valuenow={charge.confirmations}>
               <span style={{ width: `${Math.min(100, charge.confirmations / charge.required_confirmations * 100)}%` }} />
             </div>
-            {billed.length ? (
+            {safetyEvaluation ? (
               <div className="payment-breakdown">
                 <span className="breakdown-label">Covers</span>
                 <ul>
+                  <li>
+                    <span>{safetyEvaluation.display_name}</span>
+                    <b>{safetyEvaluation.price}</b>
+                  </li>
                   {billed.map((benchmark) => (
                     <li key={benchmark.suite_id}>
                       <span>{benchmark.display_name}</span>

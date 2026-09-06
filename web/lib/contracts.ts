@@ -158,7 +158,19 @@ export const benchmarkSchema = z.object({
   source_url: z.string().url().optional(),
 });
 
+export const safetyEvaluationSchema = z.object({
+  suite_id: z.literal("safety_evaluation"),
+  display_name: z.string(),
+  description: z.string(),
+  required: z.literal(true),
+  price: z.string(),
+  price_minor: z.number().int().nonnegative(),
+  price_is_estimate: z.boolean(),
+  screen_ids: z.array(z.string()),
+});
+
 export const benchmarksSchema = z.object({
+  safety_evaluation: safetyEvaluationSchema,
   benchmarks: z.array(benchmarkSchema),
   pricing_basis: z.object({
     estimated: z.boolean(),
@@ -169,6 +181,7 @@ export const benchmarksSchema = z.object({
 });
 
 export type Benchmark = z.infer<typeof benchmarkSchema>;
+export type SafetyEvaluation = z.infer<typeof safetyEvaluationSchema>;
 
 export const tagOptionSchema = z.object({
   id: z.string(),
@@ -233,6 +246,7 @@ export const imageStoredSchema = z.object({
 export const quoteSchema = z.object({
   charge_id: z.string(),
   amount: z.string(),
+  safety_evaluation: safetyEvaluationSchema,
   running: z.array(z.string()),
   declined: z.array(z.string()),
   chain: z.string(),

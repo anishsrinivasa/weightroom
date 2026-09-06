@@ -255,7 +255,8 @@ def test_menu_endpoint_is_public(client: TestClient) -> None:
     assert {b["suite_id"] for b in body["benchmarks"]} == PUBLIC_IDS
     assert all(b["price_is_estimate"] for b in body["benchmarks"])
     assert all(b["sample_size"] == 100 for b in body["benchmarks"])
-    assert "mandatory_total" not in body
+    assert body["safety_evaluation"]["required"] is True
+    assert body["safety_evaluation"]["screen_ids"] == ["harmbench", "jailbreakbench"]
 
 
 def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
@@ -266,7 +267,8 @@ def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert r["amount"] == "1.660000 USDC"  # tiny fixture hits the 20% model floor
+    assert r["amount"] == "1.750000 USDC"  # includes the mandatory safety evaluation
+    assert r["safety_evaluation"]["price"] == "0.090000 USDC"
     assert set(r["running"]) == {"frontiermath"}
     assert set(r["declined"]) == PUBLIC_IDS - {"frontiermath"}
 
@@ -279,7 +281,8 @@ def test_publish_allows_no_public_benchmarks(client: TestClient, deps: Deps) -> 
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert response["amount"] == "0.000000 USDC"
+    assert response["amount"] == "0.090000 USDC"
+    assert response["safety_evaluation"]["required"] is True
     assert response["running"] == []
     assert set(response["declined"]) == PUBLIC_IDS
 
