@@ -180,12 +180,12 @@ tbody tr:hover { background: var(--wash); }
 .form-grid label > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: 0.11em; text-transform: uppercase; }
 input, select, textarea { min-height: 43px; border: 1px solid var(--line); border-radius: 0; padding: 9px 11px; background: var(--paper); }
 .form-grid input { width: 100%; }
-.drop-zone { position: relative; min-height: 260px; display: grid; place-items: center; align-content: center; margin-top: 26px; border: 1px dashed var(--ink); padding: 36px 36px 104px; text-align: center; transition: background 120ms ease; }
+.drop-zone { min-height: 260px; display: grid; place-items: center; align-content: center; margin-top: 26px; border: 1px dashed var(--ink); padding: 36px; text-align: center; transition: background 120ms ease; }
 .drop-zone.dragging { background: var(--wash); }
 .drop-zone-summary { display: grid; justify-items: center; gap: 5px; }
 .drop-zone-summary strong { font-size: 22px; }
 .drop-zone-summary p { color: var(--muted); }
-.drop-zone .upload-actions { position: absolute; right: 24px; bottom: 24px; justify-content: flex-end; }
+.drop-zone .upload-actions { justify-content: center; margin-top: 36px; }
 .file-list { margin-top: 20px; }
 .digest-cell { overflow-wrap: anywhere; }
 .safety-callout { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; align-items: start; margin-top: 28px; border: 1px solid var(--ink); padding: 19px; }
@@ -342,8 +342,8 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .select-control { min-width: 140px; }
   .stepper span { display: none; }
   .stepper strong { font-size: 9px; }
-  .drop-zone { min-height: 0; padding: 34px 20px 20px; }
-  .drop-zone .upload-actions { position: static; justify-content: flex-end; margin-top: 30px; }
+  .drop-zone { min-height: 0; padding: 34px 20px; }
+  .drop-zone .upload-actions { margin-top: 30px; }
   .safety-callout { grid-template-columns: 28px 1fr; }
   .gate-row { grid-template-columns: 26px 1fr; }
   .gate-row .status-pill { grid-column: 2; justify-self: start; }
