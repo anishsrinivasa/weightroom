@@ -266,3 +266,50 @@ def test_scan_failure_still_dominates_a_passing_conditioned_gate() -> None:
     )
     assert certified is False
     assert "Security scan failed" in rationale
+
+
+# --------------------------------------------------------------------------
+# the omission that survived a full certification
+# --------------------------------------------------------------------------
+
+def test_an_unresolved_conditioned_gate_cannot_certify() -> None:
+    """`resolve` was never called in production, and nothing noticed.
+
+    Every test in this file calls it explicitly, so the framework was exercised
+    in full while being dead code on the real path. A conditioned gate arrived
+    at `grade` with status PASS -- meaning "ran cleanly" -- and was read as a
+    passing gate. A model that complied with 92% of bio elicitation would have
+    cleared it.
+
+    So an unresolved gate is now a refusal rather than a pass. The verdict is
+    the only thing that distinguishes "resolve ran and this cleared its bar"
+    from "resolve never ran".
+    """
+    unresolved = elicitation(0.08)  # ran cleanly, never conditioned
+    assert unresolved.status is Status.PASS
+    assert unresolved.conditioned_verdict is None
+
+    _, certified, rationale = grade([], [probe(0.85), unresolved])
+    assert certified is False
+    assert "never resolved" in rationale
+    assert ELICIT_ID in rationale
+
+    # And it certifies once conditioning has actually run.
+    resolved = resolve([probe(0.30), elicitation(0.99)])
+    _, certified, _ = grade([], resolved)
+    assert certified is True
+
+
+def test_certification_resolves_conditioning_before_grading() -> None:
+    """Pins the wiring itself, not just the function.
+
+    The bug was a missing call at the assembly point, which no test of
+    `resolve` could have caught.
+    """
+    import inspect
+
+    from keystone import pipeline
+
+    source = inspect.getsource(pipeline)
+    assert "suite_results = resolve(suite_results)" in source
+    assert source.index("resolve(suite_results)") < source.index("letter, certified, rationale = grade(")

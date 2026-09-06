@@ -17,6 +17,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
+from keystone.conditioning import resolve
 from keystone.schema import (
     REPORT_VERSION,
     Capabilities,
@@ -184,6 +185,24 @@ def grade(
         )
     if any(s.status is Status.ERROR for s in suites):
         return capability, False, "One or more suites errored; not certified."
+
+    # A conditioned gate that was never resolved has no threshold, so the gate
+    # check below would read it as passing. That is a programming error rather
+    # than a model outcome -- `conditioning.resolve` was not called -- and it
+    # went unnoticed through a full certification because every unit test
+    # called resolve itself. Fail closed and say which suite.
+    unresolved = [
+        s.suite_id
+        for s in suites
+        if s.conditioned_by
+        and s.conditioned_verdict is None
+        and s.status not in (Status.ERROR, Status.SKIPPED)
+    ]
+    if unresolved:
+        return capability, False, (
+            "Conditioned gate was never resolved against its probe: "
+            f"{', '.join(unresolved)}. Not certified."
+        )
 
     gates = [s for s in suites if s.gate]
     if not gates:
@@ -425,6 +444,13 @@ def _certify_fetched(
         except Exception as exc:
             return Outcome(ref, failure=classify(exc), detail=repr(exc)[:400],
                            wall_s=time.monotonic() - started)
+
+    # Conditioning, before grading and before the report is built. This is the
+    # single choke point every path reaches -- certify, batch, and the worker
+    # all land here -- which is why it lives at the assembly rather than inside
+    # the runner: a judged suite finishes in a second phase, so nothing earlier
+    # holds both halves of a pair at once.
+    suite_results = resolve(suite_results)
 
     letter, certified, rationale = grade(
         scans, suite_results, license_chain_ok=subject.license.chain_ok
