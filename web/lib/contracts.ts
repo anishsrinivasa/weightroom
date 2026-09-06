@@ -58,6 +58,11 @@ const reportSchema = z.object({
     license: z.record(z.string(), z.unknown()).nullable().optional(),
   }),
   environment: z.object({ sandboxed: z.boolean() }).passthrough(),
+  serving_profile: z.object({
+    architecture: z.string().nullable().optional(),
+    parameter_count: z.number().int().nonnegative().nullable().optional(),
+    max_context: z.number().int().nonnegative().nullable().optional(),
+  }).passthrough(),
   suite_results: z.array(suiteResultSchema),
   rating: z.object({
     // Two separate verdicts. `certified` is the safety gate and is what
@@ -226,6 +231,35 @@ export const chargeSchema = z.object({
 });
 
 export type Charge = z.infer<typeof chargeSchema>;
+
+export const purchaseSchema = z.object({
+  order_id: z.string(),
+  amount: z.string(),
+  charge_id: z.string(),
+  chain: z.string(),
+  address: z.string(),
+  checkout_url: z.string().nullable().optional(),
+});
+
+export type Purchase = z.infer<typeof purchaseSchema>;
+
+export const orderConfirmedSchema = z.object({
+  order_id: z.string(),
+  status: z.literal("paid"),
+  entitled: z.literal(true),
+});
+
+export const downloadManifestSchema = z.object({
+  digest: z.string(),
+  files: z.array(z.object({
+    path: z.string(),
+    size_bytes: z.number().int().nonnegative(),
+    sha256: z.string(),
+    url: z.string(),
+  })),
+});
+
+export type DownloadManifest = z.infer<typeof downloadManifestSchema>;
 
 export const confirmedSchema = z.object({
   listing_id: z.string(),
