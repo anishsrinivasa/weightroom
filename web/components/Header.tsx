@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/buy", label: "Buy models" },
-  { href: "/sell/models", label: "My models" },
+  { href: "/buy", label: "Buy models", shortLabel: "Buy" },
+  { href: "/sell/models", label: "My models", shortLabel: "Sell" },
+  { href: "/blog", label: "Blog", shortLabel: "Blog" },
 ] as const;
 
 export function Header() {
@@ -27,7 +28,8 @@ export function Header() {
               className="nav-link"
               aria-current={pathname.startsWith(link.href) ? "page" : undefined}
             >
-              {link.label}
+              <span className="nav-label-full">{link.label}</span>
+              <span className="nav-label-short">{link.shortLabel}</span>
             </Link>
           ))}
         </nav>

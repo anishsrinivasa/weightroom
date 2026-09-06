@@ -13,6 +13,7 @@ import {
   confirmedSchema,
   demoPaymentSchema,
   imageStoredSchema,
+  listingDetailSchema,
   listingCreatedSchema,
   quoteSchema,
   sampleModelManifestSchema,
@@ -49,7 +50,7 @@ const wizardSteps = [
   { number: 4, label: "Verification" },
 ] as const;
 
-export function SubmitWizard() {
+export function SubmitWizard({ draftId }: { draftId?: string }) {
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState("My fine-tune");
   const [price, setPrice] = useState("45");
@@ -58,6 +59,7 @@ export function SubmitWizard() {
   const [domainOptions, setDomainOptions] = useState<{ id: string; label: string }[]>([]);
   const [cover, setCover] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [coverRemoved, setCoverRemoved] = useState(false);
   const [picked, setPicked] = useState<SelectedFile[]>([]);
   const [digest, setDigest] = useState<string | null>(null);
   const [parameterCount, setParameterCount] = useState<number | null>(null);
@@ -70,7 +72,9 @@ export function SubmitWizard() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draftLoading, setDraftLoading] = useState(Boolean(draftId));
   const [listingId, setListingId] = useState<string | null>(null);
+  const [savedArtifactDigest, setSavedArtifactDigest] = useState<string | null>(null);
   const [pendingChargeId, setPendingChargeId] = useState<string | null>(null);
   const [running, setRunning] = useState<string[]>([]);
   const [charge, setCharge] = useState<Charge | null>(null);
@@ -90,6 +94,42 @@ export function SubmitWizard() {
       .reduce((total, file) => total + file.size_bytes, 0);
     return weightBytes || picked.reduce((total, file) => total + file.size_bytes, 0);
   }, [picked]);
+
+  useEffect(() => {
+    if (!draftId) return;
+    let cancelled = false;
+    void keystoneRequest(
+      `/v1/listings/${encodeURIComponent(draftId)}`,
+      listingDetailSchema,
+    ).then((model) => {
+      if (cancelled) return;
+      if (!model.is_owner || model.state !== "draft") {
+        throw new Error("Only your saved drafts can be resumed.");
+      }
+      if (!model.artifact?.files.length) {
+        throw new Error("This draft no longer has an uploaded model artifact.");
+      }
+      setTitle(model.title || "My fine-tune");
+      setPrice(String(model.price_minor / 1_000_000));
+      setDescription(model.description || "");
+      setDomainTags(new Set(model.domain_tags));
+      setSelected(new Set(model.selected_benchmarks));
+      setPicked(model.artifact.files);
+      setDigest(model.artifact_digest);
+      setSavedArtifactDigest(model.artifact_digest);
+      setListingId(model.listing_id);
+      setCoverPreview(model.image_url ? clientUploadUrl(model.image_url) : null);
+      setCoverRemoved(false);
+      setError(null);
+    }).catch((caught: unknown) => {
+      if (!cancelled) {
+        setError(caught instanceof Error ? caught.message : "Could not load the draft");
+      }
+    }).finally(() => {
+      if (!cancelled) setDraftLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [draftId]);
 
   useEffect(() => {
     // No flag gates this. The prepared manifest is absent in deployed builds.
@@ -280,6 +320,7 @@ export function SubmitWizard() {
     }
     setError(null);
     setCover(file);
+    setCoverRemoved(false);
     // Revoked in the effect below, so switching images does not leak blob URLs.
     setCoverPreview(URL.createObjectURL(file));
   }
@@ -287,10 +328,11 @@ export function SubmitWizard() {
   function clearCover() {
     setCover(null);
     setCoverPreview(null);
+    setCoverRemoved(true);
   }
 
   useEffect(() => {
-    if (!coverPreview) return;
+    if (!coverPreview?.startsWith("blob:")) return;
     return () => URL.revokeObjectURL(coverPreview);
   }, [coverPreview]);
 
@@ -303,9 +345,8 @@ export function SubmitWizard() {
     setSubmitting(true);
     setError(null);
     try {
-      let currentListingId = listingId;
-      if (!currentListingId) {
-        const files = picked.map(({ path, size_bytes, sha256 }) => ({ path, size_bytes, sha256 }));
+      const files = picked.map(({ path, size_bytes, sha256 }) => ({ path, size_bytes, sha256 }));
+      if (digest !== savedArtifactDigest) {
         const declaration = await keystoneRequest(
           "/v1/artifacts",
           artifactDeclarationSchema,
@@ -315,7 +356,7 @@ export function SubmitWizard() {
         for (const [path, url] of Object.entries(declaration.upload_urls)) {
           const selectedFile = picked.find((file) => file.path === path);
           if (!selectedFile?.blob) {
-            throw new Error("Sample model is not staged in the local artifact store. Run `keystone sample-model` again.");
+            throw new Error("The selected model file is no longer available. Choose the model files again.");
           }
           const upload = await fetch(clientUploadUrl(url), {
             method: "PUT",
@@ -330,18 +371,38 @@ export function SubmitWizard() {
           artifactFinalizedSchema,
           { method: "POST", body: JSON.stringify({ digest, files }) },
         );
-        // Sent as raw bytes: the server hashes them and owns the digest, so
-        // there is nothing here for the client to get wrong or lie about.
-        let imageDigest: string | null = null;
-        if (cover) {
-          const stored = await keystoneRequest("/v1/images", imageStoredSchema, {
-            method: "POST",
-            body: cover,
-            headers: { "Content-Type": cover.type || "application/octet-stream" },
-          });
-          imageDigest = stored.image_digest;
-        }
+      }
 
+      // Sent as raw bytes: the server hashes them and owns the digest, so
+      // there is nothing here for the client to get wrong or lie about.
+      let imageDigest: string | null = null;
+      if (cover) {
+        const stored = await keystoneRequest("/v1/images", imageStoredSchema, {
+          method: "POST",
+          body: cover,
+          headers: { "Content-Type": cover.type || "application/octet-stream" },
+        });
+        imageDigest = stored.image_digest;
+      }
+
+      let currentListingId = listingId;
+      if (currentListingId) {
+        await keystoneRequest(
+          `/v1/listings/${encodeURIComponent(currentListingId)}`,
+          listingCreatedSchema,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              artifact_digest: digest,
+              title: title.trim(),
+              description: description.trim() || null,
+              ...(coverRemoved ? { image_digest: null } : imageDigest ? { image_digest: imageDigest } : {}),
+              price_minor: Math.round(numericPrice * 1_000_000),
+              domain_tags: Array.from(domainTags),
+            }),
+          },
+        );
+      } else {
         const listing = await keystoneRequest(
           "/v1/listings",
           listingCreatedSchema,
@@ -360,6 +421,7 @@ export function SubmitWizard() {
         currentListingId = listing.listing_id;
         setListingId(currentListingId);
       }
+      setSavedArtifactDigest(digest);
 
       let currentChargeId = pendingChargeId;
       if (!currentChargeId) {
@@ -410,10 +472,28 @@ export function SubmitWizard() {
     }
   }
 
+  if (draftLoading) {
+    return (
+      <div className="wizard">
+        <Link className="back-link" href="/sell/models">← Back to My models</Link>
+        <LoadingBlock label="Loading your saved draft…" />
+      </div>
+    );
+  }
+
+  if (draftId && !listingId) {
+    return (
+      <div className="wizard">
+        <Link className="back-link" href="/sell/models">← Back to My models</Link>
+        <ErrorPanel message={error || "Could not load the draft"} />
+      </div>
+    );
+  }
+
   return (
     <div className="wizard">
       <Link className="back-link" href="/sell/models">← Back to My models</Link>
-      <h1 className="sr-only">Create a model</h1>
+      <h1 className="sr-only">{draftId ? "Edit draft" : "Create a model"}</h1>
       <ol className="stepper" aria-label="Submission progress">
         {wizardSteps.map(({ number, label }) => (
           <li key={number} data-state={number < step ? "done" : number === step ? "current" : "upcoming"} aria-current={number === step ? "step" : undefined}>
@@ -426,7 +506,7 @@ export function SubmitWizard() {
 
       {step === 1 ? (
         <section aria-labelledby="upload-title">
-          <h2 id="upload-title">Upload weights</h2>
+          <h2 id="upload-title">{draftId ? "Edit draft" : "Upload weights"}</h2>
           <div className="form-grid">
             <label><span>Model name</span><input value={title} onChange={(event) => setTitle(event.target.value)} autoComplete="off" /></label>
             <label><span>Sale price (USDC)</span><input type="number" min="0" step="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label>

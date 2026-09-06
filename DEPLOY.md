@@ -141,6 +141,19 @@ platform with private service networking. Workers claim queued listings with a
 conditional UPDATE, so two of them cannot certify the same listing; scale the
 worker process horizontally when throughput demands it.
 
+The checked-in Fly configuration uses two apps in `ewr`:
+
+- `fly.core.toml` runs the private API and worker as separate process groups;
+- `web/fly.toml` runs the public Next.js service and reaches only the API
+  process through Fly's private process-group DNS.
+
+Fly Tigris supplies `BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`,
+`AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`; these are accepted as aliases
+for the R2-style variables above. The core config stays in development mode
+until every production secret is attached, so it cannot accidentally enter a
+restart loop while infrastructure is being provisioned. Change
+`KEYSTONE_ENV` to `production` only for the final production deployment.
+
 The API and worker must share the same `DATABASE_URL` and object-store settings.
 The worker mints four-hour presigned GET URLs, passes them only to Modal's
 network-enabled fetch function, and Modal revalidates the stored manifest and
@@ -219,4 +232,3 @@ distinguishable transfers, and a single payment can never clear two orders.
 A hosted processor (Coinbase Commerce) is also wired if you would rather someone
 else custody funds -- set `COINBASE_COMMERCE_API_KEY` and it takes precedence
 over nothing; on-chain is tried first.
-

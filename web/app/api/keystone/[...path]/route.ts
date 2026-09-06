@@ -29,13 +29,19 @@ function safePath(parts: string[]): string {
   return parts.map(encodeURIComponent).join("/");
 }
 
-function accessToken(request: NextRequest): string | null {
+export function accessToken(request: NextRequest): string | null {
   const incoming = request.headers.get("authorization");
   if (incoming?.toLowerCase().startsWith("bearer ")) return incoming.slice(7).trim();
 
   const cookieName = process.env.KEYSTONE_SESSION_COOKIE || "keystone_access_token";
   const cookieToken = request.cookies.get(cookieName)?.value;
   if (cookieToken) return cookieToken;
+
+  // An explicitly configured, server-only token supports single-tenant demo
+  // deployments until the OIDC callback is wired. Never expose this through
+  // a NEXT_PUBLIC_* variable: every browser request should still hit this BFF.
+  const serverToken = process.env.KEYSTONE_SERVER_TOKEN?.trim();
+  if (serverToken) return serverToken;
 
   if (process.env.NODE_ENV !== "production") return process.env.KEYSTONE_DEV_TOKEN || null;
   return null;

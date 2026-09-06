@@ -234,6 +234,10 @@ export function ModelDetail({ id }: { id: string }) {
             <button className="button primary full-width" type="button" disabled={publishing} onClick={() => void unlist()}>
               {publishing ? "Unlisting…" : "Unlist"}
             </button>
+          ) : model.state === "draft" ? (
+            <Link className="button primary full-width" href={`/sell/submit?draft=${encodeURIComponent(model.listing_id)}`}>
+              Resume draft
+            </Link>
           ) : null}
         </aside>
       </section>

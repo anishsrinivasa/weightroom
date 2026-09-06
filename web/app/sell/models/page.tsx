@@ -116,7 +116,7 @@ export default function SellerModelsPage() {
           <div className="table-scroll">
             <table>
               <thead>
-                <tr><th>Model</th><th>Status</th><th>Price</th><th>Updated</th><th><span className="sr-only">Open</span></th></tr>
+                <tr><th>Model</th><th>Status</th><th>Price</th><th>Updated</th><th><span className="sr-only">Action</span></th></tr>
               </thead>
               <tbody>
                 {visible.map((model) => (
@@ -140,7 +140,13 @@ export default function SellerModelsPage() {
                     <td><StatusPill state={model.state} /></td>
                     <td>{formatUsdc(model.price_minor)}</td>
                     <td>{formatDate(model.updated_at)}</td>
-                    <td><Link className="arrow-link" aria-label={`Open ${model.title || "model"}`} href={`/sell/models/${model.listing_id}`}>→</Link></td>
+                    <td>{model.state === "draft" ? (
+                      <Link className="button resume-draft" href={`/sell/submit?draft=${encodeURIComponent(model.listing_id)}`}>
+                        Resume draft
+                      </Link>
+                    ) : (
+                      <Link className="arrow-link" aria-label={`Open ${model.title || "model"}`} href={`/sell/models/${model.listing_id}`}>→</Link>
+                    )}</td>
                   </tr>
                 ))}
                 {!visible.length ? <tr><td className="empty-cell" colSpan={5}>No models in this view.</td></tr> : null}

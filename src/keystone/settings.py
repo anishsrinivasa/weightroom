@@ -61,7 +61,7 @@ class Settings:
         return cls(
             env=_flag("KEYSTONE_ENV", "development"),
             database_url=_flag("DATABASE_URL", "sqlite:///keystone.db"),
-            bucket=_flag("KEYSTONE_BUCKET"),
+            bucket=_flag("KEYSTONE_BUCKET") or _flag("BUCKET_NAME"),
             signing_key_b64=_flag("KEYSTONE_SIGNING_KEY"),
             jwks_url=_flag("KEYSTONE_JWKS_URL"),
             jwt_issuer=_flag("KEYSTONE_JWT_ISSUER"),
