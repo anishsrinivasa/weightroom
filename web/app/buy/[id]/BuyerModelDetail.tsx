@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
+import { LicenseAgreement } from "@/components/LicenseAgreement";
 import { clientUploadUrl, keystoneRequest } from "@/lib/api";
 import {
   benchmarksSchema,
@@ -29,6 +30,7 @@ export function BuyerModelDetail({ id }: { id: string }) {
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
   const [tags, setTags] = useState<TagCatalogue | null>(null);
   const [purchase, setPurchase] = useState<Purchase | null>(null);
+  const [showLicense, setShowLicense] = useState(false);
   const [charge, setCharge] = useState<Charge | null>(null);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
@@ -115,14 +117,22 @@ export function BuyerModelDetail({ id }: { id: string }) {
   const sizeName = tags?.model_sizes.find((tag) => tag.id === model?.size_tag)?.label;
 
   async function beginPurchase() {
+    // The kind is echoed back from what the server sent with this listing, so
+    // the terms shown and the terms checked are the same object. A boolean
+    // would let a stale render agree to something else.
+    const acceptedKind = model?.license?.kind;
     setPurchasing(true);
     setError(null);
     try {
       const nextPurchase = await keystoneRequest(
         `/v1/listings/${encodeURIComponent(id)}/purchase`,
         purchaseSchema,
-        { method: "POST", body: "{}" },
+        {
+          method: "POST",
+          body: JSON.stringify({ accept_license: acceptedKind }),
+        },
       );
+      setShowLicense(false);
       setPurchase(nextPurchase);
       setCharge(await keystoneRequest(
         `/v1/charges/${encodeURIComponent(nextPurchase.charge_id)}`,
@@ -235,12 +245,28 @@ export function BuyerModelDetail({ id }: { id: string }) {
               {confirming ? <p className="payment-note">Payment settled. Granting access…</p> : null}
             </div>
           ) : (
-            <button className="button primary full-width" type="button" disabled={purchasing} onClick={() => void beginPurchase()}>{purchasing ? "Preparing checkout…" : `Buy for ${formatUsdc(model.price_minor)}`}</button>
+            <>
+              <button className="button primary full-width" type="button" disabled={purchasing} onClick={() => setShowLicense(true)}>{purchasing ? "Preparing checkout…" : `Buy for ${formatUsdc(model.price_minor)}`}</button>
+              {model.license ? (
+                <p className="license-note">
+                  Sold under the {model.license.display_name}. {model.license.summary}
+                </p>
+              ) : null}
+            </>
           )}
 
         </aside>
       </div>
 
+      {showLicense && model.license ? (
+        <LicenseAgreement
+          terms={model.license}
+          price={formatUsdc(model.price_minor)}
+          busy={purchasing}
+          onAccept={() => void beginPurchase()}
+          onCancel={() => setShowLicense(false)}
+        />
+      ) : null}
     </>
   );
 }

@@ -190,6 +190,22 @@ def _view(
     return payload
 
 
+def _license_payload(kind: str | None) -> dict:
+    """The terms of sale, sent alongside the listing.
+
+    Not fetched separately by the client: the modal must render the same terms
+    the server will check the acceptance against, and two round trips is two
+    chances for them to differ.
+    """
+    terms = licensing.terms_for(kind)
+    return {
+        "kind": terms.kind.value,
+        "display_name": terms.display_name,
+        "summary": terms.summary,
+        "agreement": terms.agreement,
+    }
+
+
 def _row_or_404(d: Deps, s: Session, listing_id: str) -> ListingRow:
     row = d.store.get_listing(s, listing_id)
     if row is None:
@@ -402,11 +418,21 @@ def create_app(deps: Deps) -> FastAPI:
         return tag_catalogue()
 
     @app.get("/v1/listings")
-    def browse(d: D) -> dict:
-        """Public catalogue. Unpublished submissions never cross this boundary."""
+    def browse(d: D, principal: P) -> dict:
+        """Public catalogue. Unpublished submissions never cross this boundary.
+
+        A principal is optional here -- browsing stays open -- and is used only
+        to report whether this viewer has already voted, so the button can
+        render pressed.
+        """
         supported_ids = set(PUBLIC_BENCHMARKS_BY_ID)
         with d.store.session() as s:
             rows = d.store.listings_in_state(s, ListingState.LISTED)
+            # One query for every card rather than one per card.
+            votes = d.store.vote_tally(
+                s, [row.id for row in rows],
+                voter_id=principal.user_id if principal else None,
+            )
             listings = []
             for row in rows:
                 report = d.store.latest_report(s, row.id)
@@ -427,6 +453,8 @@ def create_app(deps: Deps) -> FastAPI:
                             else None
                         ),
                         "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
+                        "license_kind": licensing.parse(row.license_kind).value,
+                        "votes": votes.get(row.id, {"up": 0, "down": 0, "score": 0, "mine": 0}),
                         **_listing_tags(row),
                         "created_at": row.created_at.isoformat(),
                     }
@@ -566,6 +594,15 @@ def create_app(deps: Deps) -> FastAPI:
                 ),
                 "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
                 "selected_benchmarks": list(row.selected_benchmarks or []),
+                # Terms of sale, and the agreement text the buyer has to accept
+                # before an order can be created. Sent with the listing so the
+                # modal cannot render terms that differ from the ones the
+                # server will check the acceptance against.
+                "license": _license_payload(row.license_kind),
+                "votes": d.store.vote_tally(
+                    s, [row.id],
+                    voter_id=principal.user_id if principal else None,
+                )[row.id],
                 "is_owner": owned,
                 "entitled": entitled,
                 **_listing_tags(row),

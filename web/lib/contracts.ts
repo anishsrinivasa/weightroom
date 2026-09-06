@@ -80,6 +80,30 @@ const safetyGateSchema = z.object({
   n_items: z.number().int().nonnegative().nullable().optional(),
 });
 
+export const voteTallySchema = z.object({
+  up: z.number().int().nonnegative(),
+  down: z.number().int().nonnegative(),
+  score: z.number().int(),
+  // This viewer's own vote: +1, -1, or 0. Without it the UI cannot tell an
+  // unvoted listing from one this person already voted on.
+  mine: z.number().int().min(-1).max(1),
+});
+
+export const licenseTermsSchema = z.object({
+  kind: z.enum(["non_distributive", "full_access"]),
+  display_name: z.string(),
+  summary: z.string(),
+  agreement: z.string(),
+});
+
+export type VoteTally = z.infer<typeof voteTallySchema>;
+export type LicenseTerms = z.infer<typeof licenseTermsSchema>;
+
+export const licenseCatalogueSchema = z.object({
+  licenses: z.array(licenseTermsSchema.extend({ default: z.boolean() })),
+  default: z.enum(["non_distributive", "full_access"]),
+});
+
 export const evaluationProgressGateSchema = z.object({
   gate_id: z.string(),
   display_name: z.string(),
@@ -104,6 +128,8 @@ const modelSourceSchema = z.object({
 
 export const listingDetailSchema = z.object({
   listing_id: z.string(),
+  license: licenseTermsSchema.optional(),
+  votes: voteTallySchema.optional(),
   title: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   image_url: z.string().nullable().optional(),
@@ -218,6 +244,11 @@ export const publicListingSchema = z.object({
   seller_id: z.string(),
   source: modelSourceSchema.nullable().optional(),
   benchmark_scores: z.record(z.string(), z.number()),
+  // Optional so a client that predates the field still parses a response from
+  // a newer server, and vice versa. A contract that hard-fails on a field
+  // either side has not shipped yet is a deploy-order trap.
+  license_kind: z.enum(["non_distributive", "full_access"]).optional(),
+  votes: voteTallySchema.optional(),
   domain_tags: z.array(z.string()).default([]),
   size_tag: z.string().nullable().default(null),
   created_at: z.string(),
@@ -322,3 +353,11 @@ export const sampleModelManifestSchema = z.object({
 });
 
 export type SelectedFile = FileManifestEntry & { blob?: File };
+
+export const voteResultSchema = z.object({
+  listing_id: z.string(),
+  up: z.number().int().nonnegative(),
+  down: z.number().int().nonnegative(),
+  score: z.number().int(),
+  mine: z.number().int().min(-1).max(1),
+});

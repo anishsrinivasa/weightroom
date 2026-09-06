@@ -599,3 +599,19 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .account-page { min-height: 62vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 40px 0; }
 .account-lede { max-width: 34ch; color: var(--muted); font-size: 13px; text-align: center; }
 .account-clerk-root { width: 100%; display: flex; justify-content: center; }
+
+/* Terms of sale, presented as a decision rather than a formality: the page is
+   dimmed, the text is scrollable if long, and the confirm control stays
+   disabled until the box is ticked. */
+.modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 15, 20, 0.42); backdrop-filter: blur(3px); }
+.modal-card { width: min(560px, 100%); max-height: 84vh; overflow-y: auto; border: 1px solid var(--ink); padding: 28px; background: var(--paper); }
+.modal-card h2 { margin-bottom: 6px; font-size: 20px; }
+.modal-lede { margin-bottom: 18px; color: var(--muted); font-size: 13px; }
+.license-body { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 18px 0; font-size: 13px; line-height: 1.6; }
+.license-consent { display: flex; align-items: flex-start; gap: 10px; margin: 18px 0 22px; font-size: 13px; cursor: pointer; }
+.license-consent input { margin-top: 2px; }
+.license-note { margin-top: 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+@media (prefers-reduced-motion: no-preference) {
+  .modal-card { animation: modal-in 140ms ease-out; }
+  @keyframes modal-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}
