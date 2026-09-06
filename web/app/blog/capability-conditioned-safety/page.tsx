@@ -102,7 +102,7 @@ export default function CapabilityConditionedSafetyPost() {
       <div className="article-layout">
         <aside className="article-sidebar">
           <nav aria-label="Article sections">
-            <p className="private-label">In this article</p>
+            <p className="private-label">Contents</p>
             <ol>
               {sections.map(([id, label]) => (
                 <li key={id}><a href={`#${id}`}>{label}</a></li>
