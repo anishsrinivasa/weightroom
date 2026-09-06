@@ -358,8 +358,6 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .article-sidebar a { display: grid; grid-template-columns: 22px 1fr; gap: 7px; padding: 10px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .article-sidebar a::before { content: "0" counter(article-toc); color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; }
 .article-sidebar a:hover { color: var(--ink); }
-.article-note { margin-top: 30px; border-left: 1px solid var(--ink); padding-left: 13px; }
-.article-note p:last-child { color: var(--muted); font-size: 10px; line-height: 1.55; }
 
 .article-body { min-width: 0; color: #242424; font-size: 16px; line-height: 1.78; }
 .article-body > p + p, .article-body section > p + p { margin-top: 20px; }
@@ -499,7 +497,6 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .article-stats > div:last-child { border-bottom: 0; }
   .article-stats dd { margin-top: 14px; }
   .article-sidebar { display: block; }
-  .article-note { margin-top: 27px; }
   .article-body { font-size: 15px; }
   .article-opening { font-size: 19px; }
   .contribution-grid { grid-template-columns: 1fr; }

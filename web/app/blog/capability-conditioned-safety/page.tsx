@@ -109,14 +109,6 @@ export default function CapabilityConditionedSafetyPost() {
               ))}
             </ol>
           </nav>
-          <div className="article-note">
-            <p className="private-label">Scope</p>
-            <p>
-              This applies to text-only language models sold as downloadable weights. The
-              evaluation decides whether Weightroom lists a model; it does not predict every
-              way the model may behave after download.
-            </p>
-          </div>
         </aside>
 
         <div className="article-body">
