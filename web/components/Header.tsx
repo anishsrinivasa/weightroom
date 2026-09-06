@@ -30,15 +30,6 @@ export function Header() {
               {link.label}
             </Link>
           ))}
-          {pathname.startsWith("/sell/submit") ? (
-            <Link
-              href="/sell/submit"
-              className="nav-link"
-              aria-current="page"
-            >
-              Create a model
-            </Link>
-          ) : null}
         </nav>
       </div>
     </header>
