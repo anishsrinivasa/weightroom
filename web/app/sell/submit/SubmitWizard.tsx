@@ -479,10 +479,10 @@ export function SubmitWizard() {
               ? `${formatParameterCount(parameterCount)} parameters`
               : picked.length && !hashing
                 ? "Parameter count unavailable locally"
-                : "Detected automatically after upload"}</strong>
-            <p className="field-hint">{parameterCountKnown && parameterCount != null
-              ? `${parameterCount.toLocaleString("en-US")} parameters detected from SafeTensors tensor shapes.`
-              : "Weightroom reads tensor shapes from SafeTensors checkpoints; other formats are inspected by the evaluation worker."}</p>
+                : "Waiting for upload"}</strong>
+            {parameterCountKnown && parameterCount != null
+              ? <p className="field-hint">{parameterCount.toLocaleString("en-US")} parameters detected from SafeTensors tensor shapes.</p>
+              : null}
           </div>
           <div
             className={`drop-zone ${dragging ? "dragging" : ""}`}
