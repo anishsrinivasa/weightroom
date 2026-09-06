@@ -509,7 +509,7 @@ export function SubmitWizard() {
                 </tbody></table>
             </div>
           ) : null}
-          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing || !domainTags.size} onClick={() => setStep(2)}>Continue to evaluations →</button></div>
+          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing} onClick={() => setStep(2)}>Continue to evaluations →</button></div>
         </section>
       ) : null}
 
