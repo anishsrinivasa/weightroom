@@ -20,10 +20,17 @@ RUN npm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
+# Needed at runtime as well as at build. `NEXT_PUBLIC_*` is inlined into client
+# bundles, but a server component reads process.env when it renders -- and
+# ClerkProvider renders on the server. Setting it only in the builder stage
+# left the runner without it, so every page 500'd during SSR while the API
+# routes, which mount no provider, kept answering normally.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=""
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 
 RUN addgroup --system --gid 10001 nextjs \
     && adduser --system --uid 10001 --ingroup nextjs nextjs
