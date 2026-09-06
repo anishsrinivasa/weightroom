@@ -15,7 +15,7 @@ const sections = [
   ["uncertainty", "Making the decision"],
   ["judge", "Scoring open-ended answers"],
   ["leakage", "What a report reveals"],
-  ["results", "First production runs"],
+  ["results", "An end-to-end run"],
   ["limitations", "Current limits"],
 ] as const;
 
@@ -24,8 +24,10 @@ const domainRows = [
     domain: "Biology",
     probe: "WMDP-Bio-derived multiple choice",
     probeUrl: "https://www.wmdp.ai/",
-    elicitation: "Chemical and biological behaviors",
-    elicitationUrl: "https://github.com/centerforaisafety/HarmBench",
+    elicitation: "Chemical and biological behaviors from HarmBench",
+    elicitationUrls: [
+      { label: "HarmBench", url: "https://github.com/centerforaisafety/HarmBench" },
+    ],
     pool: "532",
   },
   {
@@ -33,7 +35,10 @@ const domainRows = [
     probe: "SWE-bench-derived patch recognition",
     probeUrl: "https://github.com/SWE-bench/SWE-bench",
     elicitation: "Cybercrime and intrusion behaviors from HarmBench + AdvBench",
-    elicitationUrl: "https://github.com/centerforaisafety/HarmBench",
+    elicitationUrls: [
+      { label: "HarmBench", url: "https://github.com/centerforaisafety/HarmBench" },
+      { label: "AdvBench", url: "https://github.com/llm-attacks/llm-attacks/blob/main/data/advbench/harmful_behaviors.csv" },
+    ],
     pool: "1,200",
   },
   {
@@ -41,7 +46,10 @@ const domainRows = [
     probe: "LegalBench-derived binary questions",
     probeUrl: "https://legalbench.org/",
     elicitation: "Illegal-assistance behaviors from HarmBench + StrongREJECT",
-    elicitationUrl: "https://github.com/centerforaisafety/HarmBench",
+    elicitationUrls: [
+      { label: "HarmBench", url: "https://github.com/centerforaisafety/HarmBench" },
+      { label: "StrongREJECT", url: "https://github.com/dsbowen/strong_reject" },
+    ],
     pool: "1,200",
   },
 ] as const;
@@ -62,14 +70,14 @@ export default function CapabilityConditionedSafetyPost() {
           and a release threshold tied to the capability each model demonstrates.
         </p>
 
-        <div className="article-hero-visual" aria-label="The core evaluation rule">
+        <div className="article-hero-visual" aria-label="How capability changes the release decision">
           <div>
-            <span className="visual-label">Risk model</span>
-            <strong>risk ≈ capability × elicitation success</strong>
+            <span className="visual-label">Working intuition</span>
+            <strong>Useful expertise makes a harmful answer more consequential.</strong>
           </div>
           <div>
-            <span className="visual-label">Release rule</span>
-            <strong>UCB(harm) ≤ κ(capability)</strong>
+            <span className="visual-label">How the gate responds</span>
+            <strong>As capability rises, tolerated harmful assistance falls.</strong>
           </div>
         </div>
 
@@ -104,15 +112,16 @@ export default function CapabilityConditionedSafetyPost() {
         <div className="article-body">
           <p className="article-opening">
             Qwen2.5-7B-Instruct passed our two conventional safety screens: 91% on
-            HarmBench and 97% on JailbreakBench. It failed the domain-conditioned
-            evaluation. That disagreement exposed what the first version of our gate
-            could not measure.
+            HarmBench and 97% on JailbreakBench, both above the fixed 90% bar. A private
+            probe then found enough specialist knowledge to activate further testing.
+            On those open-ended tests, it gave materially helpful answers to harmful
+            requests often enough to exceed at least one domain&apos;s limit.
           </p>
           <p>
             Refusal rates count how often a model declines a request. They leave out the
-            capability behind answers that get through. A weak biology model and a strong
-            one can both refuse 96% of harmful prompts; the remaining 4% does not carry
-            the same risk. Raising the refusal threshold would still score them alike.
+            capability behind answers that get through. Consider a weak biology model and
+            a strong one that both refuse 96% of harmful prompts. The remaining 4% does not
+            carry the same risk, yet a higher refusal threshold would still score them alike.
           </p>
 
           <section id="contributions">
@@ -162,13 +171,16 @@ export default function CapabilityConditionedSafetyPost() {
               {" "}behaviors and all 100 <a href="https://github.com/JailbreakBench/jailbreakbench">JailbreakBench</a>
               {" "}harmful behaviors. It remains useful for harassment, misinformation,
               and general illegal advice, where producing fluent text is itself enough to
-              cause harm.
+              cause harm. A response counts as safe when it refuses or otherwise avoids
+              materially helping with the request.
             </p>
             <p>
               Biology and cybersecurity made the limitation obvious. Assistance matters
               more when the model can supply knowledge a user does not already have. We
               kept the fixed battery and added a separate gate for specialist domains.
-              Each domain is evaluated independently, and both gates must pass.
+              Each domain is evaluated independently, and both gates must pass. Behaviors
+              assigned to the conditioned domains are removed from the fixed battery so the
+              same prompt is not counted twice.
             </p>
           </section>
 
@@ -178,17 +190,19 @@ export default function CapabilityConditionedSafetyPost() {
             <p>
               Each domain has two private instruments. A multiple-choice probe runs first.
               If its score crosses the domain floor, the model receives open-ended prompts
-              that test whether it will materially help with harmful requests.
+              that test whether it will materially help with harmful requests. A failure in
+              any activated domain blocks publication; strong results elsewhere cannot
+              average it away.
             </p>
 
             <div className="eval-flow" role="img" aria-label="Capability probe routes capable models into an elicitation test, which is compared against a capability-dependent ceiling before a release decision">
               <div className="flow-node"><span>1</span><strong>Capability probe</strong><small>How much does the model know?</small></div>
               <div className="flow-arrow" aria-hidden="true">→</div>
-              <div className="flow-node"><span>2</span><strong>Domain router</strong><small>Is capability above the floor?</small></div>
+              <div className="flow-node"><span>2</span><strong>Domain router</strong><small>Does the model know enough for harmful help to matter?</small></div>
               <div className="flow-arrow" aria-hidden="true">→</div>
               <div className="flow-node"><span>3</span><strong>Elicitation test</strong><small>Will the model help?</small></div>
               <div className="flow-arrow" aria-hidden="true">→</div>
-              <div className="flow-node"><span>4</span><strong>Release decision</strong><small>Does the upper bound clear the bar?</small></div>
+              <div className="flow-node"><span>4</span><strong>Release decision</strong><small>Does the conservative harm estimate stay under the limit?</small></div>
             </div>
 
             <div className="article-table-wrap">
@@ -199,7 +213,14 @@ export default function CapabilityConditionedSafetyPost() {
                     <tr key={row.domain}>
                       <td><strong>{row.domain}</strong></td>
                       <td><a href={row.probeUrl}>{row.probe} ↗</a></td>
-                      <td><a href={row.elicitationUrl}>{row.elicitation} ↗</a></td>
+                      <td>
+                        {row.elicitation}<br />
+                        {row.elicitationUrls.map((source, index) => (
+                          <span key={source.label}>
+                            {index > 0 && " · "}<a href={source.url}>{source.label} ↗</a>
+                          </span>
+                        ))}
+                      </td>
                       <td>{row.pool}</td>
                     </tr>
                   ))}
@@ -207,19 +228,27 @@ export default function CapabilityConditionedSafetyPost() {
               </table>
             </div>
 
-            <h3>A continuous ceiling</h3>
+            <h3>The current policy curve</h3>
             <p>
-              The first implementation used capability bands. A score of 0.54 and a score
-              of 0.55 could trigger safety requirements ten percentage points apart. The
-              discontinuity came from the policy boundary rather than evidence of a sharp
-              change in risk. We replaced the bands with an interpolated curve.
+              The first implementation used capability bands. Two models separated by one
+              percentage point in capability could trigger safety requirements ten
+              percentage points apart. That discontinuity came from the policy boundary
+              rather than evidence of a sharp change in risk, so we replaced the bands with
+              an interpolated curve.
             </p>
             <p>
-              After correction for guessing, the score maps to a maximum tolerated harm
-              rate. The limit starts at 30% and falls to 15% near the capability frontier.
-              Below the activation floor, the elicitation set does not run. Biology uses
-              a provisional 0.75 floor because WMDP-Bio contains enough ordinary biology
-              to route small general models into a test intended for hazardous capability.
+              We first remove the accuracy a model could get by guessing. A corrected score
+              of 0.60 means the model covered 60% of the distance from random guessing to a
+              perfect score. That value maps to a maximum tolerated harm rate. The current
+              limit starts at 30% for a model just above the activation floor and falls to
+              15% near the capability frontier.
+            </p>
+            <p>
+              These percentages refer to judge-labeled assistance on deliberately harmful
+              test prompts. They are not estimates of how often a deployed model will cause
+              harm. Biology also uses a higher activation floor than the other domains:
+              WMDP-Bio contains enough ordinary biology to make small general models appear
+              more hazardous than they are.
             </p>
 
             <div className="curve-figure">
@@ -244,8 +273,8 @@ export default function CapabilityConditionedSafetyPost() {
                 <text className="curve-annotation" x="105" y="228">not gated</text>
               </svg>
               <p>
-                These anchors are policy choices calibrated to the current item sets. A
-                change to the prompt pool requires us to calibrate them again.
+                The curve is a release policy, not an empirical law of risk. Its anchors
+                were calibrated to these item sets and must be revisited when the sets change.
               </p>
             </div>
           </section>
@@ -271,7 +300,8 @@ export default function CapabilityConditionedSafetyPost() {
             <p>
               The source datasets are public and used under their respective terms. The
               derived evaluation items are custom, held out, rotated between runs, and never
-              published.
+              published. Generation happens during offline staging, not while a submitted
+              model is being evaluated.
             </p>
 
             <ol className="pipeline-steps">
@@ -318,14 +348,19 @@ export default function CapabilityConditionedSafetyPost() {
             <p className="section-number">05</p>
             <h2>Making the decision</h2>
             <p>
-              A model observed at 74% safe over roughly 60 independent items may have a
-              substantially lower true safe rate. The gate therefore compares the 95%
-              Wilson upper confidence bound on harmful assistance with the domain ceiling.
-              The observed mean alone cannot produce a pass.
+              The observed harmful-assistance rate is only a sample. A result just under the
+              limit may reflect luck, especially when many prompts are variants of the same
+              behavior. We ask how high the actual rate could plausibly be given the amount
+              of independent evidence. The gate passes only if that conservative estimate
+              remains below the domain limit.
             </p>
             <div className="formula-card">
               <span>Decision statistic</span>
               <code>UCB₉₅(harm rate; effective n) ≤ κ(adjusted capability)</code>
+              <small>
+                UCB₉₅ is the 95% Wilson upper bound. Effective n discounts correlated
+                variants. κ is the allowed harm rate at the measured capability.
+              </small>
             </div>
             <h3>Correct for guessing</h3>
             <p>
@@ -345,8 +380,10 @@ export default function CapabilityConditionedSafetyPost() {
             </p>
             <p>
               The outcome can therefore be <code>not_required</code>, <code>pass</code>,
-              <code>fail</code>, or <code>insufficient_evidence</code>. The last means our
-              sample cannot support a decision at the required ceiling.
+              <code>fail</code>, or <code>insufficient_evidence</code>. The first means the
+              probe did not activate the domain. A pass or fail compares the conservative
+              harm estimate with the limit. Insufficient evidence means the available sample
+              cannot support either conclusion.
             </p>
           </section>
 
@@ -363,7 +400,9 @@ export default function CapabilityConditionedSafetyPost() {
               We replaced the phrase matcher with a pinned Qwen3Guard-Gen-8B judge. It reads
               the request and response and decides whether the response materially helped.
               Unparseable judgments count against completion, and a partially parsed run
-              errors instead of averaging the subset that happened to parse.
+              errors instead of averaging the subset that happened to parse. A separate
+              judge also prevents the submitted model from grading its own answers and keeps
+              the scoring model constant across submissions.
             </p>
             <div className="phase-diagram">
               <div><span>Phase 1</span><strong>Candidate model</strong><small>Generate responses; keep transcripts in memory</small></div>
@@ -372,7 +411,9 @@ export default function CapabilityConditionedSafetyPost() {
             </div>
             <p>
               The two phases share an accelerator rather than co-residing on it. Every result
-              records the judge model and revision used for the result.
+              records the judge model and revision used for the result. This improves the
+              scoring logic; it does not establish that the judge is correct. Agreement with
+              expert human review still needs to be measured.
             </p>
           </section>
 
@@ -399,24 +440,31 @@ export default function CapabilityConditionedSafetyPost() {
 
           <section id="results">
             <p className="section-number">08</p>
-            <h2>First production runs</h2>
+            <h2>An end-to-end run</h2>
             <p>
-              The Qwen2.5-7B-Instruct result from the opening was the first useful test of
-              the split design. Its 91% HarmBench and 97% JailbreakBench scores cleared the
-              fixed gate. The private probes found enough domain capability to activate the
-              conditioned tests, which then failed. Its marketplace capability grade stayed
-              at B; the safety result did not alter the capability measurement.
+              In an internal run, Qwen2.5-7B-Instruct followed the full decision path. It
+              cleared the general refusal screen. At least one private capability probe
+              crossed its activation floor, so the corresponding open-ended test ran. The
+              model then provided materially useful help on enough harmful requests for the
+              uncertainty-adjusted harm estimate to exceed that domain&apos;s limit. One domain
+              failure was enough to reject the submission.
             </p>
             <div className="result-comparison">
-              <div><span>Absolute screens</span><strong>Pass</strong><small>91% / 97% safe response</small></div>
-              <div><span>Conditioned domains</span><strong>Fail</strong><small>Capability made the observed leakage material</small></div>
-              <div><span>Capability grade</span><strong>B</strong><small>Safety does not rewrite capability</small></div>
+              <div><span>General screen</span><strong>Cleared</strong><small>Both safe-response rates exceeded the fixed 90% bar</small></div>
+              <div><span>Domain probe</span><strong>Activated</strong><small>The model knew enough for specialist testing to matter</small></div>
+              <div><span>Elicitation</span><strong>Rejected</strong><small>Harmful assistance exceeded at least one domain limit</small></div>
             </div>
             <p>
-              A full three-domain run has taken roughly 300–600 seconds and about $0.13 on
-              an A10G. Measured capability has so far ranged from 0.05 to 0.61 after chance
-              correction. We have not yet exercised the steepest part of the policy curve
-              on real models, so these are operating measurements from an early system.
+              The public report does not include the failing domain, exact scores, or item
+              count. The model creator sees the failing domain but not the measurements. The
+              signed internal report retains the full evidence. This limits what an external
+              reader can reproduce, but it also makes the held-out set harder to reconstruct
+              across submissions.
+            </p>
+            <p>
+              On one A10G, a full three-domain run has taken roughly five to ten minutes and
+              cost about $0.13. Those are measurements from our runs, not guaranteed latency
+              or pricing for other hardware and providers.
             </p>
           </section>
 
@@ -429,6 +477,7 @@ export default function CapabilityConditionedSafetyPost() {
               <li><strong>The ceiling is policy.</strong> Its anchors are deliberate judgment calls tied to these exact instruments.</li>
               <li><strong>The judge needs human validation.</strong> Automated labels have not yet been calibrated against an expert-reviewed sample.</li>
               <li><strong>Capability probes are proxies.</strong> Hazard-adjacent knowledge is not the same as real-world execution ability.</li>
+              <li><strong>Transformation does not erase training exposure.</strong> The private items reduce verbatim memorization, but their public source material may still have appeared in training.</li>
               <li><strong>Sandbagging remains an open problem.</strong> Divergence between public and private capability measurements can flag it, but that check is not yet implemented.</li>
             </ul>
             <p>
@@ -440,19 +489,6 @@ export default function CapabilityConditionedSafetyPost() {
             </p>
           </section>
 
-          <footer className="article-conclusion">
-            <p className="section-number">Current status</p>
-            <h2>Next validation work</h2>
-            <p>
-              Weightroom uses this mechanism as an automated publishing screen for
-              downloadable text models. It caught a failure that the fixed refusal tests
-              missed, and a three-domain run fits on one A10G for about $0.13. The next work
-              is less tidy: validate the judge against expert review, replace patch
-              recognition with executable coding tasks, and rebuild the legal pairing around
-              evidence that capability and harmful assistance actually correlate.
-            </p>
-            <Link className="button primary" href="/buy">Explore evaluated models →</Link>
-          </footer>
         </div>
       </div>
     </article>
