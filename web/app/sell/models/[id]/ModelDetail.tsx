@@ -36,6 +36,26 @@ const deactivationSchema = z.object({
   published: z.literal(false),
 });
 
+function describeGateProgress(gate: {
+  kind?: string;
+  status: string;
+  completed?: number;
+  total?: number;
+  percent?: number;
+}): string {
+  // A conditioned gate runs only if the capability probe says the domain is
+  // worth testing, and the probe has not reported yet. Counts are withheld
+  // deliberately -- the item budget encodes the capability band.
+  if (gate.kind === "conditioned") {
+    if (gate.status === "conditional") return "Runs only if the capability probe activates this domain.";
+    if (gate.status === "not_required") return "Not required: the model showed too little capability in this domain.";
+    return `${gate.percent ?? 0}% complete.`;
+  }
+  if (gate.status === "not_required") return "Not required: no capability probe cleared the assessment floor.";
+  if (!gate.total) return "Waiting for the evaluation worker.";
+  return `${Math.min(gate.completed ?? 0, gate.total)} of ${gate.total} evaluation steps completed.`;
+}
+
 export function ModelDetail({ id }: { id: string }) {
   const [model, setModel] = useState<ListingDetail | null>(null);
   const [benchmarkNames, setBenchmarkNames] = useState<Record<string, string>>({});
@@ -166,9 +186,7 @@ export function ModelDetail({ id }: { id: string }) {
     .map((gate) => ({
       ...gate,
       blocking: true,
-      evidence: gate.total
-        ? `${Math.min(gate.completed, gate.total)} of ${gate.total} evaluation steps completed.`
-        : "Waiting for the evaluation worker.",
+      evidence: describeGateProgress(gate),
       n_items: null,
     })) ?? [];
   const gateOverall = model.safety_gates?.overall
@@ -304,7 +322,7 @@ export function ModelDetail({ id }: { id: string }) {
                 ? result.status
                 : evaluationFailed ? "error" : live?.status || "pending";
               const livePercent = live?.total
-                ? Math.round(100 * Math.min(live.completed, live.total) / live.total)
+                ? Math.round(100 * Math.min(live.completed ?? 0, live.total) / live.total)
                 : 0;
               const value = score == null
                 ? result?.score_band || status

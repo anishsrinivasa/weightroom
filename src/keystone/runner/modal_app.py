@@ -887,6 +887,8 @@ def _evaluate(
             "kind": "conditioned",
             "status": "conditional",
             "percent": 0,
+            "completed": 0,
+            "total": 0,
             "score": None,
         }
         for suite in discover(suites_root)

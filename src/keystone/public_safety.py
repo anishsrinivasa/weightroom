@@ -201,6 +201,10 @@ def conditioned_gate_placeholders() -> list[dict]:
             # correctly never happen.
             "status": "conditional",
             "percent": 0,
+            # Present and zero rather than absent: an older client validates
+            # these as required, and a progress row is not worth a 502 over.
+            "completed": 0,
+            "total": 0,
             "score": None,
         }
         for suite in discover()
@@ -215,7 +219,7 @@ def initial_progress_gates() -> list[dict]:
         {
             "gate_id": screen.id,
             "display_name": screen.display_name,
-            "kind": "screen",
+            "kind": "safety",
             "status": "pending" if enabled else "pass",
             "completed": 0 if enabled else 1,
             # One model generation and one independent judge decision per item.

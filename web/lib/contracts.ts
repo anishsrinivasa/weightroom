@@ -80,13 +80,19 @@ const safetyGateSchema = z.object({
   n_items: z.number().int().nonnegative().nullable().optional(),
 });
 
-const evaluationProgressGateSchema = z.object({
+export const evaluationProgressGateSchema = z.object({
   gate_id: z.string(),
   display_name: z.string(),
-  kind: z.enum(["safety", "benchmark"]).optional(),
+  kind: z.enum(["safety", "benchmark", "conditioned"]).optional(),
   status: z.string(),
-  completed: z.number().int().nonnegative(),
-  total: z.number().int().nonnegative(),
+  // Conditioned gates report a percentage and never counts: their item budget
+  // is derived from the tolerated-harm ceiling the model's capability earns,
+  // so "0 of 128" against "0 of 192" would print the capability band onto the
+  // seller's progress bar. Counts stay required in practice for the other
+  // kinds; optional here so one row shape covers both.
+  completed: z.number().int().nonnegative().optional(),
+  total: z.number().int().nonnegative().optional(),
+  percent: z.number().min(0).max(100).optional(),
   score: z.number().nullable().optional(),
 });
 
