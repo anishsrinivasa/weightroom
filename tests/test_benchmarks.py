@@ -305,6 +305,11 @@ def test_selection_is_persisted_for_the_worker(client: TestClient, deps: Deps) -
         row = deps.store.get_listing(s, listing_id)
         assert set(row.selected_benchmarks) == {"frontiermath"}
 
+    detail = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()
+    assert detail["selected_benchmarks"] == ["frontiermath"]
+
 
 def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> None:
     from keystone.pipeline import Outcome

@@ -7,7 +7,11 @@ import { z } from "zod";
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
 import { GatePill, StatusPill, stateLabel } from "@/components/StatusPill";
 import { clientUploadUrl, keystoneRequest } from "@/lib/api";
-import { type ListingDetail, listingDetailSchema } from "@/lib/contracts";
+import {
+  benchmarksSchema,
+  type ListingDetail,
+  listingDetailSchema,
+} from "@/lib/contracts";
 import { formatBytes } from "@/lib/artifact";
 import {
   EVALUATION_POLL_INTERVAL_MS,
@@ -28,6 +32,7 @@ const activationSchema = z.object({
 
 export function ModelDetail({ id }: { id: string }) {
   const [model, setModel] = useState<ListingDetail | null>(null);
+  const [benchmarkNames, setBenchmarkNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -54,6 +59,22 @@ export function ModelDetail({ id }: { id: string }) {
   useEffect(() => {
     queueMicrotask(() => void load());
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void keystoneRequest("/v1/benchmarks", benchmarksSchema)
+      .then((data) => {
+        if (!cancelled) {
+          setBenchmarkNames(Object.fromEntries(
+            data.benchmarks.map((benchmark) => [benchmark.suite_id, benchmark.display_name]),
+          ));
+        }
+      })
+      // A missing catalogue should not hide the persisted selection; the suite
+      // id remains a usable fallback label.
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   const activeEvaluation = model ? evaluationStates.has(model.state) : false;
 
@@ -91,7 +112,16 @@ export function ModelDetail({ id }: { id: string }) {
   const rejected = model.state === "rejected";
   const progress = evaluationProgress(model.state);
   const report = model.report;
-  const benchmarks = report?.suite_results.filter((result) => !result.gate) || [];
+  const reportedBenchmarks = report?.suite_results.filter((result) => !result.gate) || [];
+  const reportedBenchmarksById = new Map(
+    reportedBenchmarks.map((result) => [result.suite_id, result]),
+  );
+  // Older completed records predate persisted benchmark selections. Preserve
+  // their non-declined results while using the explicit selection for all new
+  // evaluations, including the period before a report exists.
+  const selectedBenchmarkIds = model.selected_benchmarks.length
+    ? model.selected_benchmarks
+    : reportedBenchmarks.filter((result) => !result.declined).map((result) => result.suite_id);
   const license = report?.subject.license;
   const licenseLabel = typeof license?.spdx === "string"
     ? license.spdx
@@ -226,13 +256,16 @@ export function ModelDetail({ id }: { id: string }) {
         <div>
           <section className="content-block" aria-labelledby="benchmarks-title">
             <div className="block-heading"><h2 id="benchmarks-title">Selected benchmark results</h2></div>
-            {benchmarks.length ? benchmarks.map((result) => {
-              const score = result.score == null ? null : Math.round(result.score * 100);
-              const value = result.declined ? "Not selected" : score == null ? result.score_band || result.status : `${score}%`;
+            {selectedBenchmarkIds.length ? selectedBenchmarkIds.map((suiteId) => {
+              const result = reportedBenchmarksById.get(suiteId);
+              const score = result?.score == null ? null : Math.round(result.score * 100);
+              const value = score == null
+                ? result?.score_band || (result && !result.declined ? result.status : "Pending")
+                : `${score}%`;
               return (
-                <div className="benchmark-row" key={result.suite_id}>
-                  <div><span className={result.declined ? "muted-text" : undefined}>{result.display_name || result.suite_id}</span><strong>{value}</strong></div>
-                  <div className="score-track" aria-hidden="true"><span style={{ width: result.declined || score == null ? 0 : `${score}%` }} /></div>
+                <div className="benchmark-row" key={suiteId}>
+                  <div><span>{result?.display_name || benchmarkNames[suiteId] || suiteId}</span><strong>{value}</strong></div>
+                  <div className="score-track" aria-hidden="true"><span style={{ width: score == null ? 0 : `${score}%` }} /></div>
                 </div>
               );
             }) : <div className="empty-cell">No public capability benchmark was selected.</div>}

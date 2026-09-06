@@ -521,6 +521,7 @@ def create_app(deps: Deps) -> FastAPI:
                     else None
                 ),
                 "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
+                "selected_benchmarks": list(row.selected_benchmarks or []),
                 "is_owner": owned,
                 "entitled": entitled,
                 **_listing_tags(row),

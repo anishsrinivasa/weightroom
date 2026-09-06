@@ -113,6 +113,7 @@ export const listingDetailSchema = z.object({
   grade: z.string().nullable(),
   source: modelSourceSchema.nullable().optional(),
   benchmark_scores: z.record(z.string(), z.number()),
+  selected_benchmarks: z.array(z.string()).default([]),
   is_owner: z.boolean(),
   entitled: z.boolean(),
   domain_tags: z.array(z.string()).default([]),
