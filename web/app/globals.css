@@ -356,7 +356,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .article-sidebar ol { margin: 12px 0 0; border-top: 1px solid var(--ink); padding: 0; list-style: none; counter-reset: article-toc; }
 .article-sidebar li { counter-increment: article-toc; border-bottom: 1px solid var(--line); }
 .article-sidebar a { display: grid; grid-template-columns: 22px 1fr; gap: 7px; padding: 10px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
-.article-sidebar a::before { content: "0" counter(article-toc); color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; }
+.article-sidebar a::before { content: counter(article-toc); color: var(--ink); font-size: 9px; }
 .article-sidebar a:hover { color: var(--ink); }
 
 .article-body { min-width: 0; color: #242424; font-size: 16px; line-height: 1.78; }
@@ -369,7 +369,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .article-body a:not(.button) { border-bottom: 1px solid var(--line); color: var(--ink); }
 .article-body a:not(.button):hover { border-bottom-color: var(--ink); }
 .article-body code { padding: 2px 5px; background: var(--wash); color: var(--ink); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 0.86em; }
-.section-number { color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+.section-number { color: var(--muted); font-size: 10px; }
 .formula-card > span { display: block; margin-bottom: 12px; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
 
 .contribution-grid { display: grid; grid-template-columns: 1fr 1fr; margin: 34px 0; border: 1px solid var(--ink); }
