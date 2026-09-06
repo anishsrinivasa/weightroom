@@ -572,6 +572,21 @@ def prefetch_public_safety_assets() -> dict:
     }
 
 
+@app.function(
+    image=safety_eval_image,
+    volumes={CACHE_ROOT: cache},
+    block_network=True,
+    restrict_modal_access=False,
+    timeout=4 * 60 * 60,
+)
+def smoke_agent_sandboxes() -> dict[str, str]:
+    """Operational preflight for the two document-producing benchmark images."""
+    from keystone.runner.inspect_benchmarks import smoke_agent_sandboxes as smoke
+
+    assets = json.loads(Path(PUBLIC_SAFETY_ASSETS).read_text(encoding="utf-8"))
+    return smoke(harvey_root=Path(assets["harvey_lab_dir"]))
+
+
 # ---------------------------------------------------------------------------
 # scan: network OFF, before anything is loaded
 # ---------------------------------------------------------------------------

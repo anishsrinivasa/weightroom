@@ -244,6 +244,53 @@ def _inspect_model_args(served_model_name: str) -> dict[str, Any]:
     }
 
 
+def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
+    """Build and execute the GDPval and Harvey sandbox images without a model."""
+    import inspect_sandboxes.modal  # noqa: F401
+    from inspect_ai import Task
+    from inspect_ai import eval as inspect_eval
+    from inspect_ai.dataset import Sample
+    from inspect_ai.util import SandboxEnvironmentSpec, sandbox
+    import inspect_evals.gdpval as gdpval_package
+
+    async def probe(state, generate):
+        result = await sandbox().exec(
+            ["sh", "-lc", "python --version && test -d /workspace"], timeout=120
+        )
+        if not result.success:
+            raise RuntimeError(result.stderr or "sandbox probe failed")
+        return state
+
+    dockerfiles = {
+        "gdpval": Path(gdpval_package.__file__).parent / "Dockerfile",
+        "harvey_lab": harvey_root / "sandbox" / "Dockerfile",
+    }
+    outcomes: dict[str, str] = {}
+    for suite_id, dockerfile in dockerfiles.items():
+        compose = _modal_compose_for_dockerfile(
+            dockerfile,
+            Path("/tmp/inspect-config/smoke") / f"{suite_id}.yaml",
+        )
+        task = Task(
+            dataset=[Sample(id=suite_id, input="sandbox smoke test", target="NONE")],
+            solver=probe,
+            sandbox=SandboxEnvironmentSpec(type="modal", config=str(compose)),
+        )
+        logs = inspect_eval(
+            task,
+            model="mockllm/model",
+            score=False,
+            fail_on_error=True,
+            sandbox_cleanup=True,
+            log_dir=f"/tmp/inspect-logs/smoke/{suite_id}",
+            display="plain",
+        )
+        if len(logs) != 1 or str(logs[0].status).lower().endswith("error"):
+            raise RuntimeError(f"{suite_id} sandbox smoke test did not complete")
+        outcomes[suite_id] = "ok"
+    return outcomes
+
+
 def run_gdpval_generation(
     *,
     served_model_name: str,
