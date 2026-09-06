@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
-import { keystoneRequest, clientUploadUrl } from "@/lib/api";
+import { keystoneRequest, clientUploadUrl, sessionToken } from "@/lib/api";
 import {
   artifactDeclarationSchema,
   artifactFinalizedSchema,
@@ -358,10 +358,17 @@ export function SubmitWizard({ draftId }: { draftId?: string }) {
           if (!selectedFile?.blob) {
             throw new Error("The selected model file is no longer available. Choose the model files again.");
           }
+          // Uploads go through the same BFF as everything else and are
+          // refused without a principal, so they need the token too -- this
+          // path does not run through `keystoneRequest`, which attaches it.
+          const uploadToken = await sessionToken();
           const upload = await fetch(clientUploadUrl(url), {
             method: "PUT",
             body: selectedFile.blob,
             cache: "no-store",
+            headers: uploadToken
+              ? { Authorization: `Bearer ${uploadToken}` }
+              : undefined,
           });
           if (!upload.ok) throw new Error(`Upload failed for ${path} (${upload.status})`);
         }
