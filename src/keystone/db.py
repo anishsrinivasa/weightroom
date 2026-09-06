@@ -374,9 +374,19 @@ class Store:
     # -- users -----------------------------------------------------------
 
     def upsert_user(self, s: Session, user_id: str, email: str) -> UserRow:
+        known = (email or "").strip()
+        # `users.email` is unique, and an identity provider is not obliged to
+        # put an email in its token -- Clerk's session tokens do not. Every
+        # principal then arrives with the same empty string, the first account
+        # to act claims it, and the second collides. Which reads, to the second
+        # person, as the site being broken for them specifically.
+        #
+        # `.invalid` is reserved by RFC 2606 and can never be a real address,
+        # so the placeholder is unique per account and obviously not a contact.
+        address = known or f"{user_id}@accounts.invalid"
         row = s.get(UserRow, user_id)
         if row is None:
-            row = UserRow(id=user_id, email=email)
+            row = UserRow(id=user_id, email=address)
             s.add(row)
             # Callers commonly create a listing or order for a first-time user
             # in this same transaction.  Without an ORM relationship between
@@ -384,6 +394,12 @@ class Store:
             # Postgres then correctly rejects it on the user foreign key.
             # Persist just the new principal before any dependent row is staged.
             s.flush([row])
+        elif known and row.email != known:
+            # Heal a placeholder once a real address becomes available -- a
+            # JWT template that starts supplying `email`, say. Guarded on a
+            # real value so a token that stops carrying one cannot blank a
+            # row that already has it.
+            row.email = known
         return row
 
     # -- artifacts -------------------------------------------------------
