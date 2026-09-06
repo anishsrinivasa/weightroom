@@ -416,6 +416,11 @@ Modal (for anything that actually runs a model):
 modal setup
 ```
 
+HarmBench and JailbreakBench execution is temporarily disabled. New reports
+record explicit automatic-pass results without running either suite or charging
+their evaluation cost. Set `KEYSTONE_RUN_SAFETY_EVALUATION=true` on the API and
+worker to restore the existing safety-evaluation path.
+
 Public models need no HuggingFace token. For gated repos (Llama et al.):
 
 ```bash
