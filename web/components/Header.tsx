@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { UserButton, useAuth } from "@clerk/nextjs";
 
 const links = [
   { href: "/buy", label: "Buy models", shortLabel: "Buy" },
@@ -12,6 +12,12 @@ const links = [
 
 export function Header() {
   const pathname = usePathname();
+  // `<SignedIn>` / `<SignedOut>` were removed in Clerk's Core 3 and now throw
+  // the moment they render. They still export, still typecheck and still
+  // build, so nothing catches them until a real request arrives -- which took
+  // every rendered page down while the API kept answering. `useAuth` is the
+  // supported replacement.
+  const { isLoaded, isSignedIn } = useAuth();
 
   return (
     <header className="site-header">
@@ -36,14 +42,17 @@ export function Header() {
         </nav>
         {/* Listing, buying and voting all require an account, so the way to
             get one is in the chrome rather than discovered at the point of
-            being refused. */}
+            being refused.
+
+            Nothing renders until Clerk has loaded: showing "Account" for the
+            moment before the state arrives would read, to someone already
+            signed in, as having been signed out. */}
         <div className="header-account">
-          <SignedOut>
-            <Link className="button" href="/account">Account</Link>
-          </SignedOut>
-          <SignedIn>
+          {!isLoaded ? null : isSignedIn ? (
             <UserButton />
-          </SignedIn>
+          ) : (
+            <Link className="button" href="/account">Account</Link>
+          )}
         </div>
       </div>
     </header>
