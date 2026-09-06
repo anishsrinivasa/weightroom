@@ -80,8 +80,9 @@ class JWTAuth(Authenticator):
         self,
         jwks_url: str,
         issuer: str,
-        audience: str,
+        audience: str = "",
         *,
+        authorized_parties: tuple[str, ...] = (),
         admin_claim: str = "keystone_admin",
         email_claim: str = "email",
         leeway_s: int = 30,
@@ -91,6 +92,7 @@ class JWTAuth(Authenticator):
         self._jwks = PyJWKClient(jwks_url, cache_keys=True)
         self._issuer = issuer
         self._audience = audience
+        self._authorized_parties = tuple(authorized_parties)
         self._admin_claim = admin_claim
         self._email_claim = email_claim
         self._leeway = leeway_s
@@ -98,6 +100,16 @@ class JWTAuth(Authenticator):
     def principal_for(self, token: str) -> Principal | None:
         import jwt
 
+        # Providers differ on how a token names the app it was minted for.
+        # A fixed `aud` is the classic shape; Clerk's session tokens carry
+        # `azp` (authorised party) instead and have no `aud` at all. Requiring
+        # `aud` unconditionally rejects every Clerk token as unauthenticated,
+        # which reads as "sign-in silently does nothing".
+        #
+        # Neither is skipped. Whichever the provider uses is checked, and the
+        # issuer pins the instance in both cases, so a token minted for another
+        # tenant fails on `iss` before either claim is reached.
+        required = ["exp", "iss", "sub"] + (["aud"] if self._audience else [])
         try:
             signing_key = self._jwks.get_signing_key_from_jwt(token)
             claims = jwt.decode(
@@ -105,9 +117,12 @@ class JWTAuth(Authenticator):
                 signing_key.key,
                 algorithms=list(self._ALGORITHMS),
                 issuer=self._issuer,
-                audience=self._audience,
+                audience=self._audience or None,
                 leeway=self._leeway,
-                options={"require": ["exp", "iss", "aud", "sub"]},
+                options={
+                    "require": required,
+                    "verify_aud": bool(self._audience),
+                },
             )
         except Exception:
             # An invalid token is anonymous, not an error. Browsing stays open,
@@ -117,6 +132,16 @@ class JWTAuth(Authenticator):
         subject = claims.get("sub")
         if not subject:
             return None
+
+        # With no `aud` to pin the app, `azp` is what stops a token minted for
+        # a different origin on this same instance being replayed here. Only
+        # enforced when parties were configured -- an empty list means the
+        # deployment has not made a claim about origins, and inventing one
+        # would reject every token.
+        if self._authorized_parties:
+            party = claims.get("azp")
+            if party is not None and party not in self._authorized_parties:
+                return None
 
         return Principal(
             user_id=str(subject),

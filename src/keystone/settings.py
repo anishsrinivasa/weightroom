@@ -44,6 +44,9 @@ class Settings:
     jwks_url: str = ""
     jwt_issuer: str = ""
     jwt_audience: str = ""
+    #: Comma-separated origins allowed in a token's `azp` claim, for
+    #: providers that identify the app that way rather than with `aud`.
+    jwt_authorized_parties: str = ""
 
     # Comma-separated token:user:email[:admin] triples. Development only.
     dev_tokens: str = "dev-creator:u_creator:creator@example.com,dev-admin:u_admin:admin@example.com:admin"
@@ -66,6 +69,7 @@ class Settings:
             jwks_url=_flag("KEYSTONE_JWKS_URL"),
             jwt_issuer=_flag("KEYSTONE_JWT_ISSUER"),
             jwt_audience=_flag("KEYSTONE_JWT_AUDIENCE"),
+            jwt_authorized_parties=_flag("KEYSTONE_JWT_AUTHORIZED_PARTIES"),
             dev_tokens=_flag("KEYSTONE_DEV_TOKENS", cls.dev_tokens),
             chain=_flag("KEYSTONE_CHAIN", "base"),
         )
@@ -102,8 +106,21 @@ def build_signer(s: Settings) -> tuple[Signer, bool]:
 
 
 def build_auth(s: Settings) -> tuple[Authenticator, bool]:
-    if s.jwks_url and s.jwt_issuer and s.jwt_audience:
-        return JWTAuth(s.jwks_url, s.jwt_issuer, s.jwt_audience), False
+    # Audience is optional because not every provider mints one. Clerk's
+    # session tokens carry `azp` instead, and demanding `aud` here would leave
+    # a fully configured deployment silently on static dev tokens.
+    if s.jwks_url and s.jwt_issuer:
+        parties = tuple(
+            party.strip()
+            for party in s.jwt_authorized_parties.split(",")
+            if party.strip()
+        )
+        return JWTAuth(
+            s.jwks_url,
+            s.jwt_issuer,
+            s.jwt_audience,
+            authorized_parties=parties,
+        ), False
 
     tokens: dict[str, Principal] = {}
     for entry in filter(None, (e.strip() for e in s.dev_tokens.split(","))):
@@ -151,7 +168,7 @@ _REMEDY = {
     "database": "DATABASE_URL must point at Postgres; SQLite on an ephemeral disk loses every listing on restart.",
     "artifacts": "KEYSTONE_BUCKET (plus R2_ENDPOINT_URL, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY) must be set; uploaded weights have no upstream to re-fetch from.",
     "signing": "KEYSTONE_SIGNING_KEY must be set; a key generated at boot makes every previously issued report fail verification.",
-    "auth": "KEYSTONE_JWKS_URL, KEYSTONE_JWT_ISSUER and KEYSTONE_JWT_AUDIENCE must be set; static tokens are guessable and grant admin.",
+    "auth": "KEYSTONE_JWKS_URL and KEYSTONE_JWT_ISSUER must be set (plus KEYSTONE_JWT_AUDIENCE or KEYSTONE_JWT_AUTHORIZED_PARTIES, depending on which the provider mints); static tokens are guessable and grant admin.",
     "payments": "A real payment provider must be wired; the demo provider settles any charge on request, so anyone could take the catalogue for free.",
 }
 
