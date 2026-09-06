@@ -210,8 +210,6 @@ function ModelCard({ listing, tags }: {
 }) {
   const domainLabels = new Map(tags?.domains.map((tag) => [tag.id, tag.label]));
   const sizeLabel = tags?.model_sizes.find((tag) => tag.id === listing.size_tag)?.label;
-  const scores = Object.values(listing.benchmark_scores);
-  const strongestScore = scores.length ? Math.round(Math.max(...scores) * 100) : null;
   return (
     <Link className="model-card" href={`/buy/${listing.listing_id}`}>
       <div className="model-cover">
@@ -227,7 +225,6 @@ function ModelCard({ listing, tags }: {
         </div>
         <dl className="card-metrics">
           <div><dt>Price</dt><dd>{formatUsdc(listing.price_minor)}</dd></div>
-          <div><dt>Top score</dt><dd>{strongestScore == null ? "—" : `${strongestScore}%`}</dd></div>
         </dl>
         <div className="card-footer"><span className="mono">{listing.seller_id}</span><span aria-hidden="true">→</span></div>
       </div>

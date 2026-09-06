@@ -278,9 +278,8 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .model-card-body h3 { font-size: 17px; }
 .model-card-body p { display: -webkit-box; overflow: hidden; margin-top: 5px; color: var(--muted); font-size: 12px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .model-card-body .tag-list { margin-top: 0; }
-.card-metrics { display: grid; grid-template-columns: 1fr 1fr; margin: auto 0 0; border-block: 1px solid var(--line); }
+.card-metrics { display: grid; grid-template-columns: 1fr; margin: auto 0 0; border-block: 1px solid var(--line); }
 .card-metrics > div { padding: 11px 0; }
-.card-metrics > div + div { border-left: 1px solid var(--line); padding-left: 12px; }
 .card-metrics dt { color: var(--muted); font-size: 9px; letter-spacing: 0.095em; text-transform: uppercase; }
 .card-metrics dd { margin: 3px 0 0; font-weight: 620; }
 .card-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
