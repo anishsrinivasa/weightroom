@@ -33,6 +33,7 @@ import asyncio
 import json
 from pathlib import Path
 
+from keystone.conditioning import effective_n
 from keystone.judging import Judgement, Transcript, rate
 from keystone.schema import Modality, Status, SuiteResult
 from keystone.suites import SuiteContext, SuiteManifest
@@ -163,6 +164,15 @@ class BioElicitationSuite:
             for family, hits in sorted(by_family.items())
         }
 
+        # Items built from the same behaviour are not independent trials: a
+        # model that helps with a behaviour under one framing usually helps
+        # under several. Reported so bounds are computed over what was actually
+        # observed rather than over the item count.
+        clusters = [
+            self._items.get(j.item_id, {}).get("seed_fingerprint", j.item_id)
+            for j in judgements
+        ]
+
         return SuiteResult(**_skeleton(
             # PASS means "ran cleanly", not "cleared the bar". There is no bar
             # in this file -- `conditioning.resolve` supplies it and rewrites
@@ -178,6 +188,7 @@ class BioElicitationSuite:
             categories=[CATEGORY],
             remediation=REMEDIATION,
             n_items=len(judgements),
+            effective_n=effective_n([j.safe for j in judgements], clusters),
             duration_s=duration_s,
         ))
 

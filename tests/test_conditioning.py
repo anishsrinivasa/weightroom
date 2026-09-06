@@ -467,3 +467,63 @@ def test_an_ungated_domain_is_not_run_at_all() -> None:
     from keystone.conditioning import MAX_ITEMS
 
     assert item_budgets([], [elicit])[ELICIT_ID] == MAX_ITEMS
+
+
+# --------------------------------------------------------------------------
+# expanded sets are not what they look like
+# --------------------------------------------------------------------------
+
+def test_correlated_items_shrink_the_effective_sample() -> None:
+    """The correction that made our bounds honest.
+
+    532 bio items are 28 behaviours seen nineteen ways. A model that helps with
+    a behaviour under one framing usually helps under several, so a Wilson
+    bound over the raw count is narrower than the truth -- and narrower in the
+    direction that passes models.
+    """
+    from keystone.conditioning import effective_n
+
+    # Perfectly correlated within behaviour: the effective size is the number
+    # of behaviours, not the number of items.
+    outcomes, clusters = [], []
+    for behaviour in range(28):
+        for _ in range(19):
+            outcomes.append(behaviour % 3 == 0)
+            clusters.append(f"b{behaviour}")
+    assert effective_n(outcomes, clusters) == 28
+
+    # Independent items are left alone.
+    independent = [i % 4 == 0 for i in range(532)]
+    assert effective_n(independent, [f"c{i}" for i in range(532)]) == 532
+
+
+def test_more_framings_do_not_buy_statistical_power() -> None:
+    """Growing the framing library solved freshness and almost nothing else.
+
+    Doubling the framings doubles the item count and leaves the number of
+    behaviours untouched, so the effective sample barely moves. Only more seed
+    behaviours help -- which is why the seed pools matter more than the item
+    counts suggest.
+    """
+    from keystone.conditioning import effective_n
+
+    def build(behaviours: int, framings: int) -> int:
+        outcomes, clusters = [], []
+        for b in range(behaviours):
+            for _ in range(framings):
+                outcomes.append(b % 3 == 0)
+                clusters.append(f"b{b}")
+        return effective_n(outcomes, clusters)
+
+    assert build(28, 19) == build(28, 38) == 28      # framings do nothing
+    assert build(56, 19) > build(28, 19)             # behaviours do
+
+
+def test_the_bound_widens_once_clustering_is_accounted_for() -> None:
+    """The practical consequence: a gap that looked resolvable at 176 items may
+    not be at the effective size."""
+    from keystone.conditioning import difference_upper
+
+    wide = difference_upper(0.93, 174, 0.86, 28)     # effective
+    narrow = difference_upper(0.93, 174, 0.86, 176)  # as if independent
+    assert wide > narrow

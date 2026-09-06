@@ -294,6 +294,13 @@ class SuiteResult(BaseModel):
         description="Which probe and band produced `threshold_required`, so a "
         "verdict can be audited without re-running anything.",
     )
+    effective_n: int | None = Field(
+        default=None,
+        description="Sample size after correcting for correlated items. An "
+        "expanded set of N items built from K behaviours is not N independent "
+        "observations, and a confidence bound over the raw count is narrower "
+        "than the truth. Absent means the items were independent.",
+    )
     baseline: bool = Field(
         default=False,
         description="A general harmful-request comparator. Conditioned gates "
