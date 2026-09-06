@@ -291,7 +291,6 @@ export function SubmitWizard() {
   async function preparePayment() {
     if (!digest || !picked.length) return setError("Choose model files first.");
     if (!title.trim()) return setError("Enter a model name.");
-    if (!domainTags.size) return setError("Choose at least one model domain.");
     const numericPrice = Number(price);
     if (!Number.isFinite(numericPrice) || numericPrice < 0) return setError("Enter a valid non-negative sale price.");
 
@@ -510,7 +509,7 @@ export function SubmitWizard() {
                 </tbody></table>
             </div>
           ) : null}
-          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing} onClick={() => setStep(2)}>Continue to evaluations →</button></div>
+          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing} onClick={() => { setError(null); setStep(2); }}>Continue to evaluations →</button></div>
         </section>
       ) : null}
 
