@@ -132,19 +132,26 @@ def batch(
 
 
 def _summarise(outcomes: list[Outcome], wall_s: float) -> dict:
-    certified = [o for o in outcomes if o.ok]
+    # Two different questions, and they were being answered by one number.
+    # `rated` is how many models produced a report at all -- the pipeline
+    # working. `certified` is how many of those the gate actually passed. The
+    # summary reported the first under the second's name, so a batch where
+    # every model was rejected read as "certified 3".
+    rated = [o for o in outcomes if o.ok]
+    certified = [o for o in rated if o.report.rating.certified]
     clean = [o for o in outcomes if o.served_clean]
     failures: dict[str, int] = {}
     for o in outcomes:
         if o.failure is not None:
             failures[o.failure.value] = failures.get(o.failure.value, 0) + 1
 
-    gpu = [o.report.cost.gpu_seconds for o in certified if o.report.cost]
-    usd = [o.report.cost.usd_estimate or 0.0 for o in certified if o.report.cost]
+    gpu = [o.report.cost.gpu_seconds for o in rated if o.report.cost]
+    usd = [o.report.cost.usd_estimate or 0.0 for o in rated if o.report.cost]
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "n_attempted": len(outcomes),
+        "n_rated": len(rated),
         "n_certified": len(certified),
         "n_served_clean": len(clean),
         # THE number.
@@ -159,6 +166,7 @@ def _summarise(outcomes: list[Outcome], wall_s: float) -> dict:
                 "ref": o.ref,
                 "ok": o.ok,
                 "grade": o.report.rating.grade if o.report else None,
+                "certified": o.report.rating.certified if o.report else None,
                 "failure": o.failure.value if o.failure else None,
                 "detail": o.detail,
                 "wall_s": round(o.wall_s, 1),
@@ -177,7 +185,12 @@ def _render_yield(s: dict) -> None:
     for col in ("model", "arch", "GiB", "result", "wall", "gpu", "$"):
         table.add_column(col)
     for m in s["models"]:
-        result = f"[green]{m['grade']}[/]" if m["ok"] else f"[red]{m['failure']}[/]"
+        if not m["ok"]:
+            result = f"[red]{m['failure']}[/]"
+        elif m["certified"]:
+            result = f"[green]{m['grade']} certified[/]"
+        else:
+            result = f"[yellow]{m['grade']} rejected[/]"
         table.add_row(
             m["ref"],
             m["arch"] or "-",
@@ -191,6 +204,7 @@ def _render_yield(s: dict) -> None:
     console.print(
         f"[bold]clean rate[/] {s['clean_rate']:.0%} "
         f"({s['n_served_clean']}/{s['n_attempted']} needed no intervention)   "
+        f"[bold]rated[/] {s['n_rated']}   "
         f"[bold]certified[/] {s['n_certified']}   "
         f"[bold]spend[/] ${s['total_usd']:.2f}"
     )
