@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/buy", label: "Buy models", shortLabel: "Buy" },
   { href: "/sell/models", label: "My models", shortLabel: "Sell" },
-  { href: "/blog", label: "Research", shortLabel: "Research" },
+  { href: "/blog", label: "Blog", shortLabel: "Blog" },
 ] as const;
 
 export function Header() {
