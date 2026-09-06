@@ -190,6 +190,18 @@ def _view(
     return payload
 
 
+def _participant_thread(d, s: Session, thread_id: str, user_id: str):
+    """A thread this caller is actually in, or 404.
+
+    404 rather than 403 on purpose: a thread nobody told you about should not
+    be confirmed to exist by the error you get for asking.
+    """
+    thread = d.store.get_thread(s, thread_id)
+    if thread is None or user_id not in (thread.lower_id, thread.upper_id):
+        raise HTTPException(404, "no such conversation")
+    return thread
+
+
 def _license_payload(kind: str | None) -> dict:
     """The terms of sale, sent alongside the listing.
 
@@ -1069,6 +1081,121 @@ def create_app(deps: Deps) -> FastAPI:
                 "already": False,
             }
 
+    # ----------------------------------------------------------------------
+    # direct messages
+    # ----------------------------------------------------------------------
+
+    def _thread_view(s, store, thread, me: str) -> dict:
+        """One thread, from this participant's side.
+
+        The counterpart is named by id rather than by both ids, because a
+        client should not have to work out which of two people it is looking
+        at, and an unread count is derived rather than stored.
+        """
+        other = thread.upper_id if thread.lower_id == me else thread.lower_id
+        mine_read = (
+            thread.lower_read_at if thread.lower_id == me else thread.upper_read_at
+        )
+        messages = store.messages_in(s, thread.id)
+        unread = sum(
+            1 for m in messages
+            if m.sender_id != me and (mine_read is None or m.created_at > mine_read)
+        )
+        listing = s.get(ListingRow, thread.listing_id)
+        last = messages[-1] if messages else None
+        return {
+            "thread_id": thread.id,
+            "listing_id": thread.listing_id,
+            "listing_title": listing.title if listing else None,
+            "counterpart_id": other,
+            "unread": unread,
+            "last_message": last.body[:140] if last else None,
+            "last_message_at": thread.last_message_at.isoformat(),
+        }
+
+    @app.get("/v1/threads")
+    def list_threads(d: D, principal: P) -> dict:
+        me = require(principal)
+        with d.store.session() as s:
+            # Expiry runs on read rather than on a schedule: there is no cron
+            # here, and a conversation nobody opens is one nobody misses.
+            d.store.expire_threads(s)
+            s.commit()
+            threads = [
+                _thread_view(s, d.store, thread, me.user_id)
+                for thread in d.store.threads_for(s, me.user_id)
+            ]
+        return {"threads": threads}
+
+    @app.post("/v1/listings/{listing_id}/threads")
+    def start_thread(listing_id: str, d: D, principal: P) -> dict:
+        """Open (or find) this buyer's conversation with the model's seller."""
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            if row.creator_id == me.user_id:
+                raise HTTPException(409, "this is your own listing")
+            d.store.upsert_user(s, me.user_id, me.email)
+            thread = d.store.open_thread(
+                s, listing_id=listing_id, a=me.user_id, b=row.creator_id
+            )
+            s.commit()
+            return _thread_view(s, d.store, thread, me.user_id)
+
+    @app.get("/v1/threads/{thread_id}")
+    def read_thread(thread_id: str, d: D, principal: P) -> dict:
+        me = require(principal)
+        with d.store.session() as s:
+            thread = _participant_thread(d, s, thread_id, me.user_id)
+            messages = [
+                {
+                    "message_id": m.id,
+                    "sender_id": m.sender_id,
+                    "mine": m.sender_id == me.user_id,
+                    "body": m.body,
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in d.store.messages_in(s, thread.id)
+            ]
+            # Opening a thread is reading it.
+            d.store.mark_read(s, thread, me.user_id)
+            s.commit()
+            return {**_thread_view(s, d.store, thread, me.user_id), "messages": messages}
+
+    @app.post("/v1/threads/{thread_id}/messages", status_code=201)
+    def send_message(
+        thread_id: str, body: SendMessage, d: D, principal: P
+    ) -> dict:
+        me = require(principal)
+        with d.store.session() as s:
+            thread = _participant_thread(d, s, thread_id, me.user_id)
+            message = d.store.post_message(
+                s, thread=thread, sender_id=me.user_id, body=body.body.strip()
+            )
+            s.commit()
+            return {
+                "message_id": message.id,
+                "thread_id": thread.id,
+                "sender_id": message.sender_id,
+                "mine": True,
+                "body": message.body,
+                "created_at": message.created_at.isoformat(),
+            }
+
+    @app.delete("/v1/threads/{thread_id}")
+    def delete_thread(thread_id: str, d: D, principal: P) -> dict:
+        """Delete for both sides, not hide for one.
+
+        A store that keeps a copy the sender believes is gone is worse than one
+        with no delete at all, so either participant removing it removes it.
+        """
+        me = require(principal)
+        with d.store.session() as s:
+            thread = _participant_thread(d, s, thread_id, me.user_id)
+            d.store.delete_thread(s, thread)
+            s.commit()
+        return {"thread_id": thread_id, "deleted": True}
+
     @app.get("/v1/admin/flagged")
     def flagged(d: D, principal: P) -> dict:
         me = require(principal)
@@ -1279,6 +1406,10 @@ class ConfirmPayment(BaseModel):
 class DemoPay(BaseModel):
     # Send the wrong amount to watch the underpayment path.
     amount_minor: int | None = None
+
+
+class SendMessage(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
 
 
 class CastVote(BaseModel):

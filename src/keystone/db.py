@@ -16,7 +16,7 @@ make a decision the columns should be answering.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from sqlalchemy import (
@@ -226,6 +226,50 @@ class VoteRow(Base):
     value: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class ThreadRow(Base):
+    """One conversation between two accounts about one listing.
+
+    Scoped to a listing rather than being a free-form inbox: the buyer is
+    asking about a model, and a thread that cannot say which one leaves both
+    sides guessing. A pair may hold separate threads about separate listings.
+
+    Participants are stored as an ordered pair so the same two people opening
+    the same conversation from either side land on one thread rather than two.
+    """
+
+    __tablename__ = "dm_threads"
+    __table_args__ = (
+        UniqueConstraint("listing_id", "lower_id", "upper_id", name="uq_thread_pair"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    listing_id: Mapped[str] = mapped_column(String(64), ForeignKey("listings.id"), index=True)
+    #: The two participants, sorted, so lookup does not depend on who asked.
+    lower_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    upper_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    #: Bumped on every message. Threads expire on inactivity, not on age, so a
+    #: live conversation is never cut off mid-sentence.
+    last_message_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+    #: Read state per participant, on the thread rather than per message. There
+    #: are exactly two people, an unread count only needs a watermark, and the
+    #: alternative writes a row every time anyone glances at a conversation.
+    lower_read_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    upper_read_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+
+class MessageRow(Base):
+    __tablename__ = "dm_messages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("dm_threads.id"), index=True
+    )
+    sender_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
 
 
 class PayoutRow(Base):
@@ -642,6 +686,114 @@ class Store:
             if voter_id and row.voter_id == voter_id:
                 entry["mine"] = row.value
         return tally
+
+
+    # -- direct messages ---------------------------------------------------
+
+    #: Threads expire on inactivity rather than on age, so a live conversation
+    #: is never cut off mid-sentence. Thirty days matches what the product
+    #: promises; nothing here depends on the exact number.
+    DM_RETENTION_DAYS = 30
+
+    def open_thread(
+        self, s: Session, *, listing_id: str, a: str, b: str
+    ) -> ThreadRow:
+        """The thread between these two about this listing, created if absent.
+
+        Participants are sorted before lookup so opening the conversation from
+        either side finds the same row. Without that, a buyer and a seller who
+        both start one end up talking past each other in two threads.
+        """
+        lower, upper = sorted((a, b))
+        row = s.scalars(
+            select(ThreadRow).where(
+                ThreadRow.listing_id == listing_id,
+                ThreadRow.lower_id == lower,
+                ThreadRow.upper_id == upper,
+            )
+        ).first()
+        if row is None:
+            row = ThreadRow(
+                id=f"thr_{uuid.uuid4().hex[:16]}",
+                listing_id=listing_id,
+                lower_id=lower,
+                upper_id=upper,
+            )
+            s.add(row)
+            s.flush([row])
+        return row
+
+    def post_message(
+        self, s: Session, *, thread: ThreadRow, sender_id: str, body: str
+    ) -> MessageRow:
+        row = MessageRow(
+            id=f"msg_{uuid.uuid4().hex[:16]}",
+            thread_id=thread.id,
+            sender_id=sender_id,
+            body=body,
+        )
+        s.add(row)
+        # Sending is also reading: a sender has obviously seen their own
+        # thread, and leaving it unread shows them a badge for their own words.
+        now = _utcnow()
+        thread.last_message_at = now
+        if sender_id == thread.lower_id:
+            thread.lower_read_at = now
+        else:
+            thread.upper_read_at = now
+        return row
+
+    def threads_for(self, s: Session, user_id: str) -> list[ThreadRow]:
+        """Most recently active first, which is the order a list should be in."""
+        return list(
+            s.scalars(
+                select(ThreadRow)
+                .where(
+                    (ThreadRow.lower_id == user_id) | (ThreadRow.upper_id == user_id)
+                )
+                .order_by(ThreadRow.last_message_at.desc())
+            )
+        )
+
+    def messages_in(self, s: Session, thread_id: str) -> list[MessageRow]:
+        return list(
+            s.scalars(
+                select(MessageRow)
+                .where(MessageRow.thread_id == thread_id)
+                .order_by(MessageRow.created_at.asc())
+            )
+        )
+
+    def mark_read(self, s: Session, thread: ThreadRow, user_id: str) -> None:
+        now = _utcnow()
+        if user_id == thread.lower_id:
+            thread.lower_read_at = now
+        elif user_id == thread.upper_id:
+            thread.upper_read_at = now
+
+    def delete_thread(self, s: Session, thread: ThreadRow) -> None:
+        """Remove a conversation and everything in it.
+
+        Deleted for both sides rather than hidden for one. A message store that
+        keeps a copy the sender believes is gone is worse than one that has no
+        delete at all.
+        """
+        for message in self.messages_in(s, thread.id):
+            s.delete(message)
+        s.delete(thread)
+
+    def expire_threads(self, s: Session, *, now: datetime | None = None) -> int:
+        """Drop threads with no activity for the retention window."""
+        cutoff = (now or _utcnow()) - timedelta(days=self.DM_RETENTION_DAYS)
+        stale = list(
+            s.scalars(select(ThreadRow).where(ThreadRow.last_message_at < cutoff))
+        )
+        for thread in stale:
+            self.delete_thread(s, thread)
+        return len(stale)
+
+    def get_thread(self, s: Session, thread_id: str) -> ThreadRow | None:
+        return s.get(ThreadRow, thread_id)
 
     def get_order(self, s: Session, order_id: str) -> Order | None:
         row = s.get(OrderRow, order_id)
