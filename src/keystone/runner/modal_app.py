@@ -576,7 +576,10 @@ def prefetch_public_safety_assets() -> dict:
 @app.function(
     image=safety_eval_image,
     volumes={CACHE_ROOT: cache},
-    block_network=True,
+    # The trusted controller must stream command output from child Modal
+    # Sandboxes. Modal 1.5 cannot do that from a network-blocked parent.
+    # Untrusted task execution remains inside block_network=True sandboxes.
+    block_network=False,
     restrict_modal_access=False,
     timeout=4 * 60 * 60,
 )
@@ -619,18 +622,19 @@ def _parse_guard(text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# evaluate: network OFF, GPU, weights get loaded here
+# evaluate: trusted controller, GPU, weights get loaded here
 # ---------------------------------------------------------------------------
 
 @app.function(
     image=safety_eval_image,
     volumes={CACHE_ROOT: cache},
     gpu="A10G",  # overridden per-model via .with_options(gpu=...)
-    block_network=True,
-    # Inspect's trusted controller needs Modal API access to create one
-    # networkless Sandbox per agent task. Uploaded artifacts are SafeTensors
-    # only and were scanned before reaching this function; the model never
-    # receives credentials or direct process access.
+    # Inspect's trusted controller needs network access to stream output from
+    # one networkless Modal Sandbox per agent task. Uploaded artifacts are
+    # SafeTensors only and were scanned before reaching this function; the
+    # model never receives credentials or direct process access. Every command
+    # proposed by the model executes in a child with block_network=True.
+    block_network=False,
     restrict_modal_access=False,
     timeout=24 * 60 * 60,
 )
@@ -1000,4 +1004,5 @@ __all__ = [
     "fetch_upload",
     "prefetch_public_safety_assets",
     "scan",
+    "smoke_agent_sandboxes",
 ]

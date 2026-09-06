@@ -32,11 +32,15 @@ Certification itself is three stages with three privilege levels. The split
 | :--- | :--- | :--- | :--- |
 | `fetch` / upload | **on** | CPU | no — bytes only |
 | `scan` | **off** | CPU | no — inspects, never loads |
-| `evaluate` | **off** | GPU | **yes** — weights load here |
+| `evaluate` controller | **on** | GPU | no — scanned SafeTensors load; no model code |
+| agent task sandbox | **off** | CPU | **yes** — model-proposed commands run here |
 
-`evaluate` carries `block_network=True` and `restrict_modal_access=True`. One
-control, two jobs: it contains a hostile checkpoint uploaded by a stranger, and
-it stops held-out eval prompts from ever leaving the box.
+The trusted `evaluate` controller needs Modal control-plane streaming to create
+and supervise task sandboxes. It never executes model-proposed commands. Each
+agent task instead runs in a separate child with `network_mode: none` and
+`block_network: true`, so generated commands cannot reach the internet. Uploaded
+artifacts are restricted to scanned SafeTensors and local tokenizer/config
+files; remote model code is never loaded.
 
 Cheap gates run first. A scan failure halts the job before a GPU is ever
 allocated.
@@ -121,8 +125,8 @@ Every Modal certification automatically runs two pinned public safety screens:
 the 200 standard HarmBench behaviors and the 100 harmful JailbreakBench
 behaviors. Both are fail-closed gates and are never seller-selectable. Public
 datasets and the independent Qwen3Guard judge are fetched before the model is
-loaded; evaluation egress is blocked. The trusted Inspect controller retains
-Modal API access solely to create separate networkless agent sandboxes. These
+loaded. The trusted Inspect controller creates separate networkless agent
+sandboxes; all model-proposed commands execute there. These
 are full public prompt sets for the direct harmful-request protocol implemented
 here, but they are not official benchmark-native leaderboard runs: the current
 JailbreakBench screen does not apply jailbreak attacks and both screens use the
