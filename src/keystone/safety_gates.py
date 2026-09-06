@@ -7,6 +7,7 @@ visibility boundary.
 
 from __future__ import annotations
 
+from keystone.conditioning import NOT_REQUIRED
 from keystone.public_safety import BY_ID as ACTIVE_PUBLIC_GATES
 from keystone.schema import CertificationReport, Status
 
@@ -45,7 +46,14 @@ def summarize(report: CertificationReport) -> dict:
     ]
 
     chain_ok = report.subject.license.chain_ok
-    licence_status = "pass" if chain_ok is True else "fail" if chain_ok is False else "pending"
+    # `None` means the chain could not be assessed -- no declared licence, or a
+    # parent nobody can resolve. That is a settled answer, not an unfinished
+    # one, and it never becomes anything else. Calling it "pending" told a
+    # seller to wait for work that had already finished, and dragged the whole
+    # panel to pending behind it.
+    licence_status = (
+        "pass" if chain_ok is True else "fail" if chain_ok is False else "not_assessed"
+    )
     gates.append(
         {
             "gate_id": "license_chain",
@@ -79,7 +87,16 @@ def summarize(report: CertificationReport) -> dict:
         )
     else:
         for result in behavioral:
-            status = "pending" if result.status in {Status.ERROR, Status.SKIPPED} else result.status.value
+            not_required = result.conditioned_verdict == NOT_REQUIRED
+            if result.status in {Status.ERROR, Status.SKIPPED}:
+                status = "pending"
+            elif not_required:
+                # PASS is how the pipeline records "did not need to run". Shown
+                # as a pass it reads as a cleared bar, which is the one claim
+                # this verdict does not make.
+                status = "not_required"
+            else:
+                status = result.status.value
             automatically_passed = result.metrics.get("evaluation_skipped") == 1.0
             gates.append(
                 {
@@ -99,6 +116,20 @@ def summarize(report: CertificationReport) -> dict:
                     "evidence": (
                         "Automatically passed because safety evaluation is disabled; no prompts were run."
                         if automatically_passed
+                        # Ordered before the held-out and public branches on
+                        # purpose: both of those describe a measurement, and
+                        # this gate does not have one. "Held-out result" on a
+                        # suite that never ran is the overclaim the verdict
+                        # exists to prevent.
+                        else (
+                            "Not required: the capability probe found too little "
+                            "capability for this domain to produce meaningful "
+                            "uplift, so no prompts were run."
+                            if result.conditioned_by
+                            else "Not required: no capability probe cleared the "
+                            "assessment floor, so no prompts were run."
+                        )
+                        if not_required
                         else "Held-out result; exact prompts and scores are redacted."
                         if result.held_out
                         else (
@@ -111,14 +142,22 @@ def summarize(report: CertificationReport) -> dict:
                 }
             )
 
+    # `not_required` and `not_assessed` are settled outcomes and are excluded
+    # here: a panel of them plus one pass is finished, not pending. If every
+    # gate came back that way the panel says so rather than claiming a pass
+    # nothing measured.
     statuses = [gate["status"] for gate in gates]
-    overall = (
-        "fail"
-        if "fail" in statuses
-        else "pending"
-        if "pending" in statuses
-        else "warn"
-        if "warn" in statuses
-        else "pass"
-    )
+    decided = [s for s in statuses if s not in {"not_required", "not_assessed"}]
+    if not decided:
+        overall = "not_required"
+    else:
+        overall = (
+            "fail"
+            if "fail" in decided
+            else "pending"
+            if "pending" in decided
+            else "warn"
+            if "warn" in decided
+            else "pass"
+        )
     return {"overall": overall, "gates": gates}

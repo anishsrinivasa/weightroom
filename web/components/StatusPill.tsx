@@ -16,9 +16,27 @@ export function StatusPill({ state, label }: { state: ListingState; label?: stri
   return <span className={`status-pill ${status.tone}`}>{label ?? status.label}</span>;
 }
 
+// A gate that did not need to run and one that could not be assessed are both
+// settled outcomes, and neither is a pass. Shown with the raw status string
+// they read as "not_required" with an underscore; shown as a pass they claim a
+// cleared bar nothing measured.
+const gateLabels: Record<string, string> = {
+  running: "In progress",
+  not_required: "Not required",
+  not_assessed: "Not assessed",
+  insufficient_evidence: "Inconclusive",
+};
+
 export function GatePill({ status }: { status: string }) {
-  const tone = status === "pass" ? "solid" : status === "pending" || status === "running" ? "muted" : "outline";
-  return <span className={`status-pill ${tone}`}>{status === "running" ? "In progress" : status}</span>;
+  const tone =
+    status === "pass"
+      ? "solid"
+      : status === "pending" || status === "running"
+        ? "muted"
+        : status === "not_required" || status === "not_assessed"
+          ? "muted"
+          : "outline";
+  return <span className={`status-pill ${tone}`}>{gateLabels[status] ?? status}</span>;
 }
 
 export function stateLabel(state: ListingState): string {
