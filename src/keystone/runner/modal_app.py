@@ -119,7 +119,7 @@ safety_eval_image = _with_local_source(
         "pypdf>=5.1",
         "python-docx>=1.1",
         "python-pptx>=1.0",
-    )
+    ).env({"HF_HUB_DISABLE_XET": "1"})
 )
 
 
@@ -371,6 +371,13 @@ def _safety_cache_env() -> dict[str, str]:
     return {
         "HF_HOME": f"{PUBLIC_SAFETY_ROOT}/huggingface",
         "HF_DATASETS_CACHE": f"{PUBLIC_SAFETY_ROOT}/huggingface/datasets",
+        # Xet keeps its diagnostic log open for the lifetime of the process.
+        # Modal volumes refuse to commit or reload while any file beneath the
+        # mount is open, so an otherwise successful benchmark download leaves
+        # the cache unusable for the evaluation container. The regular HTTP
+        # downloader is slower only on a cold cache and closes every file
+        # before ``cache.commit()``.
+        "HF_HUB_DISABLE_XET": "1",
         "XDG_CACHE_HOME": f"{PUBLIC_SAFETY_ROOT}/xdg",
     }
 
@@ -388,6 +395,10 @@ def prefetch_public_safety_assets(include_safety: bool = True) -> dict:
     This function deliberately has egress but never imports or loads the model
     under test.  ``evaluate`` consumes this cache with network access blocked.
     """
+    # This must precede the Hugging Face imports: its feature flags are read
+    # while the modules initialise, not when a download begins.
+    os.environ.update(_safety_cache_env())
+
     import csv
     import io
     import zipfile
@@ -397,7 +408,6 @@ def prefetch_public_safety_assets(include_safety: bool = True) -> dict:
     from huggingface_hub import snapshot_download
 
     cache.reload()
-    os.environ.update(_safety_cache_env())
     root = Path(PUBLIC_SAFETY_ROOT)
     root.mkdir(parents=True, exist_ok=True)
 

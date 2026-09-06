@@ -11,10 +11,15 @@ import pytest
 from keystone.ingest import hash_tree, manifest_digest
 from keystone.runner import modal_app
 from keystone.runner.modal_app import (
+    _safety_cache_env,
     _download_verified,
     _inspect_upload,
     _safe_upload_path,
 )
+
+
+def test_safety_cache_disables_xet_for_modal_volume_commits():
+    assert _safety_cache_env()["HF_HUB_DISABLE_XET"] == "1"
 
 
 def test_modal_upload_inspection_preserves_uploaded_identity(tmp_path: Path) -> None:
