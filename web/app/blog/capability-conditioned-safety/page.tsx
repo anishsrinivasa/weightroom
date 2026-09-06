@@ -121,18 +121,19 @@ export default function CapabilityConditionedSafetyPost() {
 
         <div className="article-body">
           <p className="article-opening">
-            Weightroom is a marketplace for downloadable model weights: the files that
-            contain a model&apos;s learned parameters and let a buyer run it independently.
-            Unlike a hosted service, we do not remain between the model and its users after
-            purchase. A buyer can run the model on different hardware, remove an
-            application-level filter, or use it in a workflow we never see.
+            Weightroom is a marketplace where buyers obtain downloadable models from other
+            creators. That creates a trust problem: before receiving a model, a buyer needs
+            an independent reason to believe it meets a consistent safety standard. After
+            purchase, unlike a hosted service, Weightroom no longer sits between the model
+            and its users. A buyer can change how the model is run or use it in a workflow we
+            never see.
           </p>
           <p>
-            That leaves one reliable intervention point: before a model is listed. For each
-            submission, we need evidence for a narrow publish-or-block decision. We call the
-            automated process that makes this decision a publishing gate. Passing it means
-            the model met a versioned evaluation standard. It is not a promise that every
-            downstream use will be safe.
+            Our opportunity to make that transaction safer is before the model is listed.
+            We independently evaluate each submission and use the result to decide whether
+            it can be sold on Weightroom. We call this automated decision process a publishing
+            gate. Passing means the model met a documented, versioned standard when tested;
+            it is not a promise that every downstream use will be safe.
           </p>
 
           <section id="motivation">
