@@ -1,0 +1,24 @@
+app = "weightroom-gvelamoor-core"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  KEYSTONE_ENV = "development"
+
+[processes]
+  api = "uvicorn keystone.settings:app --factory --host :: --port 8000"
+  worker = "python -m keystone.cli worker --interval 30"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"
+  processes = ["api"]
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"
+  processes = ["worker"]

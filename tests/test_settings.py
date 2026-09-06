@@ -139,6 +139,27 @@ def test_bucket_selects_object_storage(monkeypatch) -> None:
     assert isinstance(store, S3Store) and is_dev is False
 
 
+def test_fly_tigris_environment_selects_object_storage(monkeypatch) -> None:
+    for name in (
+        "KEYSTONE_BUCKET",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_ENDPOINT_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("BUCKET_NAME", "weightroom-artifacts")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "x")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "y")
+    monkeypatch.setenv("AWS_ENDPOINT_URL_S3", "https://fly.storage.tigris.dev")
+
+    settings = Settings.from_env()
+    store, is_dev = build_artifacts(settings)
+
+    assert settings.bucket == "weightroom-artifacts"
+    assert isinstance(store, S3Store) and is_dev is False
+    assert store._s3.meta.endpoint_url == "https://fly.storage.tigris.dev"
+
+
 def test_no_bucket_falls_back_to_local() -> None:
     store, is_dev = build_artifacts(Settings())
     assert isinstance(store, LocalStore) and is_dev is True

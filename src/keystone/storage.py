@@ -183,10 +183,20 @@ class S3Store(ArtifactStore):
         self.bucket = bucket
         self._s3 = boto3.client(
             "s3",
-            endpoint_url=endpoint_url or os.environ.get("R2_ENDPOINT_URL"),
+            endpoint_url=(
+                endpoint_url
+                or os.environ.get("R2_ENDPOINT_URL")
+                or os.environ.get("AWS_ENDPOINT_URL_S3")
+            ),
             region_name=region,
-            aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY"),
+            aws_access_key_id=(
+                os.environ.get("R2_ACCESS_KEY_ID")
+                or os.environ.get("AWS_ACCESS_KEY_ID")
+            ),
+            aws_secret_access_key=(
+                os.environ.get("R2_SECRET_ACCESS_KEY")
+                or os.environ.get("AWS_SECRET_ACCESS_KEY")
+            ),
         )
 
     def put(self, key: str, source: Path) -> None:
@@ -232,7 +242,7 @@ class S3Store(ArtifactStore):
 
 def from_env() -> ArtifactStore:
     """R2 when configured, local filesystem otherwise."""
-    bucket = os.environ.get("KEYSTONE_BUCKET")
+    bucket = os.environ.get("KEYSTONE_BUCKET") or os.environ.get("BUCKET_NAME")
     if bucket:
         return S3Store(bucket)
     return LocalStore(Path(os.environ.get("KEYSTONE_LOCAL_STORE", ".keystone-store")))
