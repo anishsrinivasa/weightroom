@@ -211,7 +211,7 @@ export function ModelDetail({ id }: { id: string }) {
           {visibleGates.length ? (
             <section className="content-block" aria-labelledby="safety-title">
               <div className="block-heading">
-                <div><p className="private-label">Seller only</p><h2 id="safety-title">Safety gates</h2></div>
+                <h2 id="safety-title">Safety gates</h2>
                 <GatePill status={gateOverall} />
               </div>
               <ul className="gate-list">
