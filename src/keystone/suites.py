@@ -110,6 +110,11 @@ class SuiteManifest:
     # What guessing pays. 0.25 for four-way multiple choice, 0.0 for an
     # executable task. Bands are defined on the chance-corrected scale.
     chance_floor: float = 0.0
+    # Two-phase. The suite collects transcripts while the model under test is
+    # served, and scores them once a judge has graded them -- because the judge
+    # is another model wanting the same GPU and both cannot be resident at
+    # once. Such a suite implements `collect` and `score` instead of `run`.
+    judged: bool = False
     description: str = ""
 
     @property
@@ -129,8 +134,27 @@ class SuiteManifest:
 
 @runtime_checkable
 class Suite(Protocol):
-    """Implemented on the harness side. Discovered by manifest id."""
+    """Single-phase: talk to the model, return a result."""
 
     manifest: SuiteManifest
 
     async def run(self, ctx: SuiteContext) -> SuiteResult: ...
+
+
+@runtime_checkable
+class JudgedSuite(Protocol):
+    """Two-phase: collect transcripts, then score them once judged.
+
+    `collect` runs with the model under test served. `score` runs after the
+    platform has torn that down, stood up a judge, and graded what came back.
+    The suite never sees the judge and never learns which model graded it; the
+    platform never interprets a transcript.
+    """
+
+    manifest: SuiteManifest
+
+    async def collect(self, ctx: SuiteContext) -> list:  # list[Transcript]
+        ...
+
+    def score(self, judgements: list, duration_s: float) -> SuiteResult:  # list[Judgement]
+        ...

@@ -294,6 +294,13 @@ class SuiteResult(BaseModel):
         description="Which probe and band produced `threshold_required`, so a "
         "verdict can be audited without re-running anything.",
     )
+    judge_id: str | None = Field(
+        default=None,
+        description="Which grader produced this result, when one was involved. "
+        "Reproducibility, and honesty: a run scored by the fallback heuristic "
+        "must be identifiable rather than indistinguishable from one scored by "
+        "the real guard model.",
+    )
     conditioned_verdict: str | None = Field(
         default=None,
         description="'pass', 'fail', or 'not_required' when capability was too "

@@ -995,6 +995,19 @@
           "description": "Which probe and band produced `threshold_required`, so a verdict can be audited without re-running anything.",
           "title": "Threshold Basis"
         },
+        "judge_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which grader produced this result, when one was involved. Reproducibility, and honesty: a run scored by the fallback heuristic must be identifiable rather than indistinguishable from one scored by the real guard model.",
+          "title": "Judge Id"
+        },
         "conditioned_verdict": {
           "anyOf": [
             {

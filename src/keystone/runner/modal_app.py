@@ -522,7 +522,8 @@ def _evaluate(
 
     from keystone.client import OpenAIServerClient, VLLMServer
     from keystone.public_safety import BY_ID, harmful_result
-    from keystone.run import run_suites
+    from keystone.judging import GuardJudge
+    from keystone.run import collect_suites, finalise_judged
     from keystone.schema import Capabilities, Modality
 
     started = time.monotonic()
@@ -571,7 +572,10 @@ def _evaluate(
     ):
         env["engine_version"] = _pkg_version("vllm")
         client = OpenAIServerClient(served_name, seed=seed)
-        results = run_suites(
+        # Phase one only. Judged suites collect here and are scored below,
+        # after this server is gone and the guard is up -- both models want the
+        # same GPU and neither will yield it.
+        results, pending = collect_suites(
             client,
             model_name=served_name,
             capabilities=caps,
@@ -607,6 +611,22 @@ def _evaluate(
 
     with VLLMServer(Path(assets["guard_dir"]), "safety-judge", max_context=4096):
         judge = OpenAIServerClient("safety-judge", seed=seed)
+
+        # Phase two for the suite registry. Same guard, same server, one
+        # startup -- the judge id lands on each result so a run is traceable to
+        # what graded it.
+        if pending:
+            yield progress("Scoring conditioned safety gates")
+            results.extend(
+                finalise_judged(
+                    pending,
+                    GuardJudge(
+                        judge,
+                        judge_id=f"{GUARD_REF}@{GUARD_REVISION[:12]}",
+                    ),
+                    suites_root=suites_root,
+                )
+            )
         for suite_id in suite_ids:
             outcomes: list[dict] = []
             rows = generated[suite_id]
