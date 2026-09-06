@@ -149,7 +149,7 @@ export function SubmitWizard() {
 
   const evaluationTotal = useMemo(() => {
     return benchmarks
-      .filter((benchmark) => benchmark.mandatory || selected.has(benchmark.suite_id))
+      .filter((benchmark) => selected.has(benchmark.suite_id))
       .reduce((total, benchmark) => total + benchmark.price_minor, 0);
   }, [benchmarks, selected]);
 
@@ -339,8 +339,7 @@ export function SubmitWizard() {
         );
         currentChargeId = quote.charge_id;
         setPendingChargeId(currentChargeId);
-        // What the server priced, not what the checkboxes said -- mandatory
-        // suites are folded in server-side, so this is the honest line-up.
+        // Use the server's normalized selection as the final billed line-up.
         setRunning(quote.running);
       }
       const currentCharge = await keystoneRequest(
@@ -491,13 +490,13 @@ export function SubmitWizard() {
       {step === 2 ? (
         <section aria-labelledby="evaluation-title">
           <h2 id="evaluation-title">Choose public benchmarks</h2>
-          <p className="section-copy">Choose the evidence buyers should see. Costs are estimates based on the uploaded model&apos;s weight size and each benchmark&apos;s official workload; the server recalculates the quote from the stored artifact.</p>
+          <p className="section-copy">Every benchmark is optional. Each selected benchmark runs on 100 tasks sampled randomly without replacement; the model digest fixes the sample so retries are reproducible. Costs are estimates based on the uploaded model&apos;s weight size, and the server recalculates the quote from the stored artifact.</p>
           {benchmarksLoading ? <LoadingBlock label="Loading supported benchmarks…" /> : (
             <div className="benchmark-options">
               {benchmarks.map((benchmark) => (
                 <label key={benchmark.suite_id}>
-                  <input type="checkbox" checked={benchmark.mandatory || selected.has(benchmark.suite_id)} disabled={benchmark.mandatory} onChange={() => toggleBenchmark(benchmark.suite_id)} />
-                  <span><strong>{benchmark.display_name}</strong>{benchmark.mandatory ? <em>Required</em> : null}<small>{benchmark.description}</small></span>
+                  <input type="checkbox" checked={selected.has(benchmark.suite_id)} onChange={() => toggleBenchmark(benchmark.suite_id)} />
+                  <span><strong>{benchmark.display_name}</strong><small>{benchmark.description} · 100 randomly sampled tasks</small></span>
                   <b>{benchmark.price_is_estimate ? "≈ " : ""}{formatUsdc(benchmark.price_minor)}</b>
                 </label>
               ))}

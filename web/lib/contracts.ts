@@ -142,7 +142,6 @@ export const benchmarkSchema = z.object({
   suite_id: z.string(),
   display_name: z.string(),
   description: z.string(),
-  mandatory: z.boolean(),
   gate: z.boolean(),
   diagnostic: z.boolean(),
   held_out: z.boolean(),
@@ -151,15 +150,20 @@ export const benchmarkSchema = z.object({
   price_is_estimate: z.boolean().default(false),
   score_direction: z.enum(["higher", "lower"]).default("higher"),
   harness_kind: z.enum(["agent", "multiple_choice", "expert_math"]).optional(),
+  task_count: z.number().int().positive(),
+  sample_size: z.number().int().positive(),
+  sampling_strategy: z.literal("deterministic_random_without_replacement"),
+  sampling_seed_version: z.string(),
   source_url: z.string().url().optional(),
 });
 
 export const benchmarksSchema = z.object({
   benchmarks: z.array(benchmarkSchema),
-  mandatory_total: z.string(),
   pricing_basis: z.object({
     estimated: z.boolean(),
     model_weight_bytes: z.number().int().nonnegative().nullable(),
+    sample_size_per_benchmark: z.number().int().positive(),
+    sampling_strategy: z.literal("deterministic_random_without_replacement"),
   }).optional(),
 });
 

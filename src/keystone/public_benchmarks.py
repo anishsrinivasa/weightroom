@@ -14,9 +14,11 @@ should be used to recalibrate these coefficients.
 
 from __future__ import annotations
 
+import hashlib
 import math
+import random
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Sequence
 
 from keystone.payments import Currency, Money
 
@@ -24,6 +26,9 @@ REFERENCE_WEIGHT_BYTES = 14_000_000_000
 MIN_MODEL_SCALE = 0.20
 MAX_MODEL_SCALE = 8.0
 ROUNDING_MINOR = 10_000  # one cent for six-decimal USDC
+TASK_SAMPLE_SIZE = 100
+SAMPLING_STRATEGY = "deterministic_random_without_replacement"
+SAMPLING_SEED_VERSION = "artifact-digest-v1"
 
 ScoreDirection = Literal["higher", "lower"]
 HarnessKind = Literal["agent", "multiple_choice", "expert_math"]
@@ -37,10 +42,10 @@ class PublicBenchmark:
     description: str
     score_direction: ScoreDirection
     harness_kind: HarnessKind
-    fixed_cost_minor: int
-    inference_cost_minor_at_reference: int
+    task_count: int
+    setup_cost_minor: int
+    inference_cost_minor_per_task_at_reference: int
     source_url: str
-    mandatory: bool = False
 
     def estimated_price_minor(self, model_weight_bytes: int | None = None) -> int:
         """Estimated direct cost for this workload and uploaded checkpoint.
@@ -56,7 +61,10 @@ class PublicBenchmark:
                 MAX_MODEL_SCALE,
                 max(MIN_MODEL_SCALE, model_weight_bytes / REFERENCE_WEIGHT_BYTES),
             )
-        raw = self.fixed_cost_minor + self.inference_cost_minor_at_reference * scale
+        raw = (
+            self.setup_cost_minor
+            + self.inference_cost_minor_per_task_at_reference * TASK_SAMPLE_SIZE * scale
+        )
         return int(math.ceil(raw / ROUNDING_MINOR) * ROUNDING_MINOR)
 
     def as_dict(self, model_weight_bytes: int | None = None) -> dict:
@@ -65,7 +73,6 @@ class PublicBenchmark:
             "suite_id": self.suite_id,
             "display_name": self.display_name,
             "version": self.version,
-            "mandatory": self.mandatory,
             "gate": False,
             "diagnostic": False,
             "held_out": False,
@@ -74,6 +81,10 @@ class PublicBenchmark:
             "price_is_estimate": True,
             "score_direction": self.score_direction,
             "harness_kind": self.harness_kind,
+            "task_count": self.task_count,
+            "sample_size": TASK_SAMPLE_SIZE,
+            "sampling_strategy": SAMPLING_STRATEGY,
+            "sampling_seed_version": SAMPLING_SEED_VERSION,
             "source_url": self.source_url,
             "description": self.description,
         }
@@ -87,8 +98,9 @@ BENCHMARKS: tuple[PublicBenchmark, ...] = (
         description="500 engineer-verified GitHub issues, scored by repository tests in isolated containers.",
         score_direction="higher",
         harness_kind="agent",
-        fixed_cost_minor=80_000_000,
-        inference_cost_minor_at_reference=120_000_000,
+        task_count=500,
+        setup_cost_minor=5_000_000,
+        inference_cost_minor_per_task_at_reference=350_000,
         source_url="https://github.com/SWE-bench/SWE-bench",
     ),
     PublicBenchmark(
@@ -98,8 +110,9 @@ BENCHMARKS: tuple[PublicBenchmark, ...] = (
         description="Real-world economically valuable work products across 44 occupations, graded against expert rubrics.",
         score_direction="higher",
         harness_kind="agent",
-        fixed_cost_minor=50_000_000,
-        inference_cost_minor_at_reference=40_000_000,
+        task_count=220,
+        setup_cost_minor=5_000_000,
+        inference_cost_minor_per_task_at_reference=360_000,
         source_url="https://huggingface.co/datasets/openai/gdpval",
     ),
     PublicBenchmark(
@@ -109,8 +122,9 @@ BENCHMARKS: tuple[PublicBenchmark, ...] = (
         description="Long-horizon legal-agent tasks with matter files, required deliverables, and expert-written rubrics.",
         score_direction="higher",
         harness_kind="agent",
-        fixed_cost_minor=650_000_000,
-        inference_cost_minor_at_reference=350_000_000,
+        task_count=1_660,
+        setup_cost_minor=10_000_000,
+        inference_cost_minor_per_task_at_reference=500_000,
         source_url="https://github.com/harveyai/harvey-labs",
     ),
     PublicBenchmark(
@@ -120,10 +134,10 @@ BENCHMARKS: tuple[PublicBenchmark, ...] = (
         description="12,000+ reasoning-focused multiple-choice questions across 14 academic and professional domains.",
         score_direction="higher",
         harness_kind="multiple_choice",
-        fixed_cost_minor=250_000,
-        inference_cost_minor_at_reference=3_750_000,
+        task_count=12_032,
+        setup_cost_minor=10_000,
+        inference_cost_minor_per_task_at_reference=300,
         source_url="https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
-        mandatory=True,
     ),
     PublicBenchmark(
         suite_id="frontiermath",
@@ -132,8 +146,9 @@ BENCHMARKS: tuple[PublicBenchmark, ...] = (
         description="Expert-level mathematics with controlled problem access and independently verifiable answers.",
         score_direction="higher",
         harness_kind="expert_math",
-        fixed_cost_minor=10_000_000,
-        inference_cost_minor_at_reference=5_000_000,
+        task_count=338,
+        setup_cost_minor=1_000_000,
+        inference_cost_minor_per_task_at_reference=33_000,
         source_url="https://epoch.ai/frontiermath/tiers-1-4/about",
     ),
 )
@@ -145,6 +160,26 @@ class PublicBenchmarkSelectionError(ValueError):
     pass
 
 
+def sample_task_ids(
+    task_ids: Sequence[str], *, artifact_digest: str, suite_id: str
+) -> list[str]:
+    """Choose the reproducible 100-task sample for one model and benchmark.
+
+    Sampling is random without replacement, but derived from the immutable
+    artifact digest so retries evaluate the same tasks and remain auditable.
+    """
+    unique_ids = list(dict.fromkeys(task_ids))
+    if len(unique_ids) < TASK_SAMPLE_SIZE:
+        raise ValueError(
+            f"{suite_id} has {len(unique_ids)} tasks; {TASK_SAMPLE_SIZE} are required"
+        )
+    seed_material = (
+        f"{SAMPLING_SEED_VERSION}:{artifact_digest}:{suite_id}".encode("utf-8")
+    )
+    seed = int.from_bytes(hashlib.sha256(seed_material).digest(), "big")
+    return random.Random(seed).sample(unique_ids, TASK_SAMPLE_SIZE)
+
+
 def normalise_selection(selected: list[str] | None) -> list[str]:
     chosen = list(dict.fromkeys(selected or []))
     unknown = [suite_id for suite_id in chosen if suite_id not in BY_ID]
@@ -152,8 +187,7 @@ def normalise_selection(selected: list[str] | None) -> list[str]:
         raise PublicBenchmarkSelectionError(
             f"unknown benchmarks: {', '.join(sorted(unknown))}"
         )
-    required = [benchmark.suite_id for benchmark in BENCHMARKS if benchmark.mandatory]
-    return list(dict.fromkeys(required + chosen))
+    return chosen
 
 
 def declined_ids(selected: list[str] | None) -> list[str]:
@@ -172,5 +206,5 @@ def quote(selected: list[str] | None, model_weight_bytes: int | None = None) -> 
 
 
 def menu(model_weight_bytes: int | None = None) -> list[dict]:
-    ordered = sorted(BENCHMARKS, key=lambda benchmark: (not benchmark.mandatory, benchmark.display_name.lower()))
+    ordered = sorted(BENCHMARKS, key=lambda benchmark: benchmark.display_name.lower())
     return [benchmark.as_dict(model_weight_bytes) for benchmark in ordered]

@@ -426,9 +426,9 @@ def test_finalize_refuses_missing_bytes(client: TestClient) -> None:
 
 def test_publish_returns_a_charge(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
-    r = client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": []},
+    r = client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": ["mmlu_pro"]},
                        headers=_hdr("tok-creator")).json()
-    assert r["amount"] == "1.000000 USDC"
+    assert r["amount"] == "0.020000 USDC"
     assert set(r["running"]) == {"mmlu_pro"}
     assert set(r["declined"]) == {
         "swe_bench_verified", "gdpval", "harvey_lab", "frontiermath"
@@ -449,7 +449,7 @@ def test_confirm_refuses_an_unsettled_charge(client: TestClient, deps: Deps) -> 
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
@@ -465,7 +465,7 @@ def test_confirm_queues_after_settlement(client: TestClient, deps: Deps) -> None
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
@@ -484,7 +484,7 @@ def test_client_claiming_payment_is_not_evidence(client: TestClient, deps: Deps)
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
@@ -505,7 +505,7 @@ def _queue(client: TestClient, deps: Deps) -> str:
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
     deps.payments.settle(charge_id)
@@ -622,7 +622,7 @@ def test_worker_can_target_one_queued_listing(client: TestClient, deps: Deps) ->
     second = created.json()["listing_id"]
     charge_id = client.post(
         f"/v1/listings/{second}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
     deps.payments.settle(charge_id)

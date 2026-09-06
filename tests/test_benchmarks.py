@@ -253,8 +253,9 @@ def _listing(client: TestClient, deps: Deps) -> str:
 def test_menu_endpoint_is_public(client: TestClient) -> None:
     body = client.get("/v1/benchmarks").json()
     assert {b["suite_id"] for b in body["benchmarks"]} == PUBLIC_IDS
-    assert body["mandatory_total"] == "4.000000 USDC"
     assert all(b["price_is_estimate"] for b in body["benchmarks"])
+    assert all(b["sample_size"] == 100 for b in body["benchmarks"])
+    assert "mandatory_total" not in body
 
 
 def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
@@ -265,9 +266,22 @@ def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert r["amount"] == "12.000000 USDC"  # tiny fixture hits the 20% model floor
-    assert set(r["running"]) == {"mmlu_pro", "frontiermath"}
-    assert set(r["declined"]) == PUBLIC_IDS - {"mmlu_pro", "frontiermath"}
+    assert r["amount"] == "1.660000 USDC"  # tiny fixture hits the 20% model floor
+    assert set(r["running"]) == {"frontiermath"}
+    assert set(r["declined"]) == PUBLIC_IDS - {"frontiermath"}
+
+
+def test_publish_allows_no_public_benchmarks(client: TestClient, deps: Deps) -> None:
+    listing_id = _listing(client, deps)
+    response = client.post(
+        f"/v1/listings/{listing_id}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
+    ).json()
+
+    assert response["amount"] == "0.000000 USDC"
+    assert response["running"] == []
+    assert set(response["declined"]) == PUBLIC_IDS
 
 
 def test_publish_rejects_an_unknown_benchmark(client: TestClient, deps: Deps) -> None:
@@ -289,7 +303,7 @@ def test_selection_is_persisted_for_the_worker(client: TestClient, deps: Deps) -
     )
     with deps.store.session() as s:
         row = deps.store.get_listing(s, listing_id)
-        assert set(row.selected_benchmarks) == {"mmlu_pro", "frontiermath"}
+        assert set(row.selected_benchmarks) == {"frontiermath"}
 
 
 def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> None:
@@ -316,4 +330,4 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
         return Outcome(digest)
 
     process_pending(deps.store, certify=fake_certify)
-    assert set(seen[0]) == {"mmlu_pro", "frontiermath"}
+    assert set(seen[0]) == {"frontiermath"}

@@ -575,10 +575,11 @@ def create_app(deps: Deps) -> FastAPI:
         """
         return {
             "benchmarks": public_benchmark_menu(model_weight_bytes),
-            "mandatory_total": str(quote_public_benchmarks([], model_weight_bytes)),
             "pricing_basis": {
                 "estimated": True,
                 "model_weight_bytes": model_weight_bytes,
+                "sample_size_per_benchmark": 100,
+                "sampling_strategy": "deterministic_random_without_replacement",
             },
         }
 
@@ -586,10 +587,10 @@ def create_app(deps: Deps) -> FastAPI:
     def publish(listing_id: str, body: PublishRequest, d: D, principal: P) -> dict:
         """Ask to publish. Returns a charge to settle, or the reason we refused.
 
-        The price is the sum of what will actually run: mandatory suites plus
-        whatever the creator selected. Rate limits are evaluated before a charge
-        is minted, so we never take money from someone we are about to reject on
-        cooldown.
+        The price is the sum of the optional public benchmarks the creator
+        selected. Safety gates remain separate and are never sold as optional
+        benchmark evidence. Rate limits are evaluated before a charge is minted,
+        so we never take money from someone we are about to reject on cooldown.
         """
         me = require(principal)
         now = datetime.now(timezone.utc)
@@ -623,6 +624,8 @@ def create_app(deps: Deps) -> FastAPI:
                 metadata={
                     "creator_id": me.user_id,
                     "estimated_model_weight_bytes": model_weight_bytes,
+                    "benchmark_sample_size": 100,
+                    "benchmark_sampling": "deterministic_random_without_replacement",
                     **({"rail": body.rail} if body.rail else {}),
                 },
             )
@@ -1070,6 +1073,5 @@ class PurchaseRequest(BaseModel):
 
 class PublishRequest(BaseModel):
     rail: str | None = None
-    # Optional capability benchmarks. Mandatory suites are added server-side,
-    # so omitting them here does not skip them.
+    # Every public capability benchmark is optional. Safety gates are separate.
     benchmarks: list[str] = []

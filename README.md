@@ -64,20 +64,22 @@ The marketplace catalogue exposes five benchmark identifiers:
 
 | Benchmark | 7B/BF16 planning estimate | Harness shape |
 |---|---:|---|
-| MMLU-Pro (required baseline) | 4 USDC | multiple choice |
-| FrontierMath | 15 USDC | controlled expert-math evaluation |
-| GDPval | 90 USDC | agent + work-product judge |
-| Harvey LAB | 1,000 USDC | long-horizon legal agent + judge |
-| SWE-bench Verified | 200 USDC | coding agent + repository test containers |
+| MMLU-Pro | 0.04 USDC | multiple choice |
+| FrontierMath | 4.30 USDC | controlled expert-math evaluation |
+| GDPval | 41 USDC | agent + work-product judge |
+| Harvey LAB | 60 USDC | long-horizon legal agent + judge |
+| SWE-bench Verified | 40 USDC | coding agent + repository test containers |
 
-These are estimated direct run costs, not a third-party price claim or a
-margin. Each estimate has fixed harness/judge overhead plus an inference
-component at a 14 GB reference checkpoint. The API scales only the inference
-component by stored model-weight bytes (20% floor, 8x ceiling), rounds to the
-nearest cent, and recalculates the payment quote from the server-owned artifact
-manifest. Actual GPU seconds and USD are recorded in `report.cost`; replace the
-planning coefficients in `public_benchmarks.py` with measured medians once the
-first run sample is large enough.
+These are estimated direct costs for **100 tasks per selected benchmark**, not
+a third-party price claim or a margin. Tasks are sampled without replacement;
+the uploaded artifact digest deterministically seeds the random sample so a
+retry is reproducible and auditable. Each estimate has per-run harness/judge
+setup plus a per-task inference component at a 14 GB reference checkpoint. The
+API scales the inference component by stored model-weight bytes (20% floor, 8x
+ceiling), rounds to the nearest cent, and recalculates the payment quote from
+the server-owned artifact manifest. Actual GPU seconds and USD are recorded in
+`report.cost`; replace the planning coefficients in `public_benchmarks.py` with
+measured medians once the first run sample is large enough.
 
 The source methodologies are [SWE-bench](https://github.com/SWE-bench/SWE-bench),
 [GDPval](https://huggingface.co/datasets/openai/gdpval),
@@ -90,9 +92,8 @@ prompt set into an official score: agent/container adapters and controlled
 FrontierMath access must be installed and validated before production charging
 is enabled for those benchmarks.
 
-Creators choose the optional evidence worth running. MMLU-Pro is folded in as
-the required general baseline so every public listing has at least one common
-capability measure.
+Creators choose the optional evidence worth running. No public capability
+benchmark is required.
 
 Three rules make this safe to offer:
 
