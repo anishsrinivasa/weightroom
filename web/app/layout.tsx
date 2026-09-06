@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { ClerkProvider } from "@clerk/nextjs";
 
 import { Header } from "@/components/Header";
+import { MessengerProvider } from "@/components/Messenger";
 
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -29,8 +30,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <html lang="en">
         <body>
           <a className="skip-link" href="#main-content">Skip to content</a>
-          <Header />
-          <main id="main-content" className="shell page-shell">{children}</main>
+          <MessengerProvider>
+            <Header />
+            <main id="main-content" className="shell page-shell">{children}</main>
+          </MessengerProvider>
         </body>
       </html>
     </ClerkProvider>

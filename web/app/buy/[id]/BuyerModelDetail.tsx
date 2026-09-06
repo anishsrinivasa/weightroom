@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
 import { LicenseAgreement } from "@/components/LicenseAgreement";
 import { VoteButtons } from "@/components/VoteButtons";
+import { useMessenger } from "@/components/Messenger";
 import { clientUploadUrl, keystoneRequest } from "@/lib/api";
 import {
   benchmarksSchema,
@@ -45,6 +46,7 @@ export function BuyerModelDetail({ id }: { id: string }) {
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [delisting, setDelisting] = useState(false);
   const confirmationStarted = useRef(false);
+  const messenger = useMessenger();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -287,6 +289,16 @@ export function BuyerModelDetail({ id }: { id: string }) {
               ) : null}
             </>
           )}
+
+          {!model.is_owner ? (
+            <button
+              className="button quiet full-width message-seller"
+              type="button"
+              onClick={() => messenger.openListing(model.listing_id)}
+            >
+              💬 Message the seller
+            </button>
+          ) : null}
 
           {viewer?.is_admin ? (
             <div className="admin-actions">

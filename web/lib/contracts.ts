@@ -375,3 +375,40 @@ export const delistResultSchema = z.object({
 });
 
 export type Viewer = z.infer<typeof viewerSchema>;
+
+const threadSummaryFields = {
+  thread_id: z.string(),
+  listing_id: z.string(),
+  listing_title: z.string().nullable(),
+  counterpart_id: z.string(),
+  unread: z.number().int().nonnegative(),
+  last_message: z.string().nullable(),
+  last_message_at: z.string(),
+};
+
+export const threadSummarySchema = z.object(threadSummaryFields);
+export const threadListSchema = z.object({
+  threads: z.array(threadSummarySchema),
+});
+
+export const messageSchema = z.object({
+  message_id: z.string(),
+  sender_id: z.string(),
+  mine: z.boolean(),
+  body: z.string(),
+  created_at: z.string(),
+});
+
+export const threadDetailSchema = z.object({
+  ...threadSummaryFields,
+  messages: z.array(messageSchema),
+});
+
+export const threadDeletedSchema = z.object({
+  thread_id: z.string(),
+  deleted: z.literal(true),
+});
+
+export type ThreadSummary = z.infer<typeof threadSummarySchema>;
+export type ThreadDetail = z.infer<typeof threadDetailSchema>;
+export type Message = z.infer<typeof messageSchema>;
