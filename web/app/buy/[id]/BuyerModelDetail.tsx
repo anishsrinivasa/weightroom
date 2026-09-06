@@ -229,13 +229,8 @@ export function BuyerModelDetail({ id }: { id: string }) {
         </article>
 
         <aside className="checkout-panel" aria-labelledby="checkout-title">
-          <h2 id="checkout-title">License this model</h2>
+          <h2 id="checkout-title">Buy this model</h2>
           <div className="checkout-price"><strong>{formatUsdc(model.price_minor)}</strong></div>
-          <ul className="checkout-points">
-            <li><span aria-hidden="true">✓</span> Certified artifact</li>
-            <li><span aria-hidden="true">✓</span> SHA-256 file manifest</li>
-            <li><span aria-hidden="true">✓</span> Time-limited downloads</li>
-          </ul>
 
           {error ? <ErrorPanel message={error} /> : null}
 
