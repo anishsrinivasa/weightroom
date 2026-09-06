@@ -233,10 +233,6 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 
 /* Buyer catalogue. These reuse the seller workspace's paper, ink, borders,
    square controls, typography, and spacing rhythm. */
-.marketplace-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 36px; margin-bottom: 52px; }
-.marketplace-count { flex: none; min-width: 130px; text-align: right; }
-.marketplace-count strong { display: block; font-size: 32px; font-weight: 500; line-height: 1; letter-spacing: -0.045em; }
-.marketplace-count span { display: block; margin-top: 9px; color: var(--muted); font-size: 11px; }
 .marketplace-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 42px; align-items: start; }
 .filter-panel { position: sticky; top: 98px; max-height: calc(100dvh - 116px); overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 10px; }
 .filter-panel::-webkit-scrollbar { width: 8px; }
@@ -323,7 +319,6 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
    paper, ink, square borders, compact labels, and tabular data language while
    opening up the measure for longer reading. */
 .research-index { max-width: 920px; }
-.research-index-header { padding-bottom: 52px; }
 .research-list { border-top: 1px solid var(--ink); }
 .research-card { position: relative; display: grid; grid-template-columns: 150px minmax(0, 1fr) 36px; gap: 34px; align-items: start; border-bottom: 1px solid var(--line); padding: 30px 0; transition: background 120ms ease; }
 .research-card:hover { background: var(--wash); }
@@ -476,9 +471,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .completion-card { padding: 34px 20px; }
   .error-panel { display: block; }
   .error-panel .button { margin-top: 14px; }
-  .marketplace-heading { display: block; margin-bottom: 30px; padding-bottom: 28px; }
-  .marketplace-count { margin-top: 22px; text-align: left; }
-  .marketplace-layout { display: block; }
+      .marketplace-layout { display: block; }
   .filter-panel { position: static; max-height: none; overflow: visible; margin-bottom: 42px; padding-right: 0; scrollbar-gutter: auto; }
   .model-grid { grid-template-columns: 1fr; }
   .buyer-detail-layout { display: flex; flex-direction: column; }

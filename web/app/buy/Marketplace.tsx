@@ -108,13 +108,6 @@ export function Marketplace() {
 
   return (
     <>
-      <header className="marketplace-heading">
-        <div>
-          <h1>Find your next model.</h1>
-        </div>
-        <p className="marketplace-count"><strong>{loading ? "—" : listings.length}</strong><span>models for sale</span></p>
-      </header>
-
       {error ? <ErrorPanel message={error} /> : null}
       {loading ? <LoadingBlock label="Loading the marketplace…" /> : (
         <div className="marketplace-layout">
@@ -170,7 +163,9 @@ export function Marketplace() {
             <section className="results-section" aria-labelledby="results-title">
               <div className="section-heading">
                 <h2 id="results-title">{filtersActive ? "Search results" : "All models"}</h2>
-                {filtersActive ? <span className="result-count">{visible.length} {visible.length === 1 ? "result" : "results"}</span> : null}
+                {filtersActive
+                  ? <span className="result-count">{visible.length} {visible.length === 1 ? "result" : "results"}</span>
+                  : <span className="result-count">{listings.length} {listings.length === 1 ? "model" : "models"} for sale</span>}
               </div>
               {visible.length ? <div className="model-grid">{visible.map((listing) => <ModelCard key={listing.listing_id} listing={listing} tags={tags} />)}</div> : (
                 <div className="catalogue-empty"><h3>No models match these filters.</h3><button className="button" type="button" onClick={clearFilters}>Clear filters</button></div>

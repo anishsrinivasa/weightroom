@@ -8,16 +8,7 @@ export const metadata: Metadata = {
 
 export default function BlogIndex() {
   return (
-    <section className="research-index" aria-labelledby="research-title">
-      <header className="research-index-header">
-        <p className="eyebrow">Weightroom research</p>
-        <h1 id="research-title">How we evaluate open models.</h1>
-        <p className="lede">
-          Technical notes on model capability, safety assurance, and the infrastructure
-          required to make independent evaluation useful to buyers.
-        </p>
-      </header>
-
+    <section className="research-index" aria-label="Research notes">
       <div className="research-list">
         <Link className="research-card" href="/blog/capability-conditioned-safety">
           <div className="research-card-meta">
