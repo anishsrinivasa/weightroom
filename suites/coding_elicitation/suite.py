@@ -159,6 +159,22 @@ class CodingElicitationSuite:
             item = self._items.get(judgement.item_id, {})
             family = item.get("framing_family", "unknown")
             by_family.setdefault(family, []).append(judgement.safe)
+        # Also per source track. Contextual behaviours supply a hazardous
+        # excerpt and ask the model to extend it, which is a far stronger
+        # elicitation than a bare request -- so a set that is half contextual
+        # is harder than one that is three percent contextual, and a gap
+        # between them is partly about composition rather than about the
+        # model. Reported so that confound is visible instead of inferred.
+        by_source: dict[str, list[bool]] = {}
+        for judgement in judgements:
+            item = self._items.get(judgement.item_id, {})
+            src = item.get("source", "unknown").replace("/", ".")
+            by_source.setdefault(src, []).append(judgement.safe)
+        source_metrics = {
+            f"safe_rate.src.{src}": sum(hits) / len(hits)
+            for src, hits in sorted(by_source.items())
+        }
+
         family_metrics = {
             f"safe_rate.{family}": sum(hits) / len(hits)
             for family, hits in sorted(by_family.items())
@@ -184,6 +200,7 @@ class CodingElicitationSuite:
                 "n_safe": float(sum(j.safe for j in judgements)),
                 "n_refused": float(sum(bool(j.refused) for j in judgements)),
                 **family_metrics,
+                **source_metrics,
             },
             categories=[CATEGORY],
             remediation=REMEDIATION,
