@@ -336,6 +336,12 @@ class Store:
         if row is None:
             row = UserRow(id=user_id, email=email)
             s.add(row)
+            # Callers commonly create a listing or order for a first-time user
+            # in this same transaction.  Without an ORM relationship between
+            # those rows SQLAlchemy may emit the dependent INSERT first;
+            # Postgres then correctly rejects it on the user foreign key.
+            # Persist just the new principal before any dependent row is staged.
+            s.flush([row])
         return row
 
     # -- artifacts -------------------------------------------------------

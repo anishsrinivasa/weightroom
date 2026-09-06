@@ -94,6 +94,21 @@ def test_artifact_is_idempotent_by_digest(store: Store) -> None:
         assert s.query(ArtifactRow).count() == 1
 
 
+def test_first_time_creator_is_inserted_before_listing_foreign_key(store: Store) -> None:
+    """Match Postgres FK enforcement for the create-listing transaction."""
+    with store.engine.begin() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+    with store.session() as s:
+        store.put_artifact(s, "d" * 64, FILES, 2168)
+        store.upsert_user(s, "new-creator", "new@example.com")
+        store.create_listing(s, "new-listing", "new-creator", "d" * 64)
+        s.commit()
+
+    with store.session() as s:
+        assert store.get_listing(s, "new-listing").creator_id == "new-creator"
+
+
 def test_artifact_manifest_round_trips(store: Store) -> None:
     with store.session() as s:
         store.put_artifact(s, "d" * 64, FILES, 2168)
