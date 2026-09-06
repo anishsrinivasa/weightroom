@@ -19,7 +19,6 @@ import {
   type Benchmark,
   type Charge,
   type SelectedFile,
-  type TagCatalogue,
 } from "@/lib/contracts";
 import {
   BROWSER_FILE_LIMIT,
@@ -51,8 +50,7 @@ export function SubmitWizard() {
   const [price, setPrice] = useState("45");
   const [description, setDescription] = useState("");
   const [domainTags, setDomainTags] = useState<Set<string>>(new Set());
-  const [sizeTag, setSizeTag] = useState("");
-  const [tagCatalogue, setTagCatalogue] = useState<TagCatalogue | null>(null);
+  const [domainOptions, setDomainOptions] = useState<{ id: string; label: string }[]>([]);
   const [cover, setCover] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [picked, setPicked] = useState<SelectedFile[]>([]);
@@ -97,7 +95,7 @@ export function SubmitWizard() {
     ])
       .then(([benchmarkData, tagData]) => {
         setBenchmarks(benchmarkData.benchmarks);
-        setTagCatalogue(tagData);
+        setDomainOptions(tagData.domains);
       })
       .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load benchmarks"))
       .finally(() => setBenchmarksLoading(false));
@@ -262,7 +260,6 @@ export function SubmitWizard() {
     if (!digest || !picked.length) return setError("Choose model files first.");
     if (!title.trim()) return setError("Enter a model name.");
     if (!domainTags.size) return setError("Choose at least one model domain.");
-    if (!sizeTag) return setError("Choose a model size.");
     const numericPrice = Number(price);
     if (!Number.isFinite(numericPrice) || numericPrice < 0) return setError("Enter a valid non-negative sale price.");
 
@@ -318,7 +315,6 @@ export function SubmitWizard() {
               image_digest: imageDigest,
               price_minor: Math.round(numericPrice * 1_000_000),
               domain_tags: Array.from(domainTags),
-              size_tag: sizeTag,
             }),
           },
         );
@@ -434,7 +430,7 @@ export function SubmitWizard() {
             <legend>Model domains</legend>
             <p className="field-hint">Choose every domain this model is designed to handle.</p>
             <div className="tag-picker">
-              {tagCatalogue?.domains.map((tag) => (
+              {domainOptions.map((tag) => (
                 <label key={tag.id} data-selected={domainTags.has(tag.id)}>
                   <input
                     type="checkbox"
@@ -446,15 +442,11 @@ export function SubmitWizard() {
               ))}
             </div>
           </fieldset>
-          <label className="stacked-field">
-            <span>Model size</span>
-            <select value={sizeTag} onChange={(event) => setSizeTag(event.target.value)}>
-              <option value="">Select a parameter range</option>
-              {tagCatalogue?.model_sizes.map((tag) => (
-                <option key={tag.id} value={tag.id}>{tag.label}</option>
-              ))}
-            </select>
-          </label>
+          <div className="derived-field">
+            <span className="field-label">Model size</span>
+            <strong>Detected automatically after upload</strong>
+            <p className="field-hint">Weightroom reads tensor shapes from the checkpoint; sellers cannot self-report this facet.</p>
+          </div>
           <div
             className={`drop-zone ${dragging ? "dragging" : ""}`}
             onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -484,7 +476,7 @@ export function SubmitWizard() {
                 </tbody></table>
             </div>
           ) : null}
-          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing || !domainTags.size || !sizeTag} onClick={() => setStep(2)}>Continue to evaluations →</button></div>
+          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing || !domainTags.size} onClick={() => setStep(2)}>Continue to evaluations →</button></div>
         </section>
       ) : null}
 

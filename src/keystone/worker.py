@@ -19,6 +19,7 @@ from keystone.db import Store
 from keystone.listing import Attempt, AttemptPolicy, DEFAULT_POLICY, Listing, ListingState
 from keystone.pipeline import Outcome
 from keystone.schema import CertificationReport, Status
+from keystone.tags import model_size_tag
 
 if TYPE_CHECKING:
     from keystone.storage import ArtifactStore
@@ -86,6 +87,9 @@ def record_outcome(
         store.save_listing(s, listing)
 
         if report is not None:
+            row = store.get_listing(s, listing_id)
+            if row is not None:
+                row.size_tag = model_size_tag(report.serving_profile.parameter_count)
             # Sign before storing, so the stored bytes are the signed bytes and
             # nothing can diverge between what we keep and what we attest to.
             if signer is not None:

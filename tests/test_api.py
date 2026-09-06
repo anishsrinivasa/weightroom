@@ -672,7 +672,7 @@ def test_listing_tags_survive_every_marketplace_view(
     listing_id = _upload_and_list(client, deps)
     response = client.patch(
         f"/v1/listings/{listing_id}",
-        json={"domain_tags": ["coding", "math", "coding"], "size_tag": "3b-7b"},
+        json={"domain_tags": ["coding", "math", "coding"]},
         headers=_hdr("tok-creator"),
     )
     assert response.status_code == 200
@@ -680,7 +680,7 @@ def test_listing_tags_survive_every_marketplace_view(
 
     detail = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
     assert detail["domain_tags"] == ["math", "coding"]
-    assert detail["size_tag"] == "3b-7b"
+    assert detail["size_tag"] is None
 
     seller = client.get("/v1/seller/listings", headers=_hdr("tok-creator")).json()
     assert seller["listings"][0]["domain_tags"] == ["math", "coding"]
@@ -688,14 +688,13 @@ def test_listing_tags_survive_every_marketplace_view(
     _make_public(deps, listing_id)
     public = client.get("/v1/listings").json()["listings"][0]
     assert public["domain_tags"] == ["math", "coding"]
-    assert public["size_tag"] == "3b-7b"
+    assert public["size_tag"] is None
 
 
 @pytest.mark.parametrize(
     "payload",
     [
         {"domain_tags": ["not-a-domain"]},
-        {"size_tag": "enormous"},
     ],
 )
 def test_listing_rejects_unsupported_tags(

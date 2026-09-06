@@ -128,6 +128,11 @@ class ServingProfile(BaseModel):
     chat_template_source: Literal["tokenizer_config", "override", "none"] | None = None
     chat_template_sha256: str | None = None
     resource_class: str | None = Field(default=None, description="e.g. A10G, A100-40GB:2")
+    parameter_count: int | None = Field(
+        default=None,
+        ge=0,
+        description="Number of parameters derived from checkpoint tensor shapes.",
+    )
     head_dim: int | None = Field(
         default=None,
         description="Attention width per head. Below 16 no serving kernel will "

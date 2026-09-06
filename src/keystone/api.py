@@ -334,7 +334,6 @@ def create_app(deps: Deps) -> FastAPI:
             row.description = body.description
             row.image_digest = body.image_digest
             row.domain_tags = body.domain_tags
-            row.size_tag = body.size_tag
             s.commit()
         return {"listing_id": listing_id, "state": ListingState.DRAFT.value}
 
@@ -452,8 +451,6 @@ def create_app(deps: Deps) -> FastAPI:
                 row.image_digest = body.image_digest
             if body.domain_tags is not None:
                 row.domain_tags = body.domain_tags
-            if body.size_tag is not None:
-                row.size_tag = body.size_tag
             s.commit()
             return {
                 "listing_id": row.id,
@@ -1017,18 +1014,11 @@ class CreateListing(BaseModel):
     price_minor: int = Field(default=0, ge=0)
     currency: str = "USDC"
     domain_tags: list[str] = Field(default_factory=list, max_length=10)
-    size_tag: str | None = None
 
     @field_validator("domain_tags")
     @classmethod
     def validate_domain_tags(cls, value: list[str]) -> list[str]:
         return normalise_domain_tags(value)
-
-    @field_validator("size_tag")
-    @classmethod
-    def validate_size_tag(cls, value: str | None) -> str | None:
-        return normalise_size_tag(value)
-
 
 class UpdateListing(BaseModel):
     """Every field optional: a reprice should not require restating the title."""
@@ -1039,18 +1029,11 @@ class UpdateListing(BaseModel):
     description: str | None = Field(default=None, max_length=DESCRIPTION_LIMIT)
     image_digest: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     domain_tags: list[str] | None = Field(default=None, max_length=10)
-    size_tag: str | None = None
 
     @field_validator("domain_tags")
     @classmethod
     def validate_domain_tags(cls, value: list[str] | None) -> list[str] | None:
         return None if value is None else normalise_domain_tags(value)
-
-    @field_validator("size_tag")
-    @classmethod
-    def validate_size_tag(cls, value: str | None) -> str | None:
-        return normalise_size_tag(value)
-
 
 class ConfirmPayment(BaseModel):
     charge_id: str

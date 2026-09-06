@@ -50,6 +50,24 @@ def normalise_size_tag(value: str | None) -> str | None:
     return value
 
 
+def model_size_tag(parameter_count: int | None) -> str | None:
+    """Map a system-derived parameter count to the marketplace size facet."""
+    if parameter_count is None or parameter_count < 0:
+        return None
+    boundaries = (
+        (1_000_000_000, "under-1b"),
+        (3_000_000_000, "1b-3b"),
+        (7_000_000_000, "3b-7b"),
+        (13_000_000_000, "7b-13b"),
+        (34_000_000_000, "13b-34b"),
+        (70_000_000_000, "34b-70b"),
+    )
+    for upper_bound, tag in boundaries:
+        if parameter_count < upper_bound:
+            return tag
+    return "70b-plus"
+
+
 def catalogue() -> dict[str, list[dict[str, str]]]:
     return {
         "domains": [{"id": key, "label": label} for key, label in DOMAIN_TAGS.items()],
@@ -63,6 +81,7 @@ __all__ = [
     "DOMAIN_TAGS",
     "MODEL_SIZE_TAGS",
     "catalogue",
+    "model_size_tag",
     "normalise_domain_tags",
     "normalise_size_tag",
 ]

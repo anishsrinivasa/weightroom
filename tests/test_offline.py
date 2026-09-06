@@ -15,7 +15,7 @@ import pytest
 
 from keystone.pipeline import grade as _grade
 from keystone.ingest import build_subject, hash_tree, manifest_digest
-from keystone.profile import build_profile, detect_modality, pick_resource_class
+from keystone.profile import build_profile, detect_modality, parameter_count, pick_resource_class
 from keystone.registry import discover, select
 from keystone.scan import run_all
 from keystone.schema import (
@@ -123,6 +123,22 @@ def test_profile_records_chat_template(text_model: Path) -> None:
     assert caps.vision is False
     assert profile.processor is None  # SEAM 3 stays null for text
     assert mods == [Modality.TEXT]
+
+
+def test_parameter_count_comes_from_safetensors_shapes(tmp_path: Path) -> None:
+    tensors = {
+        "embed.weight": {"dtype": "F16", "shape": [10, 4], "data_offsets": [0, 80]},
+        "head.weight": {"dtype": "F16", "shape": [4, 10], "data_offsets": [80, 160]},
+        "__metadata__": {"format": "pt"},
+    }
+    encoded = json.dumps(tensors).encode()
+    (tmp_path / "model.safetensors").write_bytes(
+        len(encoded).to_bytes(8, "little") + encoded + bytes(160)
+    )
+
+    assert parameter_count(tmp_path) == 80
+    profile, _, _ = build_profile(tmp_path, 160)
+    assert profile.parameter_count == 80
 
 
 def test_absurd_context_length_is_rejected(tmp_path: Path) -> None:

@@ -35,6 +35,7 @@ from keystone.schema import (
     SourceKind,
     Status,
     Subject,
+    ServingProfile,
     SuiteResult,
 )
 from keystone.storage import LocalStore, artifact_key
@@ -81,6 +82,7 @@ def _report(digest: str) -> CertificationReport:
             total_bytes=0,
         ),
         environment=Environment(sandboxed=True),
+        serving_profile=ServingProfile(parameter_count=3_500_000_000),
         suite_results=[
             SuiteResult(
                 suite_id="harm_gate",
@@ -186,6 +188,7 @@ def test_listing_detail_reports_owner_and_buyer_entitlement(
     owner = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
     assert owner["is_owner"] is True
     assert owner["entitled"] is True
+    assert owner["size_tag"] == "3b-7b"
 
     buyer = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-buyer")).json()
     assert buyer["is_owner"] is False

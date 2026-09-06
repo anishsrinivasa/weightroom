@@ -175,6 +175,9 @@ tbody tr:hover { background: var(--wash); }
 .tag-picker label { min-height: 38px; display: inline-flex; align-items: center; border: 1px solid var(--line); padding: 7px 11px; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
 .tag-picker label[data-selected="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 .tag-picker input { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; clip: rect(0, 0, 0, 0); overflow: hidden; }
+.derived-field { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 3px 18px; margin-top: 24px; border-block: 1px solid var(--line); padding: 15px 0; }
+.derived-field .field-label { grid-row: 1 / 3; align-self: start; padding-top: 2px; }
+.derived-field strong { font-weight: 620; }
 
 .form-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 20px; margin-top: 28px; }
 .form-grid label > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: 0.11em; text-transform: uppercase; }
