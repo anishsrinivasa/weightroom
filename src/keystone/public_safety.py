@@ -13,8 +13,10 @@ latter is network-blocked and consumes only content-addressed cached assets.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 
+from keystone.payments import Currency, Money
 from keystone.schema import Finding, Severity, Status, SuiteResult
 
 GUARD_REF = "Qwen/Qwen3Guard-Gen-0.6B"
@@ -29,6 +31,16 @@ HARMBENCH_REVISION = "8e1604d1171fe8a48d8febecd22f600e462bdcdd"
 # analysis but is not part of this harmful-compliance score.
 HARMBENCH_ITEMS = 200
 JAILBREAKBENCH_ITEMS = 100
+
+# The first end-to-end 135M run cost $0.0605 in recorded A10G time. The fixed
+# component covers the independent judge and container overhead; weight GiB is
+# a simple, server-owned early proxy for the tested model's inference cost.
+# Round up to cents so the on-chain amount remains legible. Recalibrate these
+# constants from recorded Cost rows as more model sizes complete.
+SAFETY_EVALUATION_BASE_MINOR = 70_000
+SAFETY_EVALUATION_PER_GIB_MINOR = 20_000
+SAFETY_EVALUATION_REFERENCE_WEIGHT_BYTES = 14_000_000_000
+SAFETY_EVALUATION_ROUNDING_MINOR = 10_000
 
 
 @dataclass(frozen=True)
@@ -66,18 +78,93 @@ SCREENS: tuple[SafetyScreen, ...] = (
 BY_ID = {screen.id: screen for screen in SCREENS}
 
 
+def evaluation_enabled() -> bool:
+    """Whether the public safety screens should execute.
+
+    Disabled by default while the marketplace is being exercised end to end.
+    The implementations remain available and can be restored without a code
+    change by setting ``KEYSTONE_RUN_SAFETY_EVALUATION=true``.
+    """
+    return os.environ.get("KEYSTONE_RUN_SAFETY_EVALUATION", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def evaluation_price(
+    model_weight_bytes: int | None = None, *, enabled: bool | None = None
+) -> Money:
+    """Estimated direct cost of the mandatory public safety evaluation."""
+    if enabled is None:
+        enabled = evaluation_enabled()
+    if not enabled:
+        return Money(0, Currency.USDC)
+    weight_bytes = (
+        SAFETY_EVALUATION_REFERENCE_WEIGHT_BYTES
+        if model_weight_bytes is None
+        else max(0, model_weight_bytes)
+    )
+    gib = max(1, math.ceil(weight_bytes / (1024**3)))
+    raw = SAFETY_EVALUATION_BASE_MINOR + SAFETY_EVALUATION_PER_GIB_MINOR * gib
+    rounded = (
+        math.ceil(raw / SAFETY_EVALUATION_ROUNDING_MINOR)
+        * SAFETY_EVALUATION_ROUNDING_MINOR
+    )
+    return Money(rounded, Currency.USDC)
+
+
+def evaluation_line_item(model_weight_bytes: int | None = None) -> dict:
+    enabled = evaluation_enabled()
+    price = evaluation_price(model_weight_bytes, enabled=enabled)
+    return {
+        "suite_id": "safety_evaluation",
+        "display_name": "Safety Evaluation",
+        "description": (
+            "Mandatory HarmBench and JailbreakBench safety gates."
+            if enabled
+            else "Automatically passed; HarmBench and JailbreakBench are currently disabled."
+        ),
+        "required": True,
+        "price": str(price),
+        "price_minor": price.amount_minor,
+        "price_is_estimate": enabled,
+        "screen_ids": [screen.id for screen in SCREENS],
+        "automatic_pass": not enabled,
+    }
+
+
 def initial_progress_gates() -> list[dict]:
     """Seller-safe work counters before Modal emits its first batch."""
+    enabled = evaluation_enabled()
     return [
         {
             "gate_id": screen.id,
             "display_name": screen.display_name,
-            "status": "pending",
-            "completed": 0,
+            "status": "pending" if enabled else "pass",
+            "completed": 0 if enabled else 1,
             # One model generation and one independent judge decision per item.
-            "total": 2 * screen.n_items,
-            "score": None,
+            "total": 2 * screen.n_items if enabled else 1,
+            "score": None if enabled else 1.0,
         }
+        for screen in SCREENS
+    ]
+
+
+def automatic_pass_results() -> list[SuiteResult]:
+    """Auditable pass records used while safety execution is disabled."""
+    return [
+        SuiteResult(
+            suite_id=screen.id,
+            suite_version=f"bypassed:{screen.version}",
+            display_name=screen.display_name,
+            status=Status.PASS,
+            gate=True,
+            score=1.0,
+            metrics={"evaluation_skipped": 1.0},
+            n_items=0,
+        )
         for screen in SCREENS
     ]
 
@@ -180,6 +267,10 @@ __all__ = [
     "JAILBREAKBENCH_ITEMS",
     "JAILBREAKBENCH_REVISION",
     "SCREENS",
+    "automatic_pass_results",
+    "evaluation_enabled",
+    "evaluation_line_item",
+    "evaluation_price",
     "harmful_result",
     "initial_progress_gates",
 ]

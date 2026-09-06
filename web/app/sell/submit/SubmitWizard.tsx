@@ -15,15 +15,20 @@ import {
   imageStoredSchema,
   listingCreatedSchema,
   quoteSchema,
+  sampleModelManifestSchema,
+  tagCatalogueSchema,
   type Benchmark,
   type Charge,
+  type SafetyEvaluation,
   type SelectedFile,
 } from "@/lib/contracts";
 import {
   BROWSER_FILE_LIMIT,
   formatBytes,
+  formatParameterCount,
   manifestDigest,
   normalizedRelativePath,
+  safetensorsTensorSizes,
   sha256Hex,
 } from "@/lib/artifact";
 import { formatUsdc } from "@/lib/display";
@@ -36,6 +41,7 @@ const COVER_LIMIT_MB = 4;
 const COVER_LIMIT_BYTES = COVER_LIMIT_MB * 1024 * 1024;
 const DESCRIPTION_LIMIT = 4000;
 const DEFAULT_COVER = "/logo.png";
+const WEIGHT_EXTENSIONS = [".safetensors", ".bin", ".pt", ".pth", ".gguf", ".ckpt"];
 const wizardSteps = [
   { number: 1, label: "Upload" },
   { number: 2, label: "Evaluate" },
@@ -48,13 +54,18 @@ export function SubmitWizard() {
   const [title, setTitle] = useState("My fine-tune");
   const [price, setPrice] = useState("45");
   const [description, setDescription] = useState("");
+  const [domainTags, setDomainTags] = useState<Set<string>>(new Set());
+  const [domainOptions, setDomainOptions] = useState<{ id: string; label: string }[]>([]);
   const [cover, setCover] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [picked, setPicked] = useState<SelectedFile[]>([]);
   const [digest, setDigest] = useState<string | null>(null);
+  const [parameterCount, setParameterCount] = useState<number | null>(null);
+  const [parameterCountKnown, setParameterCountKnown] = useState(false);
   const [hashing, setHashing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
+  const [safetyEvaluation, setSafetyEvaluation] = useState<SafetyEvaluation | null>(null);
   const [benchmarksLoading, setBenchmarksLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
@@ -73,24 +84,41 @@ export function SubmitWizard() {
   const confirmationStarted = useRef(false);
   const chargeId = charge?.charge_id;
   const chargeSettled = charge?.settled;
+  const modelWeightBytes = useMemo(() => {
+    const weightBytes = picked
+      .filter((file) => WEIGHT_EXTENSIONS.some((extension) => file.path.toLowerCase().endsWith(extension)))
+      .reduce((total, file) => total + file.size_bytes, 0);
+    return weightBytes || picked.reduce((total, file) => total + file.size_bytes, 0);
+  }, [picked]);
 
   useEffect(() => {
-    // No flag gates this. Whether the sample exists is the gate: it is absent
-    // in a deployed build, and the fetch simply fails there.
-    void loadSampleFiles().catch(() => {
-      // Not an error worth interrupting for -- the picker still works, and the
-      // button reports the reason if pressed deliberately.
-    });
-    // Runs once: choosing real files replaces this selection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // No flag gates this. The prepared manifest is absent in deployed builds.
+    // Probe only the small manifest here; never fetch model weights on mount.
+    void fetch("/sample-model/files.json", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const parsed = sampleModelManifestSchema.safeParse(await response.json());
+        setSampleAvailable(parsed.success);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    void keystoneRequest("/v1/benchmarks", benchmarksSchema)
-      .then((data) => setBenchmarks(data.benchmarks))
+    void keystoneRequest("/v1/tags", tagCatalogueSchema)
+      .then((tagData) => setDomainOptions(tagData.domains))
+      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load model domains"));
+  }, []);
+
+  useEffect(() => {
+    const query = modelWeightBytes ? `?model_weight_bytes=${modelWeightBytes}` : "";
+    void keystoneRequest(`/v1/benchmarks${query}`, benchmarksSchema)
+      .then((benchmarkData) => {
+        setBenchmarks(benchmarkData.benchmarks);
+        setSafetyEvaluation(benchmarkData.safety_evaluation);
+      })
       .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load benchmarks"))
       .finally(() => setBenchmarksLoading(false));
-  }, []);
+  }, [modelWeightBytes]);
 
   useEffect(() => {
     if (step !== 3 || !chargeId || chargeSettled) return;
@@ -131,10 +159,11 @@ export function SubmitWizard() {
   }, [charge, listingId]);
 
   const evaluationTotal = useMemo(() => {
-    return benchmarks
-      .filter((benchmark) => benchmark.mandatory || selected.has(benchmark.suite_id))
+    const capabilityTotal = benchmarks
+      .filter((benchmark) => selected.has(benchmark.suite_id))
       .reduce((total, benchmark) => total + benchmark.price_minor, 0);
-  }, [benchmarks, selected]);
+    return (safetyEvaluation?.price_minor ?? 0) + capabilityTotal;
+  }, [benchmarks, safetyEvaluation, selected]);
 
   const billed = useMemo(
     () => benchmarks.filter((benchmark) => running.includes(benchmark.suite_id)),
@@ -159,18 +188,38 @@ export function SubmitWizard() {
     setHashing(true);
     setPicked([]);
     setDigest(null);
+    setParameterCount(null);
+    setParameterCountKnown(false);
     try {
       const entries: SelectedFile[] = [];
+      const tensorSizes = new Map<string, number>();
+      let safetensorsFound = false;
+      let safetensorsValid = true;
       for (const file of files) {
+        const data = await file.arrayBuffer();
         entries.push({
           path: normalizedRelativePath(file),
           size_bytes: file.size,
-          sha256: await sha256Hex(await file.arrayBuffer()),
+          sha256: await sha256Hex(data),
           blob: file,
         });
+        if (file.name.toLowerCase().endsWith(".safetensors")) {
+          safetensorsFound = true;
+          try {
+            for (const [name, size] of safetensorsTensorSizes(data)) {
+              if (!tensorSizes.has(name)) tensorSizes.set(name, size);
+            }
+          } catch {
+            safetensorsValid = false;
+          }
+        }
       }
       setPicked(entries);
       setDigest(await manifestDigest(entries));
+      if (safetensorsFound && safetensorsValid && tensorSizes.size) {
+        setParameterCount([...tensorSizes.values()].reduce((total, size) => total + size, 0));
+        setParameterCountKnown(true);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not hash the selected files");
     } finally {
@@ -189,28 +238,34 @@ export function SubmitWizard() {
     void takeFiles(event.dataTransfer.files);
   }
 
-  // A real checkpoint rather than synthesised bytes: tiny-random Llama, ~6 MB,
-  // with a genuine config, tokenizer and safetensors. Synthetic files would
-  // exercise the hashing but skip everything downstream that reads the model
-  // -- architecture detection, chat template, lineage, the scanners.
+  // The installer has already hashed and staged this real checkpoint in the
+  // local artifact store. Loading the small manifest here avoids routing a
+  // multi-gigabyte model through browser memory merely to select it.
   async function loadSampleFiles() {
     const manifest = await fetch("/sample-model/files.json", { cache: "no-store" });
     if (!manifest.ok) throw new Error("Sample model is not installed.");
-    const { files } = (await manifest.json()) as { files: string[] };
+    const parsed = sampleModelManifestSchema.safeParse(await manifest.json());
+    if (!parsed.success) throw new Error("Sample model manifest is invalid. Run `keystone sample-model` again.");
+    const sample = parsed.data;
     setSampleAvailable(true);
-
-    const loaded = await Promise.all(
-      files.map(async (path) => {
-        const response = await fetch(`/sample-model/${path}`, { cache: "no-store" });
-        if (!response.ok) throw new Error(`Sample model file missing: ${path}`);
-        return new File([await response.blob()], path);
-      }),
-    );
-    await takeFiles(loaded);
+    setError(null);
+    setHashing(false);
+    setPicked(sample.files);
+    setDigest(sample.digest);
+    setParameterCount(sample.parameter_count);
+    setParameterCountKnown(sample.parameter_count !== null);
   }
 
   function toggleBenchmark(id: string) {
     setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleDomainTag(id: string) {
+    setDomainTags((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
@@ -259,7 +314,9 @@ export function SubmitWizard() {
 
         for (const [path, url] of Object.entries(declaration.upload_urls)) {
           const selectedFile = picked.find((file) => file.path === path);
-          if (!selectedFile) throw new Error(`Upload manifest lost ${path}`);
+          if (!selectedFile?.blob) {
+            throw new Error("Sample model is not staged in the local artifact store. Run `keystone sample-model` again.");
+          }
           const upload = await fetch(clientUploadUrl(url), {
             method: "PUT",
             body: selectedFile.blob,
@@ -296,6 +353,7 @@ export function SubmitWizard() {
               description: description.trim() || null,
               image_digest: imageDigest,
               price_minor: Math.round(numericPrice * 1_000_000),
+              domain_tags: Array.from(domainTags),
             }),
           },
         );
@@ -312,9 +370,9 @@ export function SubmitWizard() {
         );
         currentChargeId = quote.charge_id;
         setPendingChargeId(currentChargeId);
-        // What the server priced, not what the checkboxes said -- mandatory
-        // suites are folded in server-side, so this is the honest line-up.
+        // Use the server's normalized selection as the final billed line-up.
         setRunning(quote.running);
+        setSafetyEvaluation(quote.safety_evaluation);
       }
       const currentCharge = await keystoneRequest(
         `/v1/charges/${encodeURIComponent(currentChargeId)}`,
@@ -354,7 +412,8 @@ export function SubmitWizard() {
 
   return (
     <div className="wizard">
-      <h1 className="sr-only">Bring your model to market</h1>
+      <Link className="back-link" href="/sell/models">← Back to My models</Link>
+      <h1 className="sr-only">Create a model</h1>
       <ol className="stepper" aria-label="Submission progress">
         {wizardSteps.map(({ number, label }) => (
           <li key={number} data-state={number < step ? "done" : number === step ? "current" : "upcoming"} aria-current={number === step ? "step" : undefined}>
@@ -367,8 +426,7 @@ export function SubmitWizard() {
 
       {step === 1 ? (
         <section aria-labelledby="upload-title">
-          <h2 id="upload-title">Upload open weights</h2>
-          <p className="section-copy">Select a model folder or individual files. Files are hashed locally before upload.</p>
+          <h2 id="upload-title">Upload weights</h2>
           <div className="form-grid">
             <label><span>Model name</span><input value={title} onChange={(event) => setTitle(event.target.value)} autoComplete="off" /></label>
             <label><span>Sale price (USDC)</span><input type="number" min="0" step="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label>
@@ -380,7 +438,7 @@ export function SubmitWizard() {
             </div>
             <div className="cover-controls">
               <span className="field-label">Cover image</span>
-              <p className="field-hint">Shown on your model page. PNG, JPEG, GIF, or WebP up to {COVER_LIMIT_MB} MB. Leave it empty to use the Weightroom mark.</p>
+              <p className="field-hint">PNG, JPEG, GIF, or WebP up to {COVER_LIMIT_MB} MB</p>
               <div className="button-row">
                 <button className="button" type="button" onClick={() => coverInput.current?.click()}>
                   {coverPreview ? "Replace image" : "Choose image"}
@@ -407,6 +465,21 @@ export function SubmitWizard() {
             />
             <small className="field-hint">{description.length} / {DESCRIPTION_LIMIT}</small>
           </label>
+          <fieldset className="tag-fieldset">
+            <legend className="sr-only">Tags</legend>
+            <div className="tag-picker">
+              {domainOptions.map((tag) => (
+                <label key={tag.id} data-selected={domainTags.has(tag.id)}>
+                  <input
+                    type="checkbox"
+                    checked={domainTags.has(tag.id)}
+                    onChange={() => toggleDomainTag(tag.id)}
+                  />
+                  <span>{tag.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <div
             className={`drop-zone ${dragging ? "dragging" : ""}`}
             onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -414,9 +487,22 @@ export function SubmitWizard() {
             onDragLeave={() => setDragging(false)}
             onDrop={dropped}
           >
-            <strong>Drop your model folder here</strong>
-            <p>config.json, tokenizer files, and safetensors</p>
-            <div className="button-row">
+            <div className="drop-zone-summary">
+              {picked.length && !hashing ? (
+                <>
+                  <span className="field-label">Model size</span>
+                  <strong>{parameterCountKnown && parameterCount != null
+                    ? `${formatParameterCount(parameterCount)} parameters`
+                    : "Parameter count unavailable locally"}</strong>
+                </>
+              ) : (
+                <>
+                  <strong>{hashing ? "Reading model files…" : "Drop your model folder here"}</strong>
+                  <p>config.json, tokenizer files, and safetensors</p>
+                </>
+              )}
+            </div>
+            <div className="button-row upload-actions">
               <button className="button primary" type="button" onClick={() => directoryInput.current?.click()}>Choose folder</button>
               <button className="button" type="button" onClick={() => fileInput.current?.click()}>Choose files</button>
               {sampleAvailable ? <button className="button quiet" type="button" onClick={() => {
@@ -436,26 +522,49 @@ export function SubmitWizard() {
                 </tbody></table>
             </div>
           ) : null}
-          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing} onClick={() => setStep(2)}>Continue to evaluations →</button></div>
+          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing} onClick={() => { setError(null); setStep(2); }}>Continue to evaluations →</button></div>
         </section>
       ) : null}
 
       {step === 2 ? (
         <section aria-labelledby="evaluation-title">
-          <h2 id="evaluation-title">Choose public benchmarks</h2>
-          <p className="section-copy">Choose the capability evidence buyers should see. Safety screening runs separately and cannot be opted out.</p>
+          <h2 id="evaluation-title">Choose benchmarks</h2>
           {benchmarksLoading ? <LoadingBlock label="Loading supported benchmarks…" /> : (
             <div className="benchmark-options">
+              <label className="required-evaluation">
+                <input type="checkbox" checked disabled readOnly />
+                <span><strong>Safety Evaluation</strong></span>
+                <b>{safetyEvaluation?.automatic_pass
+                  ? "No charge"
+                  : safetyEvaluation ? `≈ ${formatUsdc(safetyEvaluation.price_minor)}` : "Required"}</b>
+              </label>
               {benchmarks.map((benchmark) => (
                 <label key={benchmark.suite_id}>
-                  <input type="checkbox" checked={benchmark.mandatory || selected.has(benchmark.suite_id)} disabled={benchmark.mandatory} onChange={() => toggleBenchmark(benchmark.suite_id)} />
-                  <span><strong>{benchmark.display_name}</strong>{benchmark.mandatory ? <em>Required</em> : null}<small>{benchmark.description}</small></span>
-                  <b>{benchmark.price}</b>
+                  <input type="checkbox" checked={selected.has(benchmark.suite_id)} onChange={() => toggleBenchmark(benchmark.suite_id)} />
+                  <span className="benchmark-option-copy">
+                    <span className="benchmark-option-heading">
+                      <strong>{benchmark.display_name}</strong>
+                      {benchmark.source_url ? (
+                        <a
+                          aria-label={`View ${benchmark.display_name} benchmark source`}
+                          className="benchmark-source-link"
+                          href={benchmark.source_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          ↗
+                        </a>
+                      ) : null}
+                    </span>
+                    <small>{benchmark.description}</small>
+                  </span>
+                  <b>{benchmark.price_is_estimate ? "≈ " : ""}{formatUsdc(benchmark.price_minor)}</b>
                 </label>
               ))}
             </div>
           )}
-          <div className="total-row"><span>Evaluation fee</span><strong>{formatUsdc(evaluationTotal)}</strong></div>
+          <div className="total-row"><span>Estimated evaluation cost</span><strong>≈ {evaluationTotal === 0 ? "0" : formatUsdc(evaluationTotal)}</strong></div>
           <div className="button-row actions">
             <button className="button" type="button" onClick={() => setStep(1)}>← Back</button>
             <button className="button primary" type="button" disabled={submitting || benchmarksLoading} onClick={() => void preparePayment()}>{submitting ? "Preparing secure upload…" : "Continue to payment →"}</button>
@@ -478,10 +587,14 @@ export function SubmitWizard() {
             <div className="payment-progress" role="progressbar" aria-valuemin={0} aria-valuemax={charge.required_confirmations} aria-valuenow={charge.confirmations}>
               <span style={{ width: `${Math.min(100, charge.confirmations / charge.required_confirmations * 100)}%` }} />
             </div>
-            {billed.length ? (
+            {safetyEvaluation ? (
               <div className="payment-breakdown">
                 <span className="breakdown-label">Covers</span>
                 <ul>
+                  <li>
+                    <span>{safetyEvaluation.display_name}</span>
+                    <b>{safetyEvaluation.price}</b>
+                  </li>
                   {billed.map((benchmark) => (
                     <li key={benchmark.suite_id}>
                       <span>{benchmark.display_name}</span>
@@ -489,6 +602,10 @@ export function SubmitWizard() {
                     </li>
                   ))}
                 </ul>
+                <div className="payment-total">
+                  <span>Total cost</span>
+                  <strong>{charge.amount}</strong>
+                </div>
               </div>
             ) : null}
             <p className="payment-note">The server reads settlement from the payment provider. Browser claims are never accepted as payment evidence.</p>
@@ -505,8 +622,8 @@ export function SubmitWizard() {
           <h2 id="complete-title">Submitted for verification</h2>
           <p>Payment settled and the model is queued. Safety gates and selected benchmarks appear only in your seller record.</p>
           <div className="button-row">
-            <Link className="button primary" href={`/models/${listingId}`}>View model status</Link>
-            <Link className="button" href="/submit">Start another submission</Link>
+            <Link className="button primary" href={`/sell/models/${listingId}`}>View model status</Link>
+            <Link className="button" href="/sell/submit">Start another submission</Link>
           </div>
         </section>
       ) : null}

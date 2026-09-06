@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 from keystone.schema import Capabilities, Modality, ServingProfile
 
-# Rough VRAM headroom over raw weight bytes (KV cache + activations).
-_VRAM_HEADROOM = 1.35
+# Rough VRAM headroom over raw weight bytes (KV cache, activations, CUDA graphs,
+# and engine overhead). 1.35 put a 15 GiB Llama-3 checkpoint on a 22 GiB A10G,
+# where vLLM could load the weights but could not allocate an 8K-token KV cache.
+_VRAM_HEADROOM = 1.50
 
 # (usable_gpu_bytes, modal_gpu_spec)
 _RESOURCE_LADDER: list[tuple[int, str]] = [
@@ -63,6 +66,43 @@ def weight_bytes(root: Path) -> int:
         for p in root.rglob("*")
         if p.is_file() and p.suffix.lower() in _WEIGHT_SUFFIXES
     )
+
+
+def parameter_count(root: Path) -> int | None:
+    """Count checkpoint parameters from safetensors headers without loading weights.
+
+    Tensor shapes are authoritative and independent of dtype or quantization.
+    Malformed files are left for the scanner to reject; this metadata pass
+    simply reports unknown instead of guessing from byte size.
+    """
+    total = 0
+    seen: set[str] = set()
+    found = False
+    try:
+        for path in sorted(root.rglob("*.safetensors")):
+            with path.open("rb") as handle:
+                header_size = int.from_bytes(handle.read(8), "little")
+                if header_size <= 0 or header_size > 100 * 1024 * 1024:
+                    return None
+                header = json.loads(handle.read(header_size))
+            for name, tensor in header.items():
+                if name == "__metadata__" or name in seen:
+                    continue
+                shape = tensor.get("shape") if isinstance(tensor, dict) else None
+                if not isinstance(shape, list) or not all(
+                    isinstance(dimension, int) and dimension >= 0 for dimension in shape
+                ):
+                    return None
+                total += math.prod(shape)
+                seen.add(name)
+                found = True
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+
+    if found:
+        return total
+
+    return None
 
 
 def detect_modality(config: dict) -> list[Modality]:
@@ -117,6 +157,7 @@ def build_profile(
             hashlib.sha256(template.encode()).hexdigest() if template else None
         ),
         resource_class=pick_resource_class(total_weight_bytes),
+        parameter_count=parameter_count(local),
         head_dim=head_dimension(config),
         processor=None,  # SEAM 3: populated for VLMs
     )

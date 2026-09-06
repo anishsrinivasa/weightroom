@@ -264,6 +264,7 @@ def test_cannot_list_without_certifying() -> None:
 def test_listed_can_be_pulled_by_recertification() -> None:
     assert can_transition(ListingState.LISTED, ListingState.PENDING_CERTIFICATION)
     assert can_transition(ListingState.LISTED, ListingState.DELISTED)
+    assert can_transition(ListingState.LISTED, ListingState.CERTIFIED)
 
 
 def test_withdrawn_is_terminal() -> None:

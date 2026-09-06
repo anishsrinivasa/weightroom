@@ -117,7 +117,14 @@ def _report(grade="B", held_out_score=0.88, report_id=None) -> CertificationRepo
                 n_items=200,
                 categories=["harmful_content_refusal"],
                 remediation="public/harm_practice_v1",
-            )
+            ),
+            SuiteResult(
+                suite_id="mmlu_pro",
+                suite_version="1",
+                status=Status.PASS,
+                score=0.72,
+                n_items=100,
+            ),
         ],
         cost=Cost(gpu_seconds=81.0, usd_estimate=0.0248),
         rating=Rating(grade=grade, certified=grade not in ("F", "unrated"), as_tested_at=NOW),
@@ -214,7 +221,16 @@ def test_live_evaluation_progress_is_seller_only(client: TestClient, deps: Deps)
                     "completed": 168,
                     "total": 400,
                     "score": None,
-                }
+                },
+                {
+                    "gate_id": "math_500",
+                    "display_name": "MATH-500",
+                    "kind": "benchmark",
+                    "status": "running",
+                    "completed": 37,
+                    "total": 100,
+                    "score": None,
+                },
             ],
         )
         s.commit()
@@ -224,6 +240,15 @@ def test_live_evaluation_progress_is_seller_only(client: TestClient, deps: Deps)
     ).json()
     assert creator["evaluation_progress"]["percent"] == 42
     assert creator["evaluation_progress"]["gates"][0]["completed"] == 168
+    assert creator["evaluation_progress"]["gates"][1] == {
+        "gate_id": "math_500",
+        "display_name": "MATH-500",
+        "kind": "benchmark",
+        "status": "running",
+        "completed": 37,
+        "total": 100,
+        "score": None,
+    }
     assert client.get(
         f"/v1/listings/{listing_id}", headers=_hdr("tok-other")
     ).status_code == 404
@@ -311,7 +336,9 @@ def test_safety_gate_is_seller_only(client: TestClient, deps: Deps) -> None:
     assert creator["report"]["suite_results"][0]["categories"] == ["harmful_content_refusal"]
     assert "safety_gates" in creator
     assert "safety_gates" not in buyer
-    assert buyer["report"]["suite_results"] == []
+    assert [result["suite_id"] for result in buyer["report"]["suite_results"]] == [
+        "mmlu_pro"
+    ]
 
 
 def test_seller_workspace_is_scoped_to_authenticated_creator(
@@ -417,12 +444,13 @@ def test_finalize_refuses_missing_bytes(client: TestClient) -> None:
 
 def test_publish_returns_a_charge(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
-    r = client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": []},
+    r = client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": ["mmlu_pro"]},
                        headers=_hdr("tok-creator")).json()
-    # Both mandatory items -- nothing optional was selected.
-    assert r["amount"] == "25.000000 USDC"
-    assert set(r["running"]) == {"stub_safety", "stub_capability"}
-    assert set(r["declined"]) == {"stub_reasoning"}
+    assert r["amount"] == "0.020000 USDC"
+    assert set(r["running"]) == {"mmlu_pro"}
+    assert set(r["declined"]) == {
+        "swe_bench_verified", "gdpval", "harvey_lab", "math_500"
+    }
     assert r["chain"] == "base" and r["address"]
 
 
@@ -439,7 +467,7 @@ def test_confirm_refuses_an_unsettled_charge(client: TestClient, deps: Deps) -> 
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
@@ -455,7 +483,7 @@ def test_confirm_queues_after_settlement(client: TestClient, deps: Deps) -> None
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
@@ -474,7 +502,7 @@ def test_client_claiming_payment_is_not_evidence(client: TestClient, deps: Deps)
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
 
@@ -495,7 +523,7 @@ def _queue(client: TestClient, deps: Deps) -> str:
     listing_id = _upload_and_list(client, deps)
     charge_id = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
     deps.payments.settle(charge_id)
@@ -519,12 +547,78 @@ def test_worker_rejects_a_failing_model(client: TestClient, deps: Deps) -> None:
     assert results == [(listing_id, ListingState.REJECTED)]
 
 
-def test_worker_rejects_when_serving_fails(client: TestClient, deps: Deps) -> None:
-    """A model that will not load is a rejection, not a crashed worker."""
+def test_worker_rejects_when_selected_benchmark_is_missing(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _queue(client, deps)
+    report = _report("B")
+    report.suite_results = [
+        result for result in report.suite_results if result.suite_id != "mmlu_pro"
+    ]
+
+    results = process_pending(
+        deps.store,
+        certify=lambda digest, only=None: Outcome(digest, report=report),
+    )
+
+    assert results == [(listing_id, ListingState.REJECTED)]
+    with deps.store.session() as session:
+        stored = deps.store.latest_report(session, listing_id)
+        assert stored.rating.certified is False
+        assert any(
+            result.suite_id == "mmlu_pro" and result.status is Status.ERROR
+            for result in stored.suite_results
+        )
+
+
+def test_worker_rejects_when_selected_benchmark_has_no_score(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _queue(client, deps)
+    report = _report("B")
+    benchmark = next(
+        result for result in report.suite_results if result.suite_id == "mmlu_pro"
+    )
+    benchmark.score = None
+
+    results = process_pending(
+        deps.store,
+        certify=lambda digest, only=None: Outcome(digest, report=report),
+    )
+
+    assert results == [(listing_id, ListingState.REJECTED)]
+    with deps.store.session() as session:
+        stored = deps.store.latest_report(session, listing_id)
+        assert stored.rating.certified is False
+        assert "mmlu_pro" in stored.rating.rationale
+
+
+def test_worker_preserves_automatic_safety_pass_when_serving_fails(
+    client: TestClient, deps: Deps
+) -> None:
+    """A later infrastructure error must not rewrite an automatic safety pass."""
     listing_id = _queue(client, deps)
     outcome = Outcome(DIGEST, failure=FailureKind.SERVE_FAIL, detail="vLLM exited")
     results = process_pending(deps.store, certify=lambda d, only=None: outcome)
     assert results == [(listing_id, ListingState.REJECTED)]
+    with deps.store.session() as session:
+        progress = deps.store.get_evaluation_progress(session, listing_id)
+        assert progress.stage == "Evaluation failed"
+        assert all(gate["status"] == "pass" for gate in progress.gates)
+
+
+def test_worker_marks_unfinished_safety_gates_as_errors_when_serving_fails(
+    client: TestClient, deps: Deps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KEYSTONE_RUN_SAFETY_EVALUATION", "true")
+    listing_id = _queue(client, deps)
+    outcome = Outcome(DIGEST, failure=FailureKind.SERVE_FAIL, detail="vLLM exited")
+
+    process_pending(deps.store, certify=lambda d, only=None: outcome)
+
+    with deps.store.session() as session:
+        progress = deps.store.get_evaluation_progress(session, listing_id)
+        assert all(gate["status"] == "error" for gate in progress.gates)
 
 
 def test_worker_claims_job_before_running_certification(
@@ -588,7 +682,7 @@ def test_worker_can_target_one_queued_listing(client: TestClient, deps: Deps) ->
     second = created.json()["listing_id"]
     charge_id = client.post(
         f"/v1/listings/{second}/publish",
-        json={"benchmarks": []},
+        json={"benchmarks": ["mmlu_pro"]},
         headers=_hdr("tok-creator"),
     ).json()["charge_id"]
     deps.payments.settle(charge_id)
@@ -659,12 +753,214 @@ def test_certified_listing_goes_live_and_is_browsable(client: TestClient, deps: 
     assert [x["listing_id"] for x in listed] == [listing_id]
 
 
+def test_tag_catalogue_is_finite_and_shared(client: TestClient) -> None:
+    body = client.get("/v1/tags").json()
+    assert len(body["domains"]) == 10
+    assert {item["id"] for item in body["domains"]} >= {"math", "biology", "coding"}
+    assert {item["id"] for item in body["model_sizes"]} >= {"under-1b", "70b-plus"}
+
+
+def test_listing_tags_survive_every_marketplace_view(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    response = client.patch(
+        f"/v1/listings/{listing_id}",
+        json={"domain_tags": ["coding", "math", "coding"]},
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 200
+    assert response.json()["domain_tags"] == ["math", "coding"]
+
+    detail = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
+    assert detail["domain_tags"] == ["math", "coding"]
+    assert detail["size_tag"] is None
+
+    seller = client.get("/v1/seller/listings", headers=_hdr("tok-creator")).json()
+    assert seller["listings"][0]["domain_tags"] == ["math", "coding"]
+
+    _make_public(deps, listing_id)
+    public = client.get("/v1/listings").json()["listings"][0]
+    assert public["domain_tags"] == ["math", "coding"]
+    assert public["size_tag"] is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"domain_tags": ["not-a-domain"]},
+    ],
+)
+def test_listing_rejects_unsupported_tags(
+    client: TestClient, deps: Deps, payload: dict
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    response = client.patch(
+        f"/v1/listings/{listing_id}", json=payload, headers=_hdr("tok-creator")
+    )
+    assert response.status_code == 422
+
+
+def test_public_catalogue_only_exposes_supported_capability_scores(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    report = _report("A")
+    report.suite_results.extend(
+        [
+            SuiteResult(
+                suite_id="mmlu_pro",
+                suite_version="0.1.0",
+                status=Status.PASS,
+                score=0.91,
+            ),
+            SuiteResult(
+                suite_id="math_500",
+                suite_version="0.1.0",
+                status=Status.SKIPPED,
+                declined=True,
+            ),
+            SuiteResult(
+                suite_id="made_up_benchmark",
+                suite_version="1",
+                status=Status.PASS,
+                score=1.0,
+            ),
+        ]
+    )
+    with deps.store.session() as session:
+        deps.store.put_report(session, report, listing_id=listing_id)
+        session.commit()
+    _make_public(deps, listing_id)
+
+    listing = client.get("/v1/listings").json()["listings"][0]
+    assert "grade" not in listing
+    assert listing["benchmark_scores"] == {"mmlu_pro": 0.91}
+
+    detail = client.get(f"/v1/listings/{listing_id}").json()
+    assert "grade" not in detail
+    assert "grade" not in detail["report"]["rating"]
+
+    seller_listing = client.get(
+        "/v1/seller/listings", headers=_hdr("tok-creator")
+    ).json()["listings"][0]
+    assert "grade" not in seller_listing
+
+
 def test_seller_can_publish_their_verified_model(client: TestClient, deps: Deps) -> None:
     listing_id = _queue(client, deps)
     process_pending(
         deps.store,
         certify=lambda d, only=None: Outcome(d, report=_report("A")),
     )
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 200
+    assert response.json()["state"] == ListingState.LISTED.value
+
+
+def test_seller_can_unlist_and_republish_their_model(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _queue(client, deps)
+    process_pending(
+        deps.store,
+        certify=lambda d, only=None: Outcome(d, report=_report("A")),
+    )
+    client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-creator"),
+    )
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/deactivate",
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "listing_id": listing_id,
+        "state": ListingState.CERTIFIED.value,
+        "published": False,
+    }
+    assert client.get("/v1/listings").json()["listings"] == []
+    assert client.get(f"/v1/listings/{listing_id}").status_code == 404
+
+    republished = client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-creator"),
+    )
+    assert republished.status_code == 200
+    assert republished.json()["state"] == ListingState.LISTED.value
+
+
+def test_seller_cannot_unlist_someone_elses_model(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    _make_public(deps, listing_id)
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/deactivate",
+        headers=_hdr("tok-other"),
+    )
+    assert response.status_code == 403
+
+
+def test_seller_cannot_unlist_a_model_that_is_not_published(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/deactivate",
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 409
+
+
+def test_seller_can_publish_after_both_public_safety_gates_pass(
+    client: TestClient, deps: Deps
+) -> None:
+    from keystone.public_safety import harmful_result
+
+    listing_id = _upload_and_list(client, deps)
+    charge_id = client.post(
+        f"/v1/listings/{listing_id}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
+    ).json()["charge_id"]
+    deps.payments.settle(charge_id)
+    client.post(
+        f"/v1/listings/{listing_id}/confirm",
+        json={"charge_id": charge_id},
+        headers=_hdr("tok-creator"),
+    )
+    report = _report("A")
+
+    def judged(count: int, safe: int) -> list[dict]:
+        return [
+            {
+                "parsed": True,
+                "safety": "Safe" if index < safe else "Unsafe",
+                "refusal": "Yes" if index < safe else "No",
+            }
+            for index in range(count)
+        ]
+
+    report.suite_results = [
+        harmful_result("harmbench", judged(200, 182), duration_s=1.0),
+        harmful_result("jailbreakbench", judged(100, 91), duration_s=1.0),
+    ]
+    report.rating.certified = True
+
+    state = process_pending(
+        deps.store,
+        certify=lambda digest, only=None: Outcome(digest, report=report),
+    )[0][1]
+    assert state is ListingState.CERTIFIED
 
     response = client.post(
         f"/v1/seller/listings/{listing_id}/activate",

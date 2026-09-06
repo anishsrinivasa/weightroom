@@ -8,7 +8,10 @@
 from __future__ import annotations
 
 import json
+import os
 import statistics
+import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -283,6 +286,89 @@ def smoke(
 # --------------------------------------------------------------------------
 
 @app.command()
+def dev(
+    host: str = typer.Option("127.0.0.1"),
+    port: int = typer.Option(8000),
+    worker_interval: int = typer.Option(15, min=1, help="Seconds between queue polls."),
+    worker_limit: int = typer.Option(5, min=1, help="Max listings per worker pass."),
+) -> None:
+    """Run the local API and certification worker as one managed stack.
+
+    Production keeps these as separate services. This command closes the local
+    development footgun where a paid submission could remain queued forever
+    because only the API was started.
+    """
+    import threading
+
+    import uvicorn
+
+    env = os.environ.copy()
+    key_path = Path(".keystone-key")
+    if not env.get("KEYSTONE_SIGNING_KEY"):
+        if key_path.exists():
+            env["KEYSTONE_SIGNING_KEY"] = key_path.read_text().strip()
+        else:
+            from keystone.signing import Ed25519Signer
+
+            key_path.write_text(Ed25519Signer.generate().private_key_b64() + "\n")
+            key_path.chmod(0o600)
+            env["KEYSTONE_SIGNING_KEY"] = key_path.read_text().strip()
+
+    worker_command = [
+        sys.executable,
+        "-m",
+        "keystone.cli",
+        "worker",
+        "--interval",
+        str(worker_interval),
+        "--limit",
+        str(worker_limit),
+    ]
+    worker_process = [subprocess.Popen(worker_command, env=env)]
+    console.print(
+        f"[bold]local stack[/] API on http://{host}:{port}; "
+        f"worker pid {worker_process[0].pid}"
+    )
+    stopping = threading.Event()
+
+    def supervise_worker() -> None:
+        while not stopping.wait(1):
+            process = worker_process[0]
+            exit_code = process.poll()
+            if exit_code is None:
+                continue
+            console.print(
+                f"[yellow]worker pid {process.pid} exited ({exit_code}); restarting[/]"
+            )
+            try:
+                worker_process[0] = subprocess.Popen(worker_command, env=env)
+            except OSError as exc:
+                console.print(f"[red]worker restart failed: {exc}; retrying[/]")
+
+    supervisor = threading.Thread(
+        target=supervise_worker,
+        name="keystone-worker-supervisor",
+        daemon=True,
+    )
+    supervisor.start()
+    try:
+        # Apply the same stable signing key to the in-process API factory.
+        os.environ["KEYSTONE_SIGNING_KEY"] = env["KEYSTONE_SIGNING_KEY"]
+        uvicorn.run("keystone.settings:app", factory=True, host=host, port=port)
+    finally:
+        stopping.set()
+        supervisor.join(timeout=2)
+        process = worker_process[0]
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1"),
     port: int = typer.Option(8000),
@@ -331,20 +417,34 @@ def worker(
     console.print("[bold]worker[/] draining pending_certification" + ("" if once else f" every {interval}s"))
 
     while True:
-        with modal_app.app.run():
-            done = process_pending(
-                store,
-                artifacts=artifacts,
-                listing_id=listing_id,
-                limit=limit,
-                signer=signer,
-                on_step=lambda m: console.print(f"  [cyan]·[/] {m}"),
-            )
+        if _has_pending_certification(store, listing_id=listing_id):
+            # Creating a Modal app is a rate-limited remote operation. Do it
+            # only for real work, not for every idle polling interval.
+            with modal_app.app.run():
+                done = process_pending(
+                    store,
+                    artifacts=artifacts,
+                    listing_id=listing_id,
+                    limit=limit,
+                    signer=signer,
+                    on_step=lambda m: console.print(f"  [cyan]·[/] {m}"),
+                )
+        else:
+            done = []
         if not done:
             console.print("  [dim]nothing queued[/]")
         if once:
             return
         time.sleep(interval)
+
+
+def _has_pending_certification(store, *, listing_id: str | None = None) -> bool:
+    """Check the local queue without opening a remote Modal application."""
+    from keystone.listing import ListingState
+
+    with store.session() as session:
+        rows = store.listings_in_state(session, ListingState.PENDING_CERTIFICATION)
+        return any(listing_id is None or row.id == listing_id for row in rows)
 
 
 @app.command()
@@ -359,7 +459,15 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     from keystone.db import Store
     from keystone.listing import Attempt, ListingState
     from keystone.pipeline import Outcome
-    from keystone.schema import Cost, Environment, Rating, ScanResult, SuiteResult
+    from keystone.public_benchmarks import BENCHMARKS
+    from keystone.schema import (
+        Cost,
+        Environment,
+        Rating,
+        ScanResult,
+        ServingProfile,
+        SuiteResult,
+    )
     from keystone.signing import Ed25519Signer
     from keystone.worker import publish_certified, record_outcome
 
@@ -368,21 +476,31 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     signer = Ed25519Signer.from_env() or Ed25519Signer.generate()
     now = datetime.now(timezone.utc)
 
-    def report(grade: str, digest: str, held: float) -> CertificationReport:
+    def report(
+        grade: str,
+        digest: str,
+        held: float,
+        model_ref: str,
+        revision: str,
+        benchmark_scores: dict[str, float],
+        parameters: int,
+        total_bytes: int,
+    ) -> CertificationReport:
         issued_grade = grade if held >= 0.75 else "F"
         return CertificationReport(
             report_id=f"rep_{_uuid.uuid4().hex[:12]}",
             created_at=now,
             status=Status.PASS if issued_grade != "F" else Status.FAIL,
             subject=Subject(
-                source=Source(kind=SourceKind.UPLOAD, ref=f"rcpt_{digest[:8]}"),
+                source=Source(kind=SourceKind.HF, ref=model_ref, revision=revision),
                 artifact_digest=digest,
                 files=[],
-                total_bytes=1_400_000_000,
+                total_bytes=total_bytes,
                 license={"declared": "apache-2.0", "spdx": "Apache-2.0", "chain_ok": True},
             ),
             environment=Environment(sandboxed=True, seed=0, gpu="NVIDIA A10",
                                     engine_version="0.28.0", python_version="3.12.10"),
+            serving_profile=ServingProfile(parameter_count=parameters),
             scans=[ScanResult(scanner="picklescan", status=Status.PASS),
                    ScanResult(scanner="format_hygiene", status=Status.PASS)],
             suite_results=[
@@ -394,16 +512,31 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                             n_items=200,
                             categories=[] if held >= 0.75 else ["harmful_content_refusal"],
                             remediation=None if held >= 0.75 else "public/harm_practice_v1"),
-                SuiteResult(suite_id="public_capability", suite_version="0.4.0",
-                            display_name="Instruction following",
-                            status=Status.PASS, held_out=False, score=0.91,
-                            metrics={"accuracy": 0.91}, n_items=50),
-                # Declined benchmarks are part of the record: a seller who can
-                # silently omit one can hide a bad result behind it.
-                SuiteResult(suite_id="stub_reasoning", suite_version="-",
-                            display_name="Multi-step reasoning",
-                            status=Status.SKIPPED, declined=True,
-                            error="declined by the creator"),
+                *[
+                    SuiteResult(
+                        suite_id=benchmark.suite_id,
+                        suite_version=benchmark.version,
+                        display_name=benchmark.display_name,
+                        status=(
+                            Status.PASS
+                            if benchmark.suite_id in benchmark_scores
+                            else Status.SKIPPED
+                        ),
+                        declined=benchmark.suite_id not in benchmark_scores,
+                        score=benchmark_scores.get(benchmark.suite_id),
+                        metrics=(
+                            {"illustrative_seed_score": benchmark_scores[benchmark.suite_id]}
+                            if benchmark.suite_id in benchmark_scores
+                            else {}
+                        ),
+                        error=(
+                            None
+                            if benchmark.suite_id in benchmark_scores
+                            else "not included in this illustrative development fixture"
+                        ),
+                    )
+                    for benchmark in BENCHMARKS
+                ],
             ],
             cost=Cost(gpu_seconds=142.0, cpu_seconds=9.0,
                       bytes_transferred=1_400_000_000, usd_estimate=0.0435),
@@ -422,33 +555,110 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
 
     # price in USDC minor units (6 decimals); 0 is a real price
     fixtures = [
-        ("Legalese-7B (contract QA)", "1" * 64, "A", 0.94, True, 120_000_000),
-        ("MedNote-3B (clinical summaries)", "2" * 64, "B", 0.81, True, 45_000_000),
-        ("Tokenizer-Bench-0.5B (open)", "4" * 64, "A", 0.92, True, 0),
-        ("ReadySet-3B (support)", "5" * 64, "A", 0.91, False, 60_000_000),
-        ("Sentinel-1B (log triage)", "3" * 64, "F", 0.62, False, 30_000_000),
+        {
+            "title": "Qwen3-4B-Instruct-2507", "digest": "1" * 64,
+            "model_ref": "Qwen/Qwen3-4B-Instruct-2507",
+            "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+            "grade": "B", "held": 0.90,
+            "scores": {"gdpval": 0.11, "mmlu_pro": 0.69, "math_500": 0.02},
+            "parameters": 4_022_468_096, "bytes": 8_044_936_192,
+            "live": True, "price": 0, "creator": "hf_qwen",
+            "email": "qwen@example.com", "domains": ["math", "reasoning", "multilingual"],
+        },
+        {
+            "title": "Qwen2.5-Coder-3B-Instruct", "digest": "2" * 64,
+            "model_ref": "Qwen/Qwen2.5-Coder-3B-Instruct",
+            "revision": "488639f1ff808d1d3d0ba301aef8c11461451ec5",
+            "grade": "B", "held": 0.88,
+            "scores": {"swe_bench_verified": 0.12, "mmlu_pro": 0.55},
+            "parameters": 3_085_938_688, "bytes": 6_171_926_000,
+            "live": True, "price": 0, "creator": "u_creator",
+            "email": "creator@example.com", "domains": ["coding", "reasoning"],
+        },
+        {
+            "title": "Phi-4-mini-instruct", "digest": "3" * 64,
+            "model_ref": "microsoft/Phi-4-mini-instruct",
+            "revision": "cfbefacb99257ffa30c83adab238a50856ac3083",
+            "grade": "B", "held": 0.87,
+            "scores": {"gdpval": 0.12, "mmlu_pro": 0.62, "math_500": 0.02},
+            "parameters": 3_836_021_760, "bytes": 7_687_590_311,
+            "live": True, "price": 0, "creator": "hf_microsoft",
+            "email": "microsoft@example.com", "domains": ["math", "coding", "reasoning"],
+        },
+        {
+            "title": "DeepSeek-R1-Distill-Qwen-7B", "digest": "4" * 64,
+            "model_ref": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+            "revision": "916b56a44061fd5cd7d6a8fb632557ed4f724f60",
+            "grade": "B", "held": 0.84,
+            "scores": {"swe_bench_verified": 0.15, "gdpval": 0.16, "mmlu_pro": 0.68, "math_500": 0.05},
+            "parameters": 7_615_616_512, "bytes": 15_231_404_337,
+            "live": True, "price": 0, "creator": "hf_deepseek",
+            "email": "deepseek@example.com", "domains": ["math", "coding", "reasoning"],
+        },
+        {
+            "title": "Saul-7B-Instruct-v1", "digest": "5" * 64,
+            "model_ref": "Equall/Saul-7B-Instruct-v1",
+            "revision": "2133ba7923533934e78f73848045299dd74f08d2",
+            "grade": "C", "held": 0.82,
+            "scores": {"gdpval": 0.12, "harvey_lab": 0.13, "mmlu_pro": 0.50},
+            "parameters": 7_241_732_096, "bytes": 28_967_455_459,
+            "live": True, "price": 0, "creator": "hf_equall",
+            "email": "equall@example.com", "domains": ["legal", "writing", "reasoning"],
+        },
+        {
+            "title": "BioMistral-7B", "digest": "6" * 64,
+            "model_ref": "BioMistral/BioMistral-7B",
+            "revision": "9a11e1ffa817c211cbb52ee1fb312dc6b61b40a5",
+            "grade": "C", "held": 0.79,
+            "scores": {"mmlu_pro": 0.42},
+            "parameters": 7_241_732_096, "bytes": 14_483_464_192,
+            "live": True, "price": 0, "creator": "hf_biomistral",
+            "email": "biomistral@example.com", "domains": ["biology", "medicine", "science"],
+        },
     ]
 
     with store.session() as s:
-        store.upsert_user(s, "u_creator", "creator@example.com")
-        for _, digest, *_ in fixtures:
-            store.put_artifact(s, digest, [], 1_400_000_000)
+        for fixture in fixtures:
+            store.upsert_user(s, fixture["creator"], fixture["email"])
+            store.put_artifact(s, fixture["digest"], [], fixture["bytes"])
         s.commit()
 
-    for title, digest, grade, held, go_live, price in fixtures:
+    for fixture in fixtures:
+        title = fixture["title"]
+        digest = fixture["digest"]
+        grade = fixture["grade"]
+        held = fixture["held"]
+        price = fixture["price"]
         listing_id = f"lst_{_uuid.uuid4().hex[:16]}"
         with store.session() as s:
-            row = store.create_listing(s, listing_id, "u_creator", digest, title)
+            row = store.create_listing(s, listing_id, fixture["creator"], digest, title)
             row.price_minor = price
+            row.domain_tags = fixture["domains"]
+            row.description = (
+                f"Hugging Face source: {fixture['model_ref']}. Development seed only; "
+                "benchmark values are illustrative until an official harness run is attached."
+            )
             s.commit()
         state = record_outcome(
             store,
             listing_id,
-            Outcome(digest, report=report(grade, digest, held)),
+            Outcome(
+                digest,
+                report=report(
+                    grade,
+                    digest,
+                    held,
+                    fixture["model_ref"],
+                    fixture["revision"],
+                    fixture["scores"],
+                    fixture["parameters"],
+                    fixture["bytes"],
+                ),
+            ),
             signer=signer,
             now=now,
         )
-        if go_live:
+        if fixture["live"]:
             state = publish_certified(store, listing_id)
         tag = "free" if price == 0 else f"{price / 1e6:.0f} USDC"
         console.print(
@@ -463,7 +673,10 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         store.create_listing(s, probe_id, "u_creator", "9" * 64, "Nudged-2B (attempt 4)")
         s.commit()
     for i, score in enumerate((0.700, 0.720, 0.735)):
-        record_outcome(store, probe_id, Outcome("9" * 64, report=report("D", "9" * 64, score)),
+        record_outcome(store, probe_id, Outcome("9" * 64, report=report(
+            "D", "9" * 64, score, "Qwen/Qwen2.5-1.5B-Instruct", "development",
+            {"mmlu_pro": 0.45}, 2_000_000_000, 900_000_000,
+        )),
                        signer=signer, now=now + timedelta(days=i))
     console.print("  Nudged-2B  [yellow]flagged for review[/] (monotonic score creep)")
     console.print(f"\nseeded {db}")
@@ -472,30 +685,37 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
 @app.command("sample-model")
 def sample_model(
     repo: str = typer.Option(
-        "HuggingFaceTB/SmolLM2-135M-Instruct",
-        help="Any small HuggingFace repo that a serving stack can actually run.",
+        "GraySwanAI/Llama-3-8B-Instruct-RR",
+        help="Hugging Face repo to prepare as the local submission sample.",
     ),
     dest: Path = typer.Option(
         Path("web/public/sample-model"), help="Served by the web app from /sample-model."
     ),
+    store: Path = typer.Option(
+        Path(".keystone-store"),
+        help="Local artifact store used by the development API.",
+    ),
 ) -> None:
-    """Install a tiny real model for the submit flow to upload.
+    """Prepare a real model for the local submit flow.
 
-    A real checkpoint rather than synthesised bytes: genuine config, tokenizer
-    and safetensors, so the demo exercises architecture detection, chat-template
-    resolution, lineage and the scanners -- not just hashing.
+    The browser reads only the generated manifest. The checkpoint itself is
+    copied into the local artifact store so multi-gigabyte shards never pass
+    through browser memory or the Next.js proxy.
 
-    Deliberately not a `tiny-random-*` fixture. Those are a few megabytes and
-    load fine in transformers, but their attention heads are four wide and no
-    serving kernel will touch them, so certification dies on the GPU.
-
-    Not committed. Six megabytes of weights would live in git history forever.
+    The fetched checkpoint and generated manifest are local development data
+    and are deliberately not committed.
     """
     import json as _json
     import shutil
 
     from huggingface_hub import snapshot_download
 
+    from keystone.ingest import hash_tree, manifest_digest
+    from keystone.profile import parameter_count
+    from keystone.storage import LocalStore
+
+    if dest.exists():
+        shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
     console.print(f"fetching [bold]{repo}[/] -> {dest}")
     snapshot_download(
@@ -505,23 +725,36 @@ def sample_model(
     )
     shutil.rmtree(dest / ".cache", ignore_errors=True)
 
-    files = sorted(
-        p.relative_to(dest).as_posix()
-        for p in dest.rglob("*")
-        if p.is_file() and p.name != "files.json"
-    )
-    # The browser cannot list a directory, so it reads this manifest first.
+    files = hash_tree(dest)
+    digest = manifest_digest(files)
+    total = sum(entry.size_bytes for entry in files)
+    params = parameter_count(dest)
+
+    # Pre-stage the bytes in the same content-addressed store used by the local
+    # API. The browser will declare and finalize this manifest as usual, but the
+    # declaration returns no upload URLs because every object already exists.
+    written = LocalStore(store).upload_tree(dest, files, digest)
+
     (dest / "files.json").write_text(
-        _json.dumps({"name": repo.split("/")[-1], "source": repo, "files": files}, indent=2)
+        _json.dumps(
+            {
+                "name": repo.split("/")[-1],
+                "source": repo,
+                "digest": digest,
+                "parameter_count": params,
+                "files": [entry.model_dump(mode="json") for entry in files],
+            },
+            indent=2,
+        )
         + "\n",
         encoding="utf-8",
     )
-    total = sum((dest / f).stat().st_size for f in files)
-    for f in files:
-        console.print(f"  {f:<28} {(dest / f).stat().st_size:>10,} B")
-    console.print(f"\n[bold]{len(files)}[/] files, {total / 1024 / 1024:.2f} MB")
-    if total > 64 * 1024 * 1024:
-        console.print("[yellow]warning[/] over the 64 MB browser upload limit")
+    for entry in files:
+        console.print(f"  {entry.path:<36} {entry.size_bytes:>14,} B")
+    console.print(
+        f"\n[bold]{len(files)}[/] files, {total / 1024 / 1024:.2f} MB; "
+        f"{written / 1024 / 1024:.2f} MB staged in {store}"
+    )
 
 
 @app.command("checkout-probe")

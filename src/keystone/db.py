@@ -103,6 +103,10 @@ class ListingRow(Base):
     # Benchmarks the creator chose to run. Mandatory suites are folded in at
     # certification time regardless of what is stored here.
     selected_benchmarks: Mapped[list] = mapped_column(JSON, default=list)
+    # Curated facets used by the public catalogue. Nullable columns let the
+    # additive SQLite development migration upgrade existing databases safely.
+    domain_tags: Mapped[list | None] = mapped_column(JSON, default=list, nullable=True)
+    size_tag: Mapped[str | None] = mapped_column(String(32), default=None, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 

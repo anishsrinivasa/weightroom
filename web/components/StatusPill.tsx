@@ -11,9 +11,9 @@ const states: Record<ListingState, { label: string; tone: "solid" | "outline" | 
   withdrawn: { label: "Withdrawn", tone: "muted" },
 };
 
-export function StatusPill({ state }: { state: ListingState }) {
+export function StatusPill({ state, label }: { state: ListingState; label?: string }) {
   const status = states[state];
-  return <span className={`status-pill ${status.tone}`}>{status.label}</span>;
+  return <span className={`status-pill ${status.tone}`}>{label ?? status.label}</span>;
 }
 
 export function GatePill({ status }: { status: string }) {

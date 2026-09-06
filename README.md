@@ -32,11 +32,15 @@ Certification itself is three stages with three privilege levels. The split
 | :--- | :--- | :--- | :--- |
 | `fetch` / upload | **on** | CPU | no — bytes only |
 | `scan` | **off** | CPU | no — inspects, never loads |
-| `evaluate` | **off** | GPU | **yes** — weights load here |
+| `evaluate` controller | **on** | GPU | no — scanned SafeTensors load; no model code |
+| agent task sandbox | **off** | CPU | **yes** — model-proposed commands run here |
 
-`evaluate` carries `block_network=True` and `restrict_modal_access=True`. One
-control, two jobs: it contains a hostile checkpoint uploaded by a stranger, and
-it stops held-out eval prompts from ever leaving the box.
+The trusted `evaluate` controller needs Modal control-plane streaming to create
+and supervise task sandboxes. It never executes model-proposed commands. Each
+agent task instead runs in a separate child with `network_mode: none` and
+`block_network: true`, so generated commands cannot reach the internet. Uploaded
+artifacts are restricted to scanned SafeTensors and local tokenizer/config
+files; remote model code is never loaded.
 
 Cheap gates run first. A scan failure halts the job before a GPU is ever
 allocated.
@@ -60,17 +64,47 @@ suites turn out uniformly single-turn, add an `OfflineBatchClient` behind
 
 ## Choosing benchmarks
 
-Capability benchmarks are a la carte. A creator picks what is worth paying to
-demonstrate, and the price is the sum of what will actually run — GPU time
-scales with the selection, so the fee does too.
+The marketplace catalogue exposes five benchmark identifiers:
 
-```
-GET /v1/benchmarks
+| Benchmark | 7B/BF16 planning estimate | Harness shape |
+|---|---:|---|
+| MMLU-Pro | 0.04 USDC | multiple choice |
+| MATH-500 | 2.10 USDC | public competition mathematics + symbolic grading |
+| GDPval | 41 USDC | agent + work-product judge |
+| Harvey LAB | 60 USDC | long-horizon legal agent + judge |
+| SWE-bench Verified | 40 USDC | coding agent + repository test containers |
 
-  REQUIRED  Quality - over-refusal diagnostic  15.000000 USDC
-  optional  Instruction following              10.000000 USDC
-  optional  Multi-step reasoning                20.000000 USDC
-```
+These are estimated direct costs for **100 tasks per selected benchmark**, not
+a third-party price claim or a margin. Tasks are sampled without replacement;
+the uploaded artifact digest deterministically seeds the random sample so a
+retry is reproducible and auditable. Each estimate has per-run harness/judge
+setup plus a per-task inference component at a 14 GB reference checkpoint. The
+API scales the inference component by stored model-weight bytes (20% floor, 8x
+ceiling), rounds to the nearest cent, and recalculates the payment quote from
+the server-owned artifact manifest. Actual GPU seconds and USD are recorded in
+`report.cost`; replace the planning coefficients in `public_benchmarks.py` with
+measured medians once the first run sample is large enough.
+
+The source methodologies are [SWE-bench](https://github.com/SWE-bench/SWE-bench),
+[GDPval](https://huggingface.co/datasets/openai/gdpval),
+[Harvey LAB](https://github.com/harveyai/harvey-labs),
+[MMLU-Pro](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro), and
+[MATH-500](https://huggingface.co/datasets/HuggingFaceH4/MATH-500). Every adapter
+and dataset revision is pinned. MMLU-Pro uses answer-letter accuracy, MATH-500
+uses symbolic answer verification, and SWE-bench Verified uses its repository
+test scorer in a separate networkless Modal sandbox for every issue.
+
+GDPval needs an explicit qualification: the public dataset contains prompts and
+source files, but not the expert rubrics, gold deliverables, or canonical
+pairwise preference grader. The site therefore reports the implemented result
+as a **prompt-compliance proxy**, never as the official GDPval score. Harvey LAB
+does publish its criteria, so its adapter uses the published binary criteria and
+official all-pass task aggregation; the pinned Qwen3-4B judge is still disclosed
+as a substitute for Harvey's reference judge. Both agent benchmarks run their
+100 deterministically sampled tasks in isolated networkless Modal sandboxes.
+
+Creators choose the optional evidence worth running. No public capability
+benchmark is required.
 
 Three rules make this safe to offer:
 
@@ -91,7 +125,8 @@ Every Modal certification automatically runs two pinned public safety screens:
 the 200 standard HarmBench behaviors and the 100 harmful JailbreakBench
 behaviors. Both are fail-closed gates and are never seller-selectable. Public
 datasets and the independent Qwen3Guard judge are fetched before the model is
-loaded; evaluation then runs with network and Modal API access blocked. These
+loaded. The trusted Inspect controller creates separate networkless agent
+sandboxes; all model-proposed commands execute there. These
 are full public prompt sets for the direct harmful-request protocol implemented
 here, but they are not official benchmark-native leaderboard runs: the current
 JailbreakBench screen does not apply jailbreak attacks and both screens use the
@@ -260,11 +295,17 @@ a restart. Dev generates an ephemeral one.
 ## API and worker
 
 ```bash
+keystone dev              # local API + continuous worker on :8000
 keystone serve            # API only on :8000
 keystone worker           # continuously drain the certification queue
 keystone worker --once    # drain the current queue, then stop
 cd web && npm run dev     # Next.js Seller Studio on :3000
 ```
+
+Use `keystone dev` for local end-to-end marketplace work. It manages the API
+and worker as a pair so settled submissions cannot remain queued merely because
+the worker terminal was forgotten. Production continues to run them as separate
+services.
 
 The API ([`api.py`](src/keystone/api.py)) is thin: it validates, writes rows,
 and queues. No request thread ever waits on a GPU — publishing moves a listing
@@ -374,6 +415,11 @@ Modal (for anything that actually runs a model):
 ```bash
 modal setup
 ```
+
+HarmBench and JailbreakBench execution is temporarily disabled. New reports
+record explicit automatic-pass results without running either suite or charging
+their evaluation cost. Set `KEYSTONE_RUN_SAFETY_EVALUATION=true` on the API and
+worker to restore the existing safety-evaluation path.
 
 Public models need no HuggingFace token. For gated repos (Llama et al.):
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Callable
 
 from keystone.registry import discover, select
 from keystone.schema import Capabilities, Modality, Status, SuiteResult
@@ -41,15 +42,24 @@ def run_suites(
     modality: list[Modality],
     suites_root: Path,
     scratch_dir: Path,
+    assets_root: Path | None = None,
     only: list[str] | None = None,
+    disabled_ids: set[str] | None = None,
     seed: int = 0,
+    on_progress: Callable[[dict], None] = lambda event: None,
 ) -> list[SuiteResult]:
     """Gate on eligibility, then run everything eligible concurrently.
 
     Gating happens before the caller ever loads a model, so an ineligible suite
     costs no GPU time.
     """
-    eligible, skipped = select(discover(suites_root), capabilities, modality, only=only)
+    disabled_ids = disabled_ids or set()
+    installed = [
+        suite
+        for suite in discover(suites_root)
+        if suite.manifest.id not in disabled_ids
+    ]
+    eligible, skipped = select(installed, capabilities, modality, only=only)
 
     results = [
         SuiteResult(
@@ -70,18 +80,33 @@ def run_suites(
     scratch_dir.mkdir(parents=True, exist_ok=True)
 
     async def _all() -> list[SuiteResult]:
+        def context_for(suite) -> SuiteContext:
+            return SuiteContext(
+                client=client,
+                model_name=model_name,
+                capabilities=capabilities,
+                scratch_dir=scratch_dir,
+                assets_dir=(
+                    assets_root / suite.manifest.id
+                    if assets_root is not None
+                    else suites_root / suite.manifest.id / "assets"
+                ),
+                seed=seed,
+                on_progress=lambda completed, total: on_progress(
+                    {
+                        "suite_id": suite.manifest.id,
+                        "display_name": suite.manifest.name,
+                        "completed": completed,
+                        "total": total,
+                    }
+                ),
+            )
+
         return await asyncio.gather(
             *(
                 _run_one(
                     suite,
-                    SuiteContext(
-                        client=client,
-                        model_name=model_name,
-                        capabilities=capabilities,
-                        scratch_dir=scratch_dir,
-                        assets_dir=suites_root / suite.manifest.id / "assets",
-                        seed=seed,
-                    ),
+                    context_for(suite),
                 )
                 for suite in eligible
             )

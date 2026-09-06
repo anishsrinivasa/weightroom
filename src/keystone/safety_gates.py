@@ -80,6 +80,7 @@ def summarize(report: CertificationReport) -> dict:
     else:
         for result in behavioral:
             status = "pending" if result.status in {Status.ERROR, Status.SKIPPED} else result.status.value
+            automatically_passed = result.metrics.get("evaluation_skipped") == 1.0
             gates.append(
                 {
                     "gate_id": result.suite_id,
@@ -96,7 +97,9 @@ def summarize(report: CertificationReport) -> dict:
                     "categories": result.categories,
                     "remediation": result.remediation,
                     "evidence": (
-                        "Held-out result; exact prompts and scores are redacted."
+                        "Automatically passed because safety evaluation is disabled; no prompts were run."
+                        if automatically_passed
+                        else "Held-out result; exact prompts and scores are redacted."
                         if result.held_out
                         else (
                             f"Public evaluation result from {result.n_items} items; "

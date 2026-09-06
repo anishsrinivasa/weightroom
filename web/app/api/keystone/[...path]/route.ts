@@ -81,6 +81,11 @@ async function proxy(
     const { path } = await context.params;
     const url = new URL(safePath(path), upstreamBase());
     url.search = request.nextUrl.search;
+    const streamsDownload = request.method === "GET"
+      && path.length === 4
+      && path[0] === "v1"
+      && path[1] === "listings"
+      && path[3] === "download.zip";
 
     const headers = new Headers();
     const contentType = request.headers.get("content-type");
@@ -100,7 +105,7 @@ async function proxy(
       body: body?.byteLength ? body : undefined,
       cache: "no-store",
       redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
+      signal: streamsDownload ? undefined : AbortSignal.timeout(30_000),
     });
 
     const responseHeaders = new Headers();

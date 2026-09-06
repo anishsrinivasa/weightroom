@@ -28,6 +28,7 @@ class MenuItem:
     version: str
     mandatory: bool
     gate: bool
+    diagnostic: bool
     price: Money
     held_out: bool
     description: str
@@ -39,6 +40,7 @@ class MenuItem:
             "version": self.version,
             "mandatory": self.mandatory,
             "gate": self.gate,
+            "diagnostic": self.diagnostic,
             "price": str(self.price),
             "price_minor": self.price.amount_minor,
             "held_out": self.held_out,
@@ -55,6 +57,7 @@ def menu(suites: list[Suite], currency: Currency = Currency.USDC) -> list[MenuIt
             version=s.manifest.version,
             mandatory=s.manifest.mandatory,
             gate=s.manifest.gate,
+            diagnostic=s.manifest.diagnostic,
             price=Money(s.manifest.price_minor, currency),
             held_out=s.manifest.held_out,
             description=s.manifest.description,

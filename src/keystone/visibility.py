@@ -7,7 +7,7 @@ and the moat is gone.
 
 The rule this module enforces:
 
-  buyer     grade, provenance, methodology. Coarse bands, no metrics.
+  buyer     benchmark results, provenance, methodology. Coarse bands, no metrics.
   creator   the above, plus which *dimension* failed and where to practice.
             Never which item, never an exact score.
   internal  everything.
