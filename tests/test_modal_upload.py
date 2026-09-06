@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
+import inspect
 import io
 from pathlib import Path
 
@@ -20,6 +22,18 @@ from keystone.runner.modal_app import (
 
 def test_safety_cache_disables_xet_for_modal_volume_commits():
     assert _safety_cache_env()["HF_HUB_DISABLE_XET"] == "1"
+
+
+def test_restricted_evaluator_does_not_reload_modal_volume():
+    tree = ast.parse(inspect.getsource(modal_app._evaluate))
+    reloads = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "reload"
+    ]
+    assert not reloads
 
 
 def test_modal_upload_inspection_preserves_uploaded_identity(tmp_path: Path) -> None:

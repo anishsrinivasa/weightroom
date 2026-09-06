@@ -825,7 +825,11 @@ def _evaluate(
     from keystone.run import collect_suites, finalise_judged
     from keystone.schema import Capabilities, Modality
 
-    cache.reload()
+    # Modal mounts the latest committed volume snapshot when this function
+    # container starts. Do not call ``cache.reload()`` here: the gated
+    # evaluator deliberately has ``restrict_modal_access=True``, and reload is
+    # a Modal API operation that will always receive 401 in that security
+    # posture.
     started = time.monotonic()
     os.environ.update(_safety_cache_env())
     os.environ["HF_HUB_OFFLINE"] = "1"
