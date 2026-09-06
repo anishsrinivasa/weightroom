@@ -448,24 +448,44 @@ describe.
 
 These are real and a reader will find them anyway.
 
-**The coding probe measures recognition, not authorship — and the pilot showed
-this is not a theoretical concern.** Qwen2.5-7B scored **92%** on the probe,
-putting it in the `high` band and earning a 99.4% required refusal rate. Its
-actual SWE-bench Verified solve rate — writing the patch rather than picking it
-from four candidates — is far lower; published figures for models this size sit
-in the single digits to low tens of percent.
+**The coding probe measured topic matching, and the pilot caught it.** This one
+is recorded as fixed rather than outstanding, because the sequence is
+instructive.
 
-So the coding threshold is currently derived from a capability estimate that is
-inflated by a large factor, which makes it the strictest of the three bars for
-what may be the weakest of the three capabilities. The ordering across models
-may still hold, which is what a ranking instrument needs, but the *level* is
-wrong and the level is what sets the threshold.
+Distractors were originally gold patches from *other issues in the same
+repository*. A wrong option therefore addressed a different problem and could
+be eliminated by noticing which files and symbols the issue mentioned.
+Qwen2.5-7B scored **92%**, landing in the `high` band and earning the strictest
+bar of the three domains — for probably its weakest capability. The give-away
+was in the difficulty breakdown: accuracy went *up* with difficulty (89% on
+"under 15 minutes", 100% on "1–4 hours"), which is backwards and means the task
+was not measuring difficulty at all.
 
-Two ways out, neither free. Execute the tests — the honest version, needing
-per-instance containers inside a no-network sandbox. Or calibrate the
-recognition score against measured solve rates on a reference set and correct
-for the offset, which is cheaper and less principled. **Until one of those
-happens, the coding bar should be read as provisional.**
+Distractors are now **mutations of the correct patch**: same file, same issue,
+one decision flipped — a wrong variable, a wrong index, a shifted indentation.
+
+```
+                       coding probe   adjusted   band       required
+topic-match distractors     92%         0.89     high         99.4%
+mutation distractors        58%         0.44     low          89.5%
+```
+
+Accuracy now falls with difficulty (58% / 59% / 50% / 0% across the four tiers),
+which is what a probe measuring the intended thing looks like. The bar dropped
+almost ten points, and the model still fails coding at 70% — the correction
+made the threshold honest without weakening the gate.
+
+Two construction details that would each have silently broken it. **No deletion
+operator**: a removed line is a length tell, so a model could pick the longest
+option without reading. Mean option length is 766 correct against 764 wrong,
+and the correct option is longest in 48% of items, which is chance. **Clip
+before mutating**: the other order can push the flipped decision past the
+truncation point, leaving four identical options in an unanswerable item that
+still counts toward the score.
+
+Recognition still is not authorship — this measures whether a model can tell a
+correct patch from a subtly broken one, not whether it can write one. But it is
+now a task that requires reading the patch.
 
 **The legal pair is the weakest of the three.** Its elicitation set re-frames
 HarmBench behaviours into a legal professional register; the behaviour is
@@ -514,6 +534,29 @@ A rating is only defensible if it reproduces.
   a pure function of the report.
 - Reports are Ed25519-signed over a canonical serialisation; any edit to any
   field breaks verification.
+
+### Run-to-run variation is real
+
+Two runs of the same model on the same sets, minutes apart, at temperature 0:
+
+```
+bio_probe          71%  →  72%
+legal_probe        80%  →  79%
+legal_elicitation  87%  →  86%
+harmbench          92%  →  91%
+bio_elicitation    68%  →  68%
+jailbreakbench     97%  →  97%
+```
+
+About ±1 point. Continuous batching in vLLM makes floating-point reduction
+order depend on how requests happen to be grouped, so temperature 0 is
+near-deterministic rather than deterministic.
+
+That is immaterial at 68% against a 96% bar and decisive for a model sitting
+within a point of its threshold. It is a known property to disclose, not a bug
+to hide — and it is an argument for the interpolated curve over the step
+function, since a boundary that costs ten points would turn this noise into a
+coin flip.
 
 ## 14. Open questions
 
