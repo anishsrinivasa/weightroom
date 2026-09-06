@@ -698,6 +698,19 @@
           "description": "e.g. A10G, A100-40GB:2",
           "title": "Resource Class"
         },
+        "head_dim": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Attention width per head. Below 16 no serving kernel will run the model, however well it loads in transformers.",
+          "title": "Head Dim"
+        },
         "processor": {
           "anyOf": [
             {

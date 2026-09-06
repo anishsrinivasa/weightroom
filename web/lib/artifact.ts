@@ -1,6 +1,9 @@
 import type { FileManifestEntry } from "@/lib/contracts";
 
-export const BROWSER_FILE_LIMIT = 64 * 1024 * 1024;
+// Hashing needs the whole file in memory. A real small checkpoint is a few
+// hundred megabytes, which a browser handles; anything larger belongs in a
+// CLI that can stream.
+export const BROWSER_FILE_LIMIT = 512 * 1024 * 1024;
 
 export async function sha256Hex(data: BufferSource): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", data);

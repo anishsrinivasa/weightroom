@@ -472,8 +472,8 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
 @app.command("sample-model")
 def sample_model(
     repo: str = typer.Option(
-        "hf-internal-testing/tiny-random-LlamaForCausalLM",
-        help="Any small HuggingFace repo.",
+        "HuggingFaceTB/SmolLM2-135M-Instruct",
+        help="Any small HuggingFace repo that a serving stack can actually run.",
     ),
     dest: Path = typer.Option(
         Path("web/public/sample-model"), help="Served by the web app from /sample-model."
@@ -481,9 +481,13 @@ def sample_model(
 ) -> None:
     """Install a tiny real model for the submit flow to upload.
 
-    A real checkpoint rather than synthesised bytes: it has a genuine config,
-    tokenizer and safetensors, so the demo exercises architecture detection,
-    chat-template resolution, lineage and the scanners -- not just hashing.
+    A real checkpoint rather than synthesised bytes: genuine config, tokenizer
+    and safetensors, so the demo exercises architecture detection, chat-template
+    resolution, lineage and the scanners -- not just hashing.
+
+    Deliberately not a `tiny-random-*` fixture. Those are a few megabytes and
+    load fine in transformers, but their attention heads are four wide and no
+    serving kernel will touch them, so certification dies on the GPU.
 
     Not committed. Six megabytes of weights would live in git history forever.
     """

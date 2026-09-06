@@ -25,6 +25,20 @@ from typing import Any
 
 from keystone.suites import ModelClient
 
+_WEIGHT_SUFFIXES = {".safetensors", ".bin", ".pt", ".pth", ".gguf", ".ckpt"}
+
+
+def _weight_bytes(root: Path) -> int:
+    try:
+        return sum(
+            p.stat().st_size
+            for p in root.rglob("*")
+            if p.is_file() and p.suffix.lower() in _WEIGHT_SUFFIXES
+        )
+    except OSError:
+        return 0
+
+
 _HOST = "127.0.0.1"
 _PORT = 8000
 _BASE_URL = f"http://{_HOST}:{_PORT}/v1"
@@ -77,6 +91,28 @@ class OpenAIServerClient(ModelClient):
         return resp.choices[0].text or ""
 
 
+def memory_utilisation(weight_bytes: int) -> float:
+    """How much of the card vLLM may claim for the KV cache.
+
+    Left alone, vLLM takes ~90% and fills it with KV blocks. For a small model
+    each block is tiny, so the block *count* becomes enormous -- and
+    FlexAttention's physical-to-logical mapping table, which is sized by that
+    count, can then need more memory than the card has. A 6 MB model asking for
+    a 20 GiB index table on a 22 GiB GPU is the failure mode this prevents.
+
+    Scaling the claim to the model keeps the block count sane. Large models
+    still get the full card, where the default is correct.
+    """
+    gib = weight_bytes / 1024**3
+    if gib < 1:
+        return 0.20
+    if gib < 4:
+        return 0.45
+    if gib < 16:
+        return 0.75
+    return 0.90
+
+
 class VLLMServer:
     """Context manager around a vLLM subprocess.
 
@@ -92,11 +128,15 @@ class VLLMServer:
         max_context: int | None = None,
         tensor_parallel_size: int = 1,
         startup_timeout_s: int = 900,
+        weight_bytes: int | None = None,
     ) -> None:
         self.model_path = model_path
         self.served_name = served_name
         self.max_context = max_context
         self.tensor_parallel_size = tensor_parallel_size
+        if weight_bytes is None:
+            weight_bytes = _weight_bytes(model_path)
+        self.gpu_memory_utilization = memory_utilisation(weight_bytes)
         self.startup_timeout_s = startup_timeout_s
         self.proc: subprocess.Popen | None = None
         self.log_path = Path("/tmp/vllm.log")
@@ -116,6 +156,8 @@ class VLLMServer:
             str(_PORT),
             "--tensor-parallel-size",
             str(self.tensor_parallel_size),
+            "--gpu-memory-utilization",
+            f"{self.gpu_memory_utilization:.2f}",
         ]
         if self.max_context:
             # Cap context so a model advertising 1M tokens does not fail to

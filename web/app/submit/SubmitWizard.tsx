@@ -130,7 +130,7 @@ export function SubmitWizard() {
     if (!files.length) return;
     setError(null);
     if (files.some((file) => file.size > BROWSER_FILE_LIMIT)) {
-      setError("Files over 64 MB must use the resumable CLI upload path.");
+      setError("Files over 512 MB must use the resumable CLI upload path.");
       return;
     }
 

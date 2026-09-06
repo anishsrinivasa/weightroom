@@ -32,6 +32,23 @@ _VISION_MARKERS = ("vision", "llava", "idefics", "paligemma", "qwen2vl", "qwen2_
 
 _WEIGHT_SUFFIXES = {".safetensors", ".bin", ".pt", ".pth", ".gguf", ".ckpt"}
 
+# Attention kernels need at least this much per head. Models below it exist --
+# `tiny-random-*` test fixtures use 4 -- and they load in transformers but no
+# serving stack will run them.
+MIN_HEAD_DIM = 16
+
+
+def head_dimension(config: dict) -> int | None:
+    """Per-head width, stated or derived. None when the config does not say."""
+    stated = config.get("head_dim")
+    if isinstance(stated, int) and stated > 0:
+        return stated
+    hidden = config.get("hidden_size")
+    heads = config.get("num_attention_heads")
+    if isinstance(hidden, int) and isinstance(heads, int) and heads > 0:
+        return hidden // heads
+    return None
+
 
 def _load_json(path: Path) -> dict:
     try:
@@ -100,6 +117,7 @@ def build_profile(
             hashlib.sha256(template.encode()).hexdigest() if template else None
         ),
         resource_class=pick_resource_class(total_weight_bytes),
+        head_dim=head_dimension(config),
         processor=None,  # SEAM 3: populated for VLMs
     )
 

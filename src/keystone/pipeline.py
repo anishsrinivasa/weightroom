@@ -57,6 +57,7 @@ class FailureKind(str, Enum):
 
     DOWNLOAD = "download"                      # could not fetch the artifact
     UNSUPPORTED_MODALITY = "unsupported_modality"  # VLM, refused by design
+    UNSERVABLE = "unservable"                  # architecture no kernel can run
     MISSING_ARTIFACT = "missing_artifact"      # listing references weights we do not hold
     SCAN_FAIL = "scan_fail"                    # working as intended
     LICENSE_FAIL = "license_fail"              # chain forbids what is claimed
@@ -314,6 +315,23 @@ def _certify_fetched(
         f"{len(subject.files)} files, {subject.total_bytes / 1024**3:.2f} GiB"
         + ("  (cache hit)" if fetched["cached"] else "")
     )
+
+    # Caught here rather than on the GPU. A head dimension below the kernel
+    # minimum fails deep inside attention with an opaque inductor error, after
+    # the artifact has been transferred and a GPU has been paid for.
+    from keystone.profile import MIN_HEAD_DIM
+
+    if profile.head_dim is not None and profile.head_dim < MIN_HEAD_DIM:
+        return Outcome(
+            ref,
+            failure=FailureKind.UNSERVABLE,
+            detail=(
+                f"attention head dimension is {profile.head_dim}; serving kernels "
+                f"require at least {MIN_HEAD_DIM}. This model loads in transformers "
+                "but cannot be served."
+            ),
+            wall_s=time.monotonic() - started,
+        )
 
     # SEAM 1: the MVP is text-only and says so rather than half-working.
     if Modality.IMAGE in subject.modality:

@@ -128,6 +128,11 @@ class ServingProfile(BaseModel):
     chat_template_source: Literal["tokenizer_config", "override", "none"] | None = None
     chat_template_sha256: str | None = None
     resource_class: str | None = Field(default=None, description="e.g. A10G, A100-40GB:2")
+    head_dim: int | None = Field(
+        default=None,
+        description="Attention width per head. Below 16 no serving kernel will "
+        "run the model, however well it loads in transformers.",
+    )
     processor: ProcessorProfile | None = None  # SEAM 3
 
 

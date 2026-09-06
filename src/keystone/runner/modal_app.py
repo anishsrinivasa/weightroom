@@ -68,21 +68,36 @@ scan_image = (
     .add_local_python_source(*_local_src)
 )
 
-eval_image = (
-    modal.Image.debian_slim(python_version=_PY)
-    .pip_install(
-        VLLM_SPEC,
-        "openai>=1.60",
-        "pydantic>=2.10",
-    )
-    .add_local_python_source(*_local_src)
-    .add_local_dir(
+_eval_base = modal.Image.debian_slim(python_version=_PY).pip_install(
+    VLLM_SPEC,
+    "openai>=1.60",
+    "pydantic>=2.10",
+)
+
+
+def _with_local_source(image: modal.Image) -> modal.Image:
+    """Attach our package and suites. Must come after every pip_install:
+    Modal rebuilds the whole image if a layer follows a local-file add."""
+    return image.add_local_python_source(*_local_src).add_local_dir(
         Path.cwd() / "suites",
         remote_path="/root/suites",
     )
-)
 
-safety_eval_image = eval_image
+
+eval_image = _with_local_source(_eval_base)
+
+# The safety path fetches public datasets and an open judge model before the
+# sandbox closes, so it needs packages the serving image does not. This was an
+# alias for eval_image, which left `datasets` missing -- every certification
+# died at the prefetch step, and the failure carried no report to explain why.
+safety_eval_image = _with_local_source(
+    _eval_base.pip_install(
+        "datasets>=2.20",
+        "requests>=2.32",
+        "huggingface_hub>=1.0",
+        "hf_transfer",
+    )
+)
 
 
 def _cache_key(ref: str, revision: str) -> str:
