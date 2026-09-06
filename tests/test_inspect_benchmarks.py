@@ -10,6 +10,7 @@ from types import ModuleType, SimpleNamespace
 from keystone.runner.inspect_benchmarks import (
     PendingRubricRun,
     _json_object,
+    _modal_compose_for_dockerfile,
     _swe_modal_sandbox_spec,
     result_from_inspect_logs,
     run_swe_bench_verified,
@@ -91,6 +92,20 @@ def test_swe_modal_spec_uses_current_networkless_extension(tmp_path, monkeypatch
     assert "network_mode: none" in content
     assert "block_network: true" in content
     assert is_compose_yaml(spec.config)
+
+
+def test_dockerfile_compose_keeps_sandbox_alive_and_networkless(tmp_path) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM python:3.11-slim\nCMD [\"/bin/bash\"]\n")
+
+    compose = _modal_compose_for_dockerfile(
+        dockerfile, tmp_path / "probe-compose.yaml"
+    )
+    content = compose.read_text()
+
+    assert "command: sleep infinity" in content
+    assert "network_mode: none" in content
+    assert "block_network: true" in content
 
 
 def test_swe_adapter_invokes_inspect_and_returns_result(tmp_path, monkeypatch) -> None:

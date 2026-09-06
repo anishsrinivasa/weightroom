@@ -219,6 +219,7 @@ def _modal_compose_for_dockerfile(dockerfile: Path, output: Path) -> Path:
                 "    build:",
                 f"      context: {dockerfile.parent}",
                 f"      dockerfile: {dockerfile.name}",
+                "    command: sleep infinity",
                 "    working_dir: /workspace",
                 "    network_mode: none",
                 "x-modal:",
