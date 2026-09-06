@@ -1,0 +1,186 @@
+schema_version: "0.1"
+last_updated: "2026-09-05"
+
+sources:
+  - id: safetywashing_2024
+    title: "Safetywashing: Do AI Safety Benchmarks Actually Measure Safety Progress?"
+    kind: "peer_reviewed_dataset_and_code"
+    venue: "NeurIPS 2024 Datasets and Benchmarks Track"
+    paper_url: "https://arxiv.org/abs/2407.21792"
+    repository_url: "https://github.com/centerforaisafety/safetywashing"
+    repository_commit: "bee302c11f174afb064d721123b16b810d34f4fd"
+    license: "MIT"
+    model_population:
+      base_models: 27
+      chat_models: 26
+    relevance:
+      - "general capability factor"
+      - "capability-safety correlations"
+      - "HarmBench domain slices"
+      - "CyberSecEval 2"
+      - "WMDP Bio/Chem/Cyber"
+      - "base-versus-chat comparison"
+    limitations:
+      - "model panel is primarily 2023-2024"
+      - "does not contain modern coding or agentic capability benchmarks"
+      - "reported rows require canonical artifact resolution"
+      - "correlations are descriptive, not release thresholds"
+    audit_status: "machine-readable source inspected"
+
+  - id: benchmirt_2026_model_statistics
+    title: "BenchMIRT model statistics"
+    kind: "institutional_research_dataset"
+    owner: "Allen Institute for AI"
+    dataset_url: "https://huggingface.co/datasets/allenai/BenchMIRT-model-statistics"
+    repository_url: "https://github.com/allenai/BenchMIRT"
+    dataset_commit: "8672cad1429df9e885f9651d3ae01621748662f5"
+    code_commit: "faceefdbde352d7aeba7fb563c0b48b11879b570"
+    file: "llm_statistics.csv"
+    sha256: "9cff23cde83b954fed36c3990711c41f73dca6a342a4907a249bfa14ed214695"
+    permitted_use: "benchmarking, evaluation, research, and educational use under Ai2 Responsible Use Guidelines"
+    model_population:
+      open_weight_models: 100
+    benchmarks:
+      capability:
+        - BBH
+        - GPQA
+        - IFEval
+        - MATH
+        - MMLU-Pro
+        - MuSR
+      safety:
+        - BBQ
+        - Do-Anything-Now
+        - HarmBench
+        - StrongREJECT
+        - ToxiGen
+        - TrustLLM-JailbreakTrigger
+        - WildGuardTest
+        - WildJailbreak
+        - WMDP
+        - XSTest
+    relevance:
+      - "common-protocol open-weight panel"
+      - "general reasoning and latent safety"
+      - "instruction-following versus safeguards"
+      - "hazardous-knowledge proxy"
+      - "initial underperformance residual analysis"
+    limitations:
+      - "contains benchmark aggregates rather than item uncertainty in the model-statistics file"
+      - "WMDP is aggregated across domains in this file"
+      - "does not cover coding, cyber CTF, biology lab, chemistry lab, or agentic capability directly"
+      - "family field records model publisher and requires lineage normalization"
+      - "not a release-risk calibration dataset"
+    audit_status: "machine-readable source inspected and pinned"
+
+  - id: evalplus_leaderboard_2024
+    title: "EvalPlus leaderboard results"
+    kind: "benchmark_native_machine_readable_leaderboard"
+    repository_url: "https://github.com/evalplus/evalplus.github.io"
+    repository_commit: "87418456d3a8c2bc6265f24ff91d2dd0e7993f4b"
+    file: "results.json"
+    sha256: "e6837dc3b94f32cb1da0ced012e52edc4a722007b684df5b63da029bbd3b46d2"
+    license: "Apache-2.0"
+    model_population:
+      leaderboard_entries: 125
+      exact_overlap_with_safetywashing_chat: 8
+    benchmarks: ["HumanEval", "HumanEval+", "MBPP", "MBPP+"]
+    limitations:
+      - "leaderboard repository was last updated in December 2024"
+      - "short Python synthesis tasks do not measure repository-level software engineering"
+      - "scores may use direct-completion or chat settings, which must remain explicit"
+    audit_status: "machine-readable source inspected, pinned, and joined by audited aliases"
+
+  - id: swebench_native_leaderboard_2026_09_01
+    title: "SWE-bench native leaderboard"
+    kind: "benchmark_native_machine_readable_leaderboard"
+    repository_url: "https://github.com/SWE-bench/swe-bench.github.io"
+    repository_commit: "193160a463a435d05cf44a1fa9dc5eac832113c3"
+    file: "data/leaderboards.json"
+    sha256: "83cd949a9582f4dd68b0a07148cd86ff0eae6a05b0f2d2298a8f3717baf89d2d"
+    license: "CC-BY-NC-4.0"
+    model_population:
+      verified_submissions: 180
+      verified_open_model_submissions: 35
+    relevance:
+      - "repository-level software engineering capability"
+      - "agent and model metadata"
+      - "logs and trajectories for many submissions"
+    limitations:
+      - "leaderboard row is an agent-model-evaluation profile, not a bare model score"
+      - "multiple agents and attempt budgets yield materially different scores for the same model"
+      - "no exact modern cyber-safety panel with sufficient overlap was located"
+      - "cannot be naively merged by marketing model name"
+    audit_status: "machine-readable source inspected and pinned; correlation join deferred"
+
+  - id: livecodebench_site_2025_08_01
+    title: "LiveCodeBench leaderboard data"
+    kind: "benchmark_native_machine_readable_leaderboard"
+    repository_url: "https://github.com/LiveCodeBench/livecodebench.github.io"
+    repository_commit: "f186ab5041d6b768733b8ae8145151c867942134"
+    file: "build/v5.json"
+    sha256: "fb6cbcdfeb4cfde8fd6d5d07af5f78c5cf57ca94daeb1b9cd2566ea2cd09a4fb"
+    license: "not stated in inspected website repository"
+    model_population:
+      model_profiles: 36
+      item_level_performance_rows: 31680
+    relevance:
+      - "date-windowed code-generation capability"
+      - "item-level results"
+    limitations:
+      - "inspected snapshot has little exact overlap with maintained open-weight cyber-safety results"
+      - "duplicate display labels and API model profiles require identity resolution"
+      - "website snapshot is not current enough for contemporary release decisions"
+    audit_status: "machine-readable source inspected and pinned; no admissible safety join"
+
+  - id: cybench_leaderboard_2026_04_16
+    title: "Cybench leaderboard"
+    kind: "benchmark_native_machine_readable_leaderboard"
+    repository_url: "https://github.com/cybench/cybench.github.io"
+    repository_commit: "3b62a0d0e3105cef73a1d835d603888328f5c2bb"
+    file: "data/leaderboard.csv"
+    sha256: "846bb17951ec9f7c103486d7c0344974decd2d57f1039df26f9e84986704da45"
+    license: "not stated in inspected website repository"
+    model_population:
+      leaderboard_profiles: 24
+      legacy_item_level_profiles: 6
+      tasks_per_complete_profile: 40
+    relevance:
+      - "end-to-end cyber CTF capability"
+      - "strongly elicited hazardous capability"
+    limitations:
+      - "Cybench is hazardous-capability evidence, not behavioral safeguard evidence"
+      - "current leaderboard is dominated by API-only models"
+      - "new and legacy result tables use different reported fields"
+      - "agent harness and tool budget are part of the measured profile"
+    audit_status: "machine-readable source inspected and pinned; no admissible safety join"
+
+planned_source_families:
+  - domain: "software_engineering_and_cyber"
+    capability_sources: ["SWE-bench Live", "SWE-Bench Pro", "LiveCodeBench", "BigCodeBench", "Cybench"]
+    safety_sources: ["CyberSecEval 4", "Cybench strong-elicitation", "private cyber set"]
+    audit_status: "audited: 8-checkpoint EvalPlus/Safetywashing exploratory panel; SWE-bench/Cybench need common-harness reruns"
+  - domain: "biology"
+    capability_sources: ["LAB-Bench text subsets", "GPQA biology"]
+    safety_sources: ["WMDP-Bio", "expert uplift evaluations"]
+    audit_status: "audited proxy: MedQA/GPQA against WMDP-Bio and biochemical HarmBench on 26 checkpoints; practical biology reruns pending"
+  - domain: "chemistry"
+    capability_sources: ["ChemBench", "GPQA chemistry"]
+    safety_sources: ["WMDP-Chem", "ChemSafetyBench"]
+    audit_status: "audited proxy: GPQA against WMDP-Chem on 26 checkpoints; ChemBench/ChemSafetyBench overlap reruns pending"
+  - domain: "agents"
+    capability_sources: ["BFCL", "tau-bench", "text-only GAIA"]
+    safety_sources: ["AgentHarm", "AgentDojo"]
+    audit_status: "pending exact-result and overlap audit"
+  - domain: "medicine"
+    capability_sources: ["HealthBench", "clinical reasoning sets"]
+    safety_sources: ["high-acuity and contraindication slices", "MedSafetyBench"]
+    audit_status: "pending exact-result and overlap audit"
+  - domain: "privacy_and_rag"
+    capability_sources: ["RULER", "LongBench text subsets", "retrieval QA"]
+    safety_sources: ["PrivacyLens", "indirect prompt injection", "exfiltration tasks"]
+    audit_status: "pending exact-result and overlap audit"
+  - domain: "multilingual"
+    capability_sources: ["Global MMLU", "MMLU-ProX"]
+    safety_sources: ["XSafety", "MultiJail", "XL-SafetyBench"]
+    audit_status: "pending exact-result and overlap audit"

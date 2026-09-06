@@ -1,0 +1,9 @@
+model,family,code_capability,observed_safety,expected_safety,safety_gap,standardized_gap
+Meta-Llama-3-70B-Instruct,Meta Llama 3,70.500000,66.649658,53.632613,13.017045,0.663910
+Meta-Llama-3-8B-Instruct,Meta Llama 3,55.750000,73.293622,55.826509,17.467113,0.890877
+Mistral-7B-Instruct-v0.2,Mistral/Mixtral,36.500000,43.028126,58.689729,-15.661602,-0.798790
+Mixtral-8x22B-Instruct-v0.1,Mistral/Mixtral,68.150000,40.209375,53.982149,-13.772774,-0.702454
+Mixtral-8x7B-Instruct-v0.1,Mistral/Mixtral,44.650000,44.045544,57.477508,-13.431964,-0.685072
+Qwen1.5-72B-Chat,Qwen 1.5,60.350000,48.278718,55.142311,-6.863593,-0.350065
+gemma-1.1-2b-it,Gemma 1.1,20.500000,68.224640,61.069548,7.155092,0.364932
+gemma-1.1-7b-it,Gemma 1.1,40.200000,70.230080,58.139396,12.090684,0.616662
