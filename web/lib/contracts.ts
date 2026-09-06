@@ -361,3 +361,17 @@ export const voteResultSchema = z.object({
   score: z.number().int(),
   mine: z.number().int().min(-1).max(1),
 });
+
+export const viewerSchema = z.object({
+  signed_in: z.boolean(),
+  user_id: z.string().nullable(),
+  is_admin: z.boolean(),
+});
+
+export const delistResultSchema = z.object({
+  listing_id: z.string(),
+  state: z.string(),
+  already: z.boolean().optional(),
+});
+
+export type Viewer = z.infer<typeof viewerSchema>;

@@ -424,6 +424,22 @@ def create_app(deps: Deps) -> FastAPI:
         """Redistribution terms a seller can attach, and the text a buyer signs."""
         return {"licenses": licensing.catalogue(), "default": licensing.DEFAULT.value}
 
+    @app.get("/v1/me")
+    def whoami(d: D, principal: P) -> dict:
+        """Who the caller is, as the server sees them.
+
+        The client cannot work this out for itself: admin comes from a signed
+        claim or a deployment list, and an interface that guessed would either
+        hide controls from someone who has them or show controls that 403.
+        """
+        if principal is None:
+            return {"signed_in": False, "user_id": None, "is_admin": False}
+        return {
+            "signed_in": True,
+            "user_id": principal.user_id,
+            "is_admin": principal.is_admin,
+        }
+
     @app.get("/v1/tags")
     def tags() -> dict:
         """Finite listing facets accepted by create and update operations."""

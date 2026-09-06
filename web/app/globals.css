@@ -627,3 +627,8 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .vote-score { min-width: 18px; font-size: 13px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
 .vote-group.compact .vote-score { font-size: 12px; }
 .vote-signin { color: var(--muted); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Admin controls sit last in the purchase panel and are visually quieter than
+   the buy action: a destructive control should not be where a hand lands. */
+.admin-actions { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+.admin-actions .field-label { display: block; margin-bottom: 10px; }

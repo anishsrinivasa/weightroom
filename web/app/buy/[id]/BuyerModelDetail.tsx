@@ -15,11 +15,14 @@ import {
   orderConfirmedSchema,
   purchaseSchema,
   tagCatalogueSchema,
+  viewerSchema,
+  delistResultSchema,
   type Benchmark,
   type Charge,
   type ListingDetail,
   type Purchase,
   type TagCatalogue,
+  type Viewer,
 } from "@/lib/contracts";
 import { formatDate, formatUsdc } from "@/lib/display";
 
@@ -39,6 +42,8 @@ export function BuyerModelDetail({ id }: { id: string }) {
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [delisting, setDelisting] = useState(false);
   const confirmationStarted = useRef(false);
 
   const load = useCallback(async () => {
@@ -63,6 +68,15 @@ export function BuyerModelDetail({ id }: { id: string }) {
   useEffect(() => {
     queueMicrotask(() => void load());
   }, [load]);
+
+  useEffect(() => {
+    // Whether this account is an admin is the server's answer, not something
+    // the client can infer. Failing quietly leaves the controls hidden, which
+    // is the safe direction.
+    void keystoneRequest("/v1/me", viewerSchema)
+      .then(setViewer)
+      .catch(() => undefined);
+  }, []);
 
   const chargeId = charge?.charge_id;
   const settled = charge?.settled;
@@ -162,6 +176,23 @@ export function BuyerModelDetail({ id }: { id: string }) {
     }
   }
 
+  async function delist() {
+    setDelisting(true);
+    setError(null);
+    try {
+      await keystoneRequest(
+        `/v1/admin/listings/${encodeURIComponent(id)}/delist`,
+        delistResultSchema,
+        { method: "POST" },
+      );
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not remove this listing");
+    } finally {
+      setDelisting(false);
+    }
+  }
+
   async function copyAddress() {
     if (!charge) return;
     await navigator.clipboard.writeText(charge.address);
@@ -257,6 +288,23 @@ export function BuyerModelDetail({ id }: { id: string }) {
             </>
           )}
 
+          {viewer?.is_admin ? (
+            <div className="admin-actions">
+              <span className="field-label">Admin</span>
+              <button
+                className="button quiet full-width"
+                type="button"
+                disabled={delisting}
+                onClick={() => void delist()}
+              >
+                {delisting ? "Removing…" : "Remove from marketplace"}
+              </button>
+              <p className="license-note">
+                Hides the model from buyers. The listing and its records are
+                kept, and it can be published again.
+              </p>
+            </div>
+          ) : null}
         </aside>
       </div>
 
