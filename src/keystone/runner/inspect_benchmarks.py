@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from keystone.public_benchmarks import BY_ID, sample_task_ids
+from keystone.public_benchmarks import BY_ID, TASK_SAMPLE_SIZE, sample_task_ids
 from keystone.schema import Status, SuiteResult
 
 SWE_BENCH_VERIFIED_REVISION = "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
@@ -118,8 +118,9 @@ def run_swe_bench_verified(
     *,
     served_model_name: str,
     artifact_digest: str,
+    dataset_file: Path,
     log_dir: Path,
-    max_samples: int = 8,
+    max_samples: int = TASK_SAMPLE_SIZE,
 ) -> SuiteResult:
     """Run a deterministic 100-task SWE-bench Verified sample.
 
@@ -135,9 +136,14 @@ def run_swe_bench_verified(
     started = time.monotonic()
     benchmark = BY_ID["swe_bench_verified"]
     task = swe_bench(
+        dataset=str(dataset_file),
+        split="train",
         sandbox_type="modal",
         allow_internet=False,
-        revision=SWE_BENCH_VERIFIED_REVISION,
+        # A local JSONL snapshot was produced from this pinned revision during
+        # prefetch. Passing a revision here forces Inspect to revalidate with
+        # the Hub, which is deliberately unavailable during evaluation.
+        revision=None,
         # inspect-evals 0.19.0 still emits the legacy
         # ``x-inspect_modal_sandbox`` extension. inspect-sandboxes 0.5.0 uses
         # ``x-modal`` and also understands Docker's network_mode, so supply the
@@ -149,7 +155,7 @@ def run_swe_bench_verified(
         available_ids,
         artifact_digest=artifact_digest,
         suite_id=benchmark.suite_id,
-    )
+    )[:max_samples]
     logs = inspect_eval(
         task,
         model=f"openai-api/keystone/{served_model_name}",
@@ -245,7 +251,9 @@ def _inspect_model_args(served_model_name: str) -> dict[str, Any]:
     }
 
 
-def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
+def smoke_agent_sandboxes(
+    *, harvey_root: Path, swe_dataset_file: Path
+) -> dict[str, str]:
     """Build and execute every agent-benchmark sandbox without a model."""
     import inspect_sandboxes.modal  # noqa: F401
     from inspect_ai import Task
@@ -254,6 +262,7 @@ def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
     from inspect_ai.solver import Generate, Solver, TaskState, solver
     from inspect_ai.util import SandboxEnvironmentSpec, sandbox
     import inspect_evals.gdpval as gdpval_package
+    from inspect_evals.swe_bench import swe_bench
 
     @solver
     def sandbox_probe(required_dir: str) -> Solver:
@@ -288,22 +297,20 @@ def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
         )
         for suite_id, dockerfile in dockerfiles.items()
     }
-    # This instance is the maintained Inspect adapter's own documented example.
-    # Pulling its real Epoch image proves registry, architecture, /testbed, and
-    # network-isolation behavior before a paid 100-task run begins.
-    swe_sample = Sample(
-        id="django__django-11039",
-        input="sandbox smoke test",
-        target="NONE",
-        metadata={
-            "image_name": (
-                "ghcr.io/epoch-research/"
-                "swe-bench.eval.x86_64.django__django-11039:latest"
-            )
-        },
+    # Construct the maintained task from the exact offline snapshot used in a
+    # paid run. This catches both dataset-cache regressions and sandbox-image
+    # regressions before a seller is charged.
+    swe_task = swe_bench(
+        dataset=str(swe_dataset_file),
+        split="train",
+        sandbox_type="modal",
+        allow_internet=False,
+        revision=None,
+        sandbox_config=_swe_modal_sandbox_spec,
     )
+    swe_sample = next(iter(swe_task.dataset))
     cases["swe_bench_verified"] = (
-        _swe_modal_sandbox_spec("modal", swe_sample),
+        swe_sample.sandbox,
         "/testbed",
     )
 
@@ -334,31 +341,38 @@ def run_gdpval_generation(
     served_model_name: str,
     artifact_digest: str,
     dataset_root: Path,
+    dataset_file: Path,
     log_dir: Path,
-    max_samples: int = 4,
+    max_samples: int = TASK_SAMPLE_SIZE,
 ) -> PendingRubricRun:
     """Generate GDPval work products in the maintained Inspect sandbox."""
     import inspect_sandboxes.modal  # noqa: F401
     from datasets import load_dataset
+    import importlib
     from inspect_ai import eval as inspect_eval
     from inspect_ai.util import SandboxEnvironmentSpec
-    from inspect_evals.gdpval import gdpval
     import inspect_evals.gdpval as gdpval_package
 
     started = time.monotonic()
     benchmark = BY_ID["gdpval"]
-    task = gdpval(upload_to_hf=False)
+    # The maintained adapter hardcodes the Hub repository. Redirect its loader
+    # to the pinned local JSONL snapshot before constructing the task so the
+    # trusted controller can remain offline with respect to dataset sources.
+    gdpval_util = importlib.import_module("inspect_evals.gdpval.util")
+    gdpval_task_module = importlib.import_module("inspect_evals.gdpval.gdpval")
+    gdpval_util.HF_DATASET_PATH = str(dataset_file)
+    gdpval_util.GDPVAL_DATASET_REVISION = None
+    task = gdpval_task_module.gdpval(upload_to_hf=False)
     available_ids = [str(sample.id) for sample in task.dataset]
     chosen = sample_task_ids(
         available_ids,
         artifact_digest=artifact_digest,
         suite_id=benchmark.suite_id,
-    )
+    )[:max_samples]
 
     raw_rows = load_dataset(
-        "openai/gdpval",
+        str(dataset_file),
         split="train",
-        revision=GDPVAL_REVISION,
     )
     raw_by_id = {str(row["task_id"]): dict(row) for row in raw_rows}
     chosen_set = set(chosen)
@@ -493,7 +507,7 @@ def run_harvey_lab_generation(
     artifact_digest: str,
     dataset_root: Path,
     log_dir: Path,
-    max_samples: int = 4,
+    max_samples: int = TASK_SAMPLE_SIZE,
 ) -> PendingRubricRun:
     """Run 100 pinned Harvey LAB tasks with its files and public rubrics."""
     import inspect_sandboxes.modal  # noqa: F401
@@ -516,7 +530,7 @@ def run_harvey_lab_generation(
         available_ids,
         artifact_digest=artifact_digest,
         suite_id=benchmark.suite_id,
-    )
+    )[:max_samples]
     task_file_by_id = dict(zip(available_ids, task_files))
     rows: dict[str, dict[str, Any]] = {}
     samples: list[Sample] = []

@@ -144,11 +144,13 @@ def test_swe_adapter_invokes_inspect_and_returns_result(tmp_path, monkeypatch) -
     result = run_swe_bench_verified(
         served_model_name="uploaded-model",
         artifact_digest="a" * 64,
+        dataset_file=tmp_path / "swe.jsonl",
         log_dir=tmp_path,
         max_samples=2,
     )
 
     assert captured["task"] is task
+    assert captured["kwargs"]["max_samples"] == 2
     assert captured["kwargs"]["sample_id"] == ["task-1", "task-2"]
     assert captured["kwargs"]["sandbox_cleanup"] is True
     assert result.status is Status.PASS
