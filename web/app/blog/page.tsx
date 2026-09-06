@@ -25,10 +25,10 @@ export default function BlogIndex() {
             <time dateTime="2026-09-06">September 6, 2026</time>
           </div>
           <div className="research-card-copy">
-            <h2>Building private safety evaluations that scale with model capability</h2>
+            <h2>How we built Weightroom&apos;s private safety evaluation pipeline</h2>
             <p>
-              How Weightroom built custom held-out datasets, a constrained synthetic-data
-              pipeline, and a statistical gate that gets stricter as capability rises.
+              Three held-out domain datasets, 2,932 private elicitation variants, and the
+              capability-conditioned gate that turns their results into a release decision.
             </p>
           </div>
           <span className="research-card-arrow" aria-hidden="true">→</span>
