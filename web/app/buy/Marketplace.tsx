@@ -173,7 +173,7 @@ export function Marketplace() {
                 {filtersActive ? <span className="result-count">{visible.length} {visible.length === 1 ? "result" : "results"}</span> : null}
               </div>
               {visible.length ? <div className="model-grid">{visible.map((listing) => <ModelCard key={listing.listing_id} listing={listing} tags={tags} />)}</div> : (
-                <div className="catalogue-empty"><h3>No models match these filters.</h3><p>Try adjusting a benchmark threshold or clearing a tag.</p><button className="button" type="button" onClick={clearFilters}>Clear filters</button></div>
+                <div className="catalogue-empty"><h3>No models match these filters.</h3><button className="button" type="button" onClick={clearFilters}>Clear filters</button></div>
               )}
             </section>
           </div>
