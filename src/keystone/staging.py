@@ -34,6 +34,8 @@ from pathlib import Path
 from keystone.generation import (
     ELICITATION_TRANSFORMS,
     FRAMING_COUNT,
+    LEGAL_FRAMING_COUNT,
+    LEGAL_TRANSFORMS,
     PROBE_TRANSFORMS,
     expand,
     rotate,
@@ -69,6 +71,25 @@ HARMBENCH_BIO_DIGEST = "1c80f74efd33e3097a27b657a83db2493e0d1263d64cb3429b0c9c0f
 HARMBENCH_CODING_CATEGORY = "cybercrime_intrusion"
 HARMBENCH_CODING_UPSTREAM = 40
 HARMBENCH_CODING_DIGEST = "ba0e64d1b342b32f2d880d0477b626d63ffb55955257941399b02f1cddf84c78"
+
+# LegalBench, three tasks that are genuinely binary. Harvey's BigLaw Bench is
+# largely proprietary, so it cannot be a probe we run ourselves.
+#
+# Binary, so guessing pays 50% rather than 25%. That is not a detail: a
+# coin-flipper scored against a four-way floor would be credited with a quarter
+# of a capability band it does not have, and held to a stricter safety bar for
+# knowledge it lacks.
+LEGALBENCH_TASKS = (
+    ("consumer_contracts_qa", "contract", "question"),
+    ("contract_qa", "text", "question"),
+    ("citation_prediction_classification", "text", "citation"),
+)
+LEGALBENCH_UPSTREAM = 584
+LEGALBENCH_DIGEST = "1c5c6c6105e96a7626d9620a4e773a3d124586972d1ec907a5d766fdc4eea4c0"
+
+HARMBENCH_LEGAL_CATEGORY = "illegal"
+HARMBENCH_LEGAL_UPSTREAM = 58
+HARMBENCH_LEGAL_DIGEST = "edf0ce2eb98abd89c71bff86c199f886f25022e0f61101d9da6ef11c71d17fe1"
 
 SWEBENCH_UPSTREAM = 500
 SWEBENCH_DIGEST = "80adb05aa656993581710315ca93fb6823a4ee04599f23ae09a554fffded20f3"
@@ -304,6 +325,77 @@ def _download_harmbench_coding() -> list[dict]:
     return behaviours
 
 
+def _download_legalbench() -> list[dict]:
+    """Binary legal-reasoning questions, pooled across several LegalBench tasks.
+
+    Pooled rather than drawn from one task so the probe measures legal
+    reasoning broadly instead of one narrow skill -- a model good at consumer
+    contracts and hopeless at citation validity should not read as uniformly
+    capable.
+    """
+    items: list[dict] = []
+    for task, context_key, question_key in LEGALBENCH_TASKS:
+        offset = 0
+        while True:
+            url = (
+                f"{_VIEWER}?dataset=nguha%2Flegalbench&config={task}"
+                f"&split=test&offset={offset}&length={_PAGE}"
+            )
+            page = json.loads(_get(url))
+            batch = page.get("rows", [])
+            if not batch:
+                break
+            for entry in batch:
+                row = entry["row"]
+                answer = str(row.get("answer", "")).strip()
+                if answer not in ("Yes", "No"):
+                    continue  # non-binary task rows are dropped, not coerced
+                items.append({
+                    "task": task,
+                    "context": str(row.get(context_key) or ""),
+                    "query": str(row.get(question_key) or ""),
+                    "answer_text": answer,
+                })
+            offset += len(batch)
+            if offset >= page.get("num_rows_total", offset):
+                break
+    return items
+
+
+def fetch_legalbench() -> list[dict]:
+    return _cached("legalbench", _download_legalbench)
+
+
+def legalbench_questions(rows: list[dict]) -> list[dict]:
+    """Yes/No items in the shared MCQ shape."""
+    out: list[dict] = []
+    for row in rows:
+        context = _clip(row["context"], _STATEMENT_CHARS)
+        query = row["query"].strip()
+        stem = f"{context}" + (chr(10) * 2) + f"{query}" if context else query
+        out.append({
+            "question": stem,
+            "choices": ["Yes", "No"],
+            "answer": 0 if row["answer_text"] == "Yes" else 1,
+            "task": row["task"],
+        })
+    return out
+
+
+def fetch_harmbench_legal() -> list[dict]:
+    return _cached(f"harmbench-{HARMBENCH_LEGAL_CATEGORY}", _download_harmbench_legal)
+
+
+def _download_harmbench_legal() -> list[dict]:
+    behaviours = _harmbench_slice(HARMBENCH_LEGAL_CATEGORY)
+    if len(behaviours) != HARMBENCH_LEGAL_UPSTREAM:
+        raise RuntimeError(
+            f"HarmBench/{HARMBENCH_LEGAL_CATEGORY}: expected "
+            f"{HARMBENCH_LEGAL_UPSTREAM} behaviours, got {len(behaviours)}"
+        )
+    return behaviours
+
+
 def _check(name: str, items: list[dict], expected_n: int, expected_digest: str) -> str:
     found = digest_of(items)
     if len(items) != expected_n:
@@ -322,10 +414,14 @@ def _check(name: str, items: list[dict], expected_n: int, expected_digest: str) 
 
 def variant_pool_size(suite_id: str, pool: list[dict]) -> int:
     """How many distinct items this source can ever produce."""
+    if suite_id == "legal_elicitation":
+        return len(expand(pool, LEGAL_TRANSFORMS, variants=LEGAL_FRAMING_COUNT))
     if suite_id.endswith("_elicitation"):
         return len(expand(pool, ELICITATION_TRANSFORMS, variants=FRAMING_COUNT))
     if suite_id == "coding_probe":
         return len(swebench_questions(pool))
+    if suite_id == "legal_probe":
+        return len(legalbench_questions(pool))
     return len(pool)
 
 
@@ -364,6 +460,15 @@ def build_coding_probe_set(pool: list[dict], rotation: int) -> list[dict]:
     return rotate(swebench_questions(pool), SET_SIZE, rotation)
 
 
+def build_legal_probe_set(pool: list[dict], rotation: int) -> list[dict]:
+    return rotate(legalbench_questions(pool), SET_SIZE, rotation)
+
+
+def build_legal_elicitation_set(pool: list[dict], rotation: int) -> list[dict]:
+    expanded = expand(pool, LEGAL_TRANSFORMS, variants=LEGAL_FRAMING_COUNT)
+    return rotate(expanded, SET_SIZE, rotation)
+
+
 def build_elicitation_set(pool: list[dict], rotation: int) -> list[dict]:
     """Expand, because the pool is smaller than the target.
 
@@ -397,6 +502,20 @@ _SETS = (
         fetch_harmbench_coding,
         build_elicitation_set,
         HARMBENCH_CODING_DIGEST,
+    ),
+    (
+        "legal_probe",
+        "LegalBench",
+        fetch_legalbench,
+        build_legal_probe_set,
+        LEGALBENCH_DIGEST,
+    ),
+    (
+        "legal_elicitation",
+        f"HarmBench/{HARMBENCH_LEGAL_CATEGORY}",
+        fetch_harmbench_legal,
+        build_legal_elicitation_set,
+        HARMBENCH_LEGAL_DIGEST,
     ),
 )
 

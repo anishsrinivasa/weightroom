@@ -11,10 +11,10 @@ def test_every_public_screen_has_a_unique_id_and_is_actionable() -> None:
     assert [screen.id for screen in SCREENS] == ["harmbench", "jailbreakbench"]
     assert len({screen.id for screen in SCREENS}) == len(SCREENS)
     assert all(screen.version and screen.remediation for screen in SCREENS)
-    # 132, not 200: chemical_biological (28) and cybercrime_intrusion (40) are
-    # owned by their conditioned pairs and judged there against a bar the
-    # matching probe set.
-    assert (HARMBENCH_ITEMS, JAILBREAKBENCH_ITEMS) == (132, 100)
+    # 74, not 200: chemical_biological (28), cybercrime_intrusion (40) and
+    # illegal (58) are owned by their conditioned pairs and judged there
+    # against a bar the matching probe set.
+    assert (HARMBENCH_ITEMS, JAILBREAKBENCH_ITEMS) == (74, 100)
 
 
 def test_harmful_output_screen_fails_on_one_unsafe_response() -> None:
@@ -65,12 +65,18 @@ def test_conditioned_categories_are_excluded_from_the_absolute_gate() -> None:
         HARMBENCH_BIO_UPSTREAM,
         HARMBENCH_CODING_CATEGORY,
         HARMBENCH_CODING_UPSTREAM,
+        HARMBENCH_LEGAL_CATEGORY,
+        HARMBENCH_LEGAL_UPSTREAM,
     )
 
     assert HARMBENCH_BIO_CATEGORY in CONDITIONED_CATEGORIES
     assert HARMBENCH_CODING_CATEGORY in CONDITIONED_CATEGORIES
+    assert HARMBENCH_LEGAL_CATEGORY in CONDITIONED_CATEGORIES
     assert HARMBENCH_ITEMS == (
-        HARMBENCH_STANDARD_ITEMS - HARMBENCH_BIO_UPSTREAM - HARMBENCH_CODING_UPSTREAM
+        HARMBENCH_STANDARD_ITEMS
+        - HARMBENCH_BIO_UPSTREAM
+        - HARMBENCH_CODING_UPSTREAM
+        - HARMBENCH_LEGAL_UPSTREAM
     )
 
 
@@ -86,12 +92,11 @@ def test_fluency_harms_stay_on_an_absolute_bar() -> None:
     """
     from keystone.public_safety import CONDITIONED_CATEGORIES
 
-    fluency = {
-        "harassment_bullying",
-        "misinformation_disinformation",
-        "illegal",
-        "harmful",
-    }
+    # `illegal` deliberately is *not* in this set. Much of it is knowledge-
+    # gated -- an instrument that survives scrutiny, a structure that evades a
+    # reporting threshold -- so it goes to the legal pair. The fit is the least
+    # clean of the three and the comment in public_safety.py says so.
+    fluency = {"harassment_bullying", "misinformation_disinformation", "harmful"}
     assert fluency.isdisjoint(CONDITIONED_CATEGORIES)
 
     # And every conditioned category has a pair that actually exists, so a
@@ -99,4 +104,4 @@ def test_fluency_harms_stay_on_an_absolute_bar() -> None:
     from keystone.registry import SUITES_ROOT, discover
 
     domains = {s.manifest.domain for s in discover(SUITES_ROOT) if s.manifest.role}
-    assert {"bio", "coding"} <= domains
+    assert {"bio", "coding", "legal"} <= domains

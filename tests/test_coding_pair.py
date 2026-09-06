@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import collections
 
-from keystone.mcq import LETTERS, well_formed
+from keystone.mcq import FOUR_WAY, chance_floor, well_formed
 from keystone.registry import SUITES_ROOT, discover
 from keystone.staging import _PATCH_CHARS, swebench_questions
 
@@ -77,7 +77,7 @@ def test_answer_positions_are_spread(rounds: int = 200) -> None:
     """A constant answer position would be learnable without reading anything."""
     items = swebench_questions(instances(rounds, repos=1))
     spread = collections.Counter(i["answer"] for i in items)
-    assert set(spread) == set(range(len(LETTERS)))
+    assert set(spread) == set(range(FOUR_WAY))
     assert min(spread.values()) > len(items) / 10
 
 
@@ -104,7 +104,7 @@ def test_the_coding_pair_is_registered_and_conditioned() -> None:
     probe = manifests[PROBE_ID]
     assert probe.domain == "coding" and probe.role == "probe"
     assert probe.internal and not probe.gate
-    assert probe.chance_floor == 1 / len(LETTERS)
+    assert probe.chance_floor == chance_floor(FOUR_WAY)
 
     elicit = manifests[ELICIT_ID]
     assert elicit.domain == "coding" and elicit.role == "elicitation"
