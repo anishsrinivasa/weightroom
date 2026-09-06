@@ -6,6 +6,8 @@ RUN npm ci
 FROM node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG NEXT_PUBLIC_ENABLE_DEMO_PAYMENT=false
+ENV NEXT_PUBLIC_ENABLE_DEMO_PAYMENT=$NEXT_PUBLIC_ENABLE_DEMO_PAYMENT
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

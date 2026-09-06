@@ -4,6 +4,9 @@ primary_region = "ewr"
 [build]
   dockerfile = "Dockerfile"
 
+  [build.args]
+    NEXT_PUBLIC_ENABLE_DEMO_PAYMENT = "true"
+
 [env]
   KEYSTONE_API_URL = "http://api.process.weightroom-gvelamoor-core.internal:8000"
   KEYSTONE_SESSION_COOKIE = "keystone_access_token"
