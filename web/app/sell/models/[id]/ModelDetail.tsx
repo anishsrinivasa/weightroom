@@ -259,12 +259,18 @@ export function ModelDetail({ id }: { id: string }) {
             {selectedBenchmarkIds.length ? selectedBenchmarkIds.map((suiteId) => {
               const result = reportedBenchmarksById.get(suiteId);
               const score = result?.score == null ? null : Math.round(result.score * 100);
+              const status = result && !result.declined ? result.status : "pending";
               const value = score == null
-                ? result?.score_band || (result && !result.declined ? result.status : "Pending")
+                ? result?.score_band || status
                 : `${score}%`;
               return (
                 <div className="benchmark-row" key={suiteId}>
-                  <div><span>{result?.display_name || benchmarkNames[suiteId] || suiteId}</span><strong>{value}</strong></div>
+                  <div>
+                    <span>{result?.display_name || benchmarkNames[suiteId] || suiteId}</span>
+                    {score == null && !result?.score_band
+                      ? <GatePill status={status} />
+                      : <strong>{value}</strong>}
+                  </div>
                   <div className="score-track" aria-hidden="true"><span style={{ width: score == null ? 0 : `${score}%` }} /></div>
                 </div>
               );
