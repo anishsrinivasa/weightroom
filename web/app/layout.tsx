@@ -6,7 +6,7 @@ import { Header } from "@/components/Header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Seller Studio", template: "%s · Weightroom" },
+  title: { default: "Weightroom", template: "%s · Weightroom" },
   description: "Submit, independently evaluate, and publish open-weight language models.",
   robots: { index: false, follow: false },
 };

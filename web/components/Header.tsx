@@ -14,9 +14,10 @@ export function Header() {
   return (
     <header className="site-header">
       <div className="shell header-inner">
-        <Link href="/models" className="brand" aria-label="Weightroom Seller Studio home">
+        <Link href="/models" className="brand" aria-label="Weightroom home">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="brand-mark" src="/logo.png" alt="" width={26} height={26} />
           <strong>Weightroom</strong>
-          <span>Seller Studio</span>
         </Link>
         <nav aria-label="Seller navigation">
           {links.map((link) => (
@@ -30,10 +31,6 @@ export function Header() {
             </Link>
           ))}
         </nav>
-        <div className="session-indicator" title="Authentication is handled by the secure server session">
-          <span aria-hidden="true" />
-          Seller account
-        </div>
       </div>
     </header>
   );

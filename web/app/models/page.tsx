@@ -25,15 +25,13 @@ export default function ModelsPage() {
   const [models, setModels] = useState<ListingSummary[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestInFlight = useRef(false);
 
   const load = useCallback(async (background = false) => {
     if (requestInFlight.current) return;
     requestInFlight.current = true;
-    if (background) setRefreshing(true);
-    else setLoading(true);
+    if (!background) setLoading(true);
     try {
       const data = await keystoneRequest("/v1/seller/listings", sellerListingsSchema);
       setModels(data.listings);
@@ -42,7 +40,6 @@ export default function ModelsPage() {
       setError(caught instanceof Error ? caught.message : "Unknown request error");
     } finally {
       setLoading(false);
-      setRefreshing(false);
       requestInFlight.current = false;
     }
   }, []);
@@ -80,12 +77,9 @@ export default function ModelsPage() {
 
   return (
     <>
-      <section className="hero-row">
-        {/* Heading kept for document structure and screen readers; the page
-            leads with the inventory itself rather than a display title. */}
-        <h1 className="sr-only">Your open-weight models</h1>
-        <Link className="button primary" href="/submit">Submit a model <span aria-hidden="true">→</span></Link>
-      </section>
+      {/* Heading kept for document structure and screen readers; the page
+          leads with the inventory itself rather than a display title. */}
+      <h1 className="sr-only">Your open-weight models</h1>
 
       <section className="stats-grid" aria-label="Inventory summary">
         <Stat value={loading ? "—" : stats.total} label="Total submissions" />
@@ -96,14 +90,8 @@ export default function ModelsPage() {
 
       <section aria-labelledby="inventory-title">
         <div className="section-heading">
-          <div>
-            <h2 id="inventory-title">Model inventory</h2>
-            {hasActiveEvaluation ? (
-              <p className="refresh-note" aria-live="polite">
-                {refreshing ? "Checking evaluation status…" : "Evaluation status updates automatically."}
-              </p>
-            ) : null}
-          </div>
+          <h2 id="inventory-title">Model inventory</h2>
+          <div className="heading-actions">
           <label className="sr-only" htmlFor="model-filter">Filter models</label>
           <select
             id="model-filter"
@@ -117,6 +105,8 @@ export default function ModelsPage() {
             <option value="evaluating">In evaluation</option>
             <option value="rejected">Not verified</option>
           </select>
+          <Link className="button primary" href="/submit">Submit a model <span aria-hidden="true">→</span></Link>
+          </div>
         </div>
 
         {error ? <ErrorPanel message={error} retry={() => void load()} /> : null}
