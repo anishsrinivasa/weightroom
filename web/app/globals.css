@@ -510,3 +510,12 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
   .gate-symbol.loading { animation: none; border-color: var(--ink); }
 }
+
+/* Account controls sit opposite the nav, so the header reads brand -> where
+   you can go -> who you are. */
+.header-account { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.header-account .button { padding: 7px 14px; font-size: 12px; }
+@media (max-width: 640px) {
+  .header-account { gap: 8px; }
+  .header-account .text-button { display: none; }
+}

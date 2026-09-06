@@ -8,6 +8,12 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_ENABLE_DEMO_PAYMENT=false
 ENV NEXT_PUBLIC_ENABLE_DEMO_PAYMENT=$NEXT_PUBLIC_ENABLE_DEMO_PAYMENT
+# Compiled into the client bundle by `next build`, so it has to exist at build
+# time. Supplied as a runtime secret it arrives after the bundle is already
+# produced, and Clerk initialises with no key -- every sign-in control then
+# fails to render, silently.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=""
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

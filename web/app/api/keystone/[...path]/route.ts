@@ -33,6 +33,15 @@ export function accessToken(request: NextRequest): string | null {
   const incoming = request.headers.get("authorization");
   if (incoming?.toLowerCase().startsWith("bearer ")) return incoming.slice(7).trim();
 
+  // Clerk's `__session` cookie is the session JWT itself, signed by Clerk and
+  // verified by the API against Clerk's JWKS. Forwarding it means the browser
+  // never holds an API credential of its own, and no client code has to
+  // remember to attach one -- a call that forgets is anonymous rather than
+  // wrongly privileged. Ahead of the configured cookie so a signed-in visitor
+  // is themselves rather than whoever a stale demo token names.
+  const clerkSession = request.cookies.get("__session")?.value;
+  if (clerkSession) return clerkSession;
+
   const cookieName = process.env.KEYSTONE_SESSION_COOKIE || "keystone_access_token";
   const cookieToken = request.cookies.get(cookieName)?.value;
   if (cookieToken) return cookieToken;

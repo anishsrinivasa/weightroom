@@ -79,6 +79,13 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
         with:
           version: 0.4.99
-      - run: flyctl deploy --config fly.toml --remote-only --yes
+      # NEXT_PUBLIC_* is compiled into the client bundle, so it has to exist
+      # at build time. A Fly secret arrives when the container starts, which is
+      # after the bundle was already produced -- Clerk would then initialise
+      # with no key and every sign-in control would silently fail to render.
+      - run: >
+          flyctl deploy --config fly.toml --remote-only --yes
+          --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_WEB_API_TOKEN }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}

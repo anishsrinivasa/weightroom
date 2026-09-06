@@ -2,6 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/nextjs";
 
 const links = [
   { href: "/buy", label: "Buy models", shortLabel: "Buy" },
@@ -33,6 +40,22 @@ export function Header() {
             </Link>
           ))}
         </nav>
+        {/* Listing, buying and voting all require an account, so the way to
+            get one is in the chrome rather than discovered at the point of
+            being refused. */}
+        <div className="header-account">
+          <SignedOut>
+            <SignInButton mode="modal">
+              <button className="text-button" type="button">Sign in</button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <button className="button" type="button">Create account</button>
+            </SignUpButton>
+          </SignedOut>
+          <SignedIn>
+            <UserButton />
+          </SignedIn>
+        </div>
       </div>
     </header>
   );
