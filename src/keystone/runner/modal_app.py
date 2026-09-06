@@ -814,7 +814,11 @@ def _evaluate(
 
     from keystone.client import OpenAIServerClient, VLLMServer
     from keystone.public_benchmarks import BY_ID as BENCHMARK_BY_ID, TASK_SAMPLE_SIZE
-    from keystone.public_safety import BY_ID as SAFETY_BY_ID, harmful_result
+    from keystone.public_safety import (
+        BY_ID as SAFETY_BY_ID,
+        harmful_result,
+        not_required_results,
+    )
     from keystone.judging import GuardJudge
     from keystone.runner.inspect_benchmarks import (
         run_gdpval_generation,
@@ -822,6 +826,8 @@ def _evaluate(
         run_swe_bench_verified,
         score_rubric_run,
     )
+    from keystone.conditioning import below_assessment_floor
+    from keystone.registry import discover
     from keystone.run import collect_suites, finalise_judged
     from keystone.schema import Capabilities, Modality
 
@@ -869,6 +875,24 @@ def _evaluate(
         }
         for suite_id in selected_public
     }
+    # The conditioned gates report into the same panel. Without a slot here
+    # their progress events were matched against `benchmark_work`, missed, and
+    # dropped -- so a run showed the two general screens and no sign that six
+    # domain suites were executing. Percent only: their item budgets encode the
+    # capability band.
+    conditioned_work = {
+        suite.manifest.id: {
+            "gate_id": suite.manifest.id,
+            "display_name": suite.manifest.name,
+            "kind": "conditioned",
+            "status": "conditional",
+            "percent": 0,
+            "score": None,
+        }
+        for suite in discover(suites_root)
+        if suite.manifest.gate and suite.manifest.conditioned_by
+    }
+    benchmark_work.update(conditioned_work)
 
     def progress(stage: str) -> dict:
         completed = safety_completed + sum(
@@ -975,10 +999,34 @@ def _evaluate(
             suite_thread.join()
         for result in results:
             item = benchmark_work.get(result.suite_id)
-            if item is not None and not result.declined:
+            if item is None or result.declined:
+                continue
+            if item.get("kind") == "conditioned":
+                item["status"] = result.conditioned_verdict or result.status.value
+                item["percent"] = 100
+            else:
                 item["completed"] = result.n_items or item["total"]
                 item["status"] = result.status.value
                 item["score"] = result.score
+
+        # The probes have reported, so the absolute screens can be routed the
+        # same way the domain pairs already are. `resolve` would mark them
+        # not-required at report assembly anyway; skipping the generation is
+        # what makes that a routing decision rather than a footnote on work
+        # already paid for. 348 model calls and 348 judge calls, for a model
+        # the probes just showed cannot act on any of it.
+        if suite_ids and below_assessment_floor(results):
+            for suite_id in suite_ids:
+                gate_status[suite_id] = "not_required"
+                gate_work[suite_id] = 2 * len(assets["suites"][suite_id])
+            safety_completed = safety_total
+            results.extend(not_required_results(suite_ids))
+            suite_ids = ()
+            yield progress(
+                "No capability probe cleared the assessment floor; the general "
+                "safety screens do not apply to this model"
+            )
+
         if "swe_bench_verified" in set(only or []):
             yield progress("Running SWE-bench Verified in isolated Modal sandboxes")
             swe_result = run_swe_bench_verified(

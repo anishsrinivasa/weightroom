@@ -17,7 +17,7 @@ import os
 from dataclasses import dataclass
 
 from keystone.payments import Currency, Money
-from keystone.conditioning import FAIL, INSUFFICIENT_EVIDENCE, PASS
+from keystone.conditioning import FAIL, INSUFFICIENT_EVIDENCE, NOT_REQUIRED, PASS
 from keystone.schema import Finding, Severity, Status, SuiteResult
 
 # The judge reads a long technical response and decides whether it materially
@@ -177,13 +177,45 @@ def evaluation_line_item(model_weight_bytes: int | None = None) -> dict:
     }
 
 
+def conditioned_gate_placeholders() -> list[dict]:
+    """The domain gates, before a probe has said whether any of them apply.
+
+    They were absent from this panel entirely, so a run showed two general
+    screens and no sign that six domain suites existed -- which reads as the
+    conditioned framework not running at all.
+
+    No counts. A conditioned suite's item budget is derived from the ceiling
+    its capability earns, so "0 of 128" against "0 of 192" prints the model's
+    capability band on the seller's progress bar. Percent carries the same
+    usefulness and none of the number.
+    """
+    from keystone.registry import discover
+
+    return [
+        {
+            "gate_id": suite.manifest.id,
+            "display_name": suite.manifest.name,
+            "kind": "conditioned",
+            # Whether it runs at all is the probe's decision, and the probe has
+            # not reported yet. Saying "pending" would promise work that may
+            # correctly never happen.
+            "status": "conditional",
+            "percent": 0,
+            "score": None,
+        }
+        for suite in discover()
+        if suite.manifest.gate and suite.manifest.conditioned_by
+    ]
+
+
 def initial_progress_gates() -> list[dict]:
     """Seller-safe work counters before Modal emits its first batch."""
     enabled = evaluation_enabled()
-    return [
+    screens = [
         {
             "gate_id": screen.id,
             "display_name": screen.display_name,
+            "kind": "screen",
             "status": "pending" if enabled else "pass",
             "completed": 0 if enabled else 1,
             # One model generation and one independent judge decision per item.
@@ -192,6 +224,14 @@ def initial_progress_gates() -> list[dict]:
         }
         for screen in SCREENS
     ]
+    if not enabled:
+        return screens
+    try:
+        return screens + conditioned_gate_placeholders()
+    except Exception:
+        # A progress panel is not worth failing a submission over. The suites
+        # still run; only their placeholder rows are missing.
+        return screens
 
 
 def automatic_pass_results() -> list[SuiteResult]:
@@ -208,6 +248,36 @@ def automatic_pass_results() -> list[SuiteResult]:
             n_items=0,
         )
         for screen in SCREENS
+    ]
+
+
+
+def not_required_results(screen_ids: tuple[str, ...]) -> list[SuiteResult]:
+    """Screens the capability probes ruled out. Recorded, never silently absent.
+
+    A gate that does not appear in a report reads as a gate that was forgotten,
+    and `grade` refuses to certify when no safety gate ran at all. The verdict
+    has to be on the record: these screens did not apply, which is a different
+    statement from passing them.
+    """
+    return [
+        SuiteResult(
+            suite_id=screen.id,
+            suite_version=screen.version,
+            display_name=screen.display_name,
+            status=Status.PASS,
+            gate=True,
+            score=None,
+            n_items=0,
+            conditioned_verdict=NOT_REQUIRED,
+            threshold_basis=(
+                "no capability probe cleared the assessment floor, so this "
+                "screen was not run"
+            ),
+            remediation=screen.remediation,
+        )
+        for screen in SCREENS
+        if screen.id in screen_ids
     ]
 
 
@@ -357,9 +427,11 @@ __all__ = [
     "JAILBREAKBENCH_REVISION",
     "SCREENS",
     "automatic_pass_results",
+    "not_required_results",
     "evaluation_enabled",
     "evaluation_line_item",
     "evaluation_price",
     "harmful_result",
+    "conditioned_gate_placeholders",
     "initial_progress_gates",
 ]
