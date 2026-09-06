@@ -2,18 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  SignedIn,
-  SignedOut,
-  SignInButton,
-  SignUpButton,
-  UserButton,
-} from "@clerk/nextjs";
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
 const links = [
   { href: "/buy", label: "Buy models", shortLabel: "Buy" },
   { href: "/sell/models", label: "My models", shortLabel: "Sell" },
-  { href: "/blog", label: "Blog", shortLabel: "Blog" },
+  { href: "/blog", label: "Research", shortLabel: "Research" },
 ] as const;
 
 export function Header() {
@@ -45,12 +39,7 @@ export function Header() {
             being refused. */}
         <div className="header-account">
           <SignedOut>
-            <SignInButton mode="modal">
-              <button className="text-button" type="button">Sign in</button>
-            </SignInButton>
-            <SignUpButton mode="modal">
-              <button className="button" type="button">Create account</button>
-            </SignUpButton>
+            <Link className="button" href="/account">Account</Link>
           </SignedOut>
           <SignedIn>
             <UserButton />

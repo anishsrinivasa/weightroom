@@ -33,8 +33,20 @@ button:disabled { cursor: not-allowed; opacity: 0.42; }
 .skip-link { position: fixed; z-index: 100; top: 8px; left: 8px; padding: 9px 13px; background: var(--ink); color: var(--paper); transform: translateY(-150%); }
 .skip-link:focus { transform: translateY(0); }
 
-.site-header { position: sticky; z-index: 20; top: 0; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.96); backdrop-filter: blur(12px); }
-.header-inner { min-height: 74px; display: flex; align-items: center; gap: 36px; }
+/* Frosted rather than opaque: content scrolling under the bar stays
+   faintly visible, which is what makes it read as a layer above the page
+   rather than a band cut out of it. Saturation lifts the colour the blur
+   would otherwise wash flat. */
+.site-header { position: sticky; z-index: 20; top: 0; border-bottom: 1px solid var(--line); background: rgba(244, 244, 245, 0.72); backdrop-filter: blur(16px) saturate(160%); -webkit-backdrop-filter: blur(16px) saturate(160%); }
+@supports not (backdrop-filter: blur(1px)) {
+  /* No blur means the translucency would just make text harder to read. */
+  .site-header { background: rgba(244, 244, 245, 0.98); }
+}
+/* Three zones: brand, navigation, account. The nav is centred on the bar
+   itself rather than in the space left over, so it does not drift as the
+   account controls change width between signed out and signed in. */
+.header-inner { min-height: 74px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 24px; }
+.header-inner > nav { display: flex; justify-content: center; gap: 36px; }
 .brand { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 .brand strong { font-size: 17px; letter-spacing: -0.035em; }
 .brand-mark { width: 26px; height: 26px; object-fit: contain; display: block; }
@@ -55,11 +67,21 @@ h3 { font-size: 16px; font-weight: 620; letter-spacing: -0.015em; }
 .muted-text { color: var(--muted); }
 .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; }
 
-.button { min-height: 43px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 1px solid var(--ink); border-radius: 0; padding: 9px 16px; background: var(--paper); font-weight: 550; transition: background 120ms ease, color 120ms ease; }
-.button:hover:not(:disabled) { background: var(--wash); }
+/* One convention for every rectangular button: filled by default, and it
+   inverts on hover. Buttons used to split between filled-inverting and
+   outlined-greying, so the same gesture produced two different results
+   depending on which one you happened to be over.
+
+   `.quiet` is the one deliberate exception -- a secondary action beside a
+   primary one needs to be visibly lesser -- and it inverts the same way,
+   so the behaviour is uniform even where the resting state is not. */
+.button { min-height: 43px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 1px solid var(--ink); border-radius: 0; padding: 9px 16px; background: var(--ink); color: var(--paper); font-weight: 550; transition: background 120ms ease, color 120ms ease, border-color 120ms ease; }
+.button:hover:not(:disabled) { background: var(--paper); color: var(--ink); }
 .button.primary { background: var(--ink); color: var(--paper); }
 .button.primary:hover:not(:disabled) { background: var(--paper); color: var(--ink); }
-.button.quiet { border-color: var(--line); }
+.button.quiet { background: var(--paper); color: var(--ink); border-color: var(--ink); }
+.button.quiet:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+.button:disabled { opacity: 0.4; cursor: not-allowed; }
 .full-width { width: 100%; }
 .button-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .button-row.actions { margin-top: 30px; }
@@ -92,8 +114,15 @@ tbody tr:hover { background: var(--wash); }
 .error-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 20px 0; border: 1px solid var(--ink); padding: 15px 17px; }
 .error-panel p { margin-top: 3px; color: var(--muted); }
 
-.status-pill { min-height: 25px; display: inline-flex; align-items: center; border: 1px solid var(--ink); padding: 3px 8px; font-size: 9px; font-weight: 600; letter-spacing: 0.095em; text-transform: uppercase; white-space: nowrap; }
+/* Pills carry meaning by weight, and only three weights exist:
+     solid    a settled, affirmative outcome  (verified, pass)
+     outline  a settled, negative one         (rejected, fail)
+     muted    nothing decided yet, or nothing to decide
+   Everything reads on the same ink so a status is never lighter or darker
+   than another for reasons unrelated to what it says. */
+.status-pill { min-height: 25px; display: inline-flex; align-items: center; border: 1px solid var(--ink); padding: 3px 8px; color: var(--ink); font-size: 9px; font-weight: 600; letter-spacing: 0.095em; text-transform: uppercase; white-space: nowrap; }
 .status-pill.solid { background: var(--ink); color: var(--paper); }
+.status-pill.outline { background: var(--paper); color: var(--ink); }
 .status-pill.muted { border-color: var(--line); color: var(--muted); }
 
 .back-link { display: inline-flex; margin-bottom: 34px; border-bottom: 1px solid transparent; }
@@ -104,6 +133,8 @@ tbody tr:hover { background: var(--wash); }
 .digest { margin-top: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .inline-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 13px; margin-top: 20px; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
+/* Metadata, not status: same border weight as a muted pill so the two do
+   not compete, and never the full ink, which would read as a verdict. */
 .tag { display: inline-flex; border: 1px solid var(--line); padding: 4px 8px; color: var(--muted); font-size: 10px; letter-spacing: 0.045em; text-transform: capitalize; }
 .decision-card { position: relative; isolation: isolate; overflow: hidden; width: 285px; min-height: 225px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 21px; border: 1px solid var(--ink); padding: 23px; }
 /* The cover sits behind the verdict. The scrim above it is what makes the
@@ -519,3 +550,10 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .header-account { gap: 8px; }
   .header-account .text-button { display: none; }
 }
+
+/* The account page is the one screen with a single thing on it, so it centres
+   in the viewport rather than sitting at the top of a column like every other
+   page. Clerk's own card supplies the chrome; this only positions it. */
+.account-page { min-height: 62vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 40px 0; }
+.account-lede { max-width: 34ch; color: var(--muted); font-size: 13px; text-align: center; }
+.account-clerk-root { width: 100%; display: flex; justify-content: center; }
