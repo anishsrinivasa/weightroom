@@ -44,11 +44,14 @@ export function Header() {
             get one is in the chrome rather than discovered at the point of
             being refused.
 
-            Nothing renders until Clerk has loaded: showing "Account" for the
-            moment before the state arrives would read, to someone already
-            signed in, as having been signed out. */}
+            The link is the default until Clerk reports otherwise, so it is
+            what the server renders and what someone with no JavaScript gets.
+            Rendering nothing while loading left the slot empty in the HTML,
+            which is a worse answer than the correct one for a visitor who is
+            not signed in -- and a signed-in user sees it swap to their avatar
+            on hydration rather than being told anything false. */}
         <div className="header-account">
-          {!isLoaded ? null : isSignedIn ? (
+          {isLoaded && isSignedIn ? (
             <UserButton />
           ) : (
             <Link className="button" href="/account">Account</Link>
