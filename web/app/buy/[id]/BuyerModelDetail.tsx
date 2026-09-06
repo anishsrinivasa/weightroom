@@ -191,7 +191,6 @@ export function BuyerModelDetail({ id }: { id: string }) {
           <div className="buyer-cover">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={coverUrl} alt="" data-placeholder={!model.image_url} />
-            {model.grade ? <span className="grade-badge">{model.grade}</span> : null}
           </div>
           <header className="buyer-title">
             <h1>{model.title || "Untitled model"}</h1>
@@ -219,7 +218,6 @@ export function BuyerModelDetail({ id }: { id: string }) {
             <div className="block-heading"><h2 id="buyer-about-title">Model details</h2></div>
             <dl className="metadata-list">
               <dt>Seller</dt><dd className="mono">{model.seller_id}</dd>
-              <dt>Capability grade</dt><dd>{model.grade ?? "Not measured"}</dd>
               <dt>Architecture</dt><dd>{architecture ?? "Not declared"}</dd>
               <dt>Parameters</dt><dd>{parameterCount == null ? "Not available" : formatParameters(parameterCount)}</dd>
               <dt>Published</dt><dd>{formatDate(model.created_at)}</dd>

@@ -214,7 +214,6 @@ function ModelCard({ listing, tags }: {
       <div className="model-cover">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={listing.image_url ? clientUploadUrl(listing.image_url) : DEFAULT_COVER} alt="" data-placeholder={!listing.image_url} />
-        {listing.grade ? <span className="grade-badge" aria-label={`Capability grade ${listing.grade}`}>{listing.grade}</span> : null}
       </div>
       <div className="model-card-body">
         <div><h3>{listing.title || "Untitled model"}</h3><p>{listing.description || "Independently evaluated open weights."}</p></div>
