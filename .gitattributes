@@ -1,0 +1,5 @@
+# The published benchmark release is verified by sha256 over file bytes, and
+# `core.autocrlf` is true on Windows. Without this, git rewrites line endings on
+# checkout, every digest in benchmarks/manifest.json fails on the next machine,
+# and the release looks tampered with when nothing touched it.
+benchmarks/** -text

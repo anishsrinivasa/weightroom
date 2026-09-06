@@ -24,6 +24,11 @@ web/public/sample-model/
 # a committed set is a burned one -- and even the public seeds are fetched at
 # pin rather than vendored, so the revision in code stays the only source of
 # truth about what ran.
+#
+# `benchmarks/` is committed and is NOT a reason to relax this. That directory
+# is a deliberate published release; this one is what the gate actually runs,
+# and the two have to be able to diverge -- otherwise a rotation cannot make
+# the gating set fresh again.
 suites/*/assets/
 
 # Cached upstream pools. A convenience; the pin in staging.py is the record.

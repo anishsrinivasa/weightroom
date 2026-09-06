@@ -985,6 +985,33 @@ def stage(
 
 
 @app.command()
+@app.command("export-benchmarks")
+def export_benchmarks(
+    out: Path = typer.Option(Path("benchmarks"), help="Directory to write the release into."),
+) -> None:
+    """Publish the staged domain sets as a checkable benchmark release.
+
+    Separate from the runtime sets in `suites/*/assets`, which stay gitignored.
+    Exporting retires a set as a gating instrument -- it is in git history from
+    then on -- so rotate with `keystone stage` afterwards.
+    """
+    from keystone.release import export
+
+    doc = export(out)
+    table = Table(title=f"benchmark release {doc['release_version']}")
+    for column in ("path", "items", "seeds", "sha256"):
+        table.add_column(column)
+    for entry in doc["datasets"]:
+        table.add_row(
+            entry["path"],
+            str(entry["items"]),
+            str(entry.get("seed_behaviours", "-")),
+            entry["sha256"][:12],
+        )
+    console.print(table)
+    console.print(f"wrote {out}/manifest.json")
+
+
 def schema(out: Path = typer.Option(Path("schemas/report.schema.json"))) -> None:
     """Regenerate the shared JSON Schema from the pydantic source of truth."""
     out.parent.mkdir(parents=True, exist_ok=True)
