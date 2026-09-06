@@ -41,6 +41,7 @@ from keystone.orders import (
     settle,
 )
 from keystone.payments import DemoChainProvider, PaymentProvider
+from keystone.providers.dual import DualPaymentProvider
 from keystone.schema import Audience, CertificationReport, FileEntry
 from keystone.safety_gates import summarize as summarize_safety_gates
 from keystone.storage import ArtifactStore, LocalStore, artifact_key
@@ -404,7 +405,12 @@ def create_app(deps: Deps) -> FastAPI:
 
             row.selected_benchmarks = running
             charge = d.payments.create_charge(
-                price, listing_id, metadata={"creator_id": me.user_id}
+                price,
+                listing_id,
+                metadata={
+                    "creator_id": me.user_id,
+                    **({"rail": body.rail} if body.rail else {}),
+                },
             )
             d.store.put_charge(s, charge)
             s.commit()
@@ -486,7 +492,9 @@ def create_app(deps: Deps) -> FastAPI:
             return _view(d, report, principal, creator_id)
 
     @app.post("/v1/listings/{listing_id}/purchase", status_code=201)
-    def purchase(listing_id: str, d: D, principal: P) -> dict:
+    def purchase(
+        listing_id: str, d: D, principal: P, body: PurchaseRequest | None = None
+    ) -> dict:
         """Start a purchase. Returns a charge to settle."""
         me = require(principal)
         with d.store.session() as s:
@@ -512,8 +520,11 @@ def create_app(deps: Deps) -> FastAPI:
             )
             # The charge references the ORDER, not the listing, so a charge can
             # only ever settle the purchase it was minted for.
+            rail = (body.rail if body else None) or ""
             charge = d.payments.create_charge(
-                order.amount, order.order_id, metadata={"listing_id": listing_id}
+                order.amount,
+                order.order_id,
+                metadata={"listing_id": listing_id, **({"rail": rail} if rail else {})},
             )
             order.charge_id = charge.charge_id
             d.store.create_order(s, order)
@@ -709,11 +720,12 @@ def create_app(deps: Deps) -> FastAPI:
             "confirmations": charge.confirmations,
             "required_confirmations": charge.required_confirmations,
             "settled": charge.is_settled,
+            "rail": charge.metadata.get("rail", "live"),
         }
 
     # Development only: stands in for a wallet broadcasting the payment. In
     # production the funds arrive on chain and a watcher sees them.
-    if isinstance(deps.payments, DemoChainProvider):
+    if isinstance(deps.payments, (DemoChainProvider, DualPaymentProvider)):
 
         @app.post("/v1/charges/{charge_id}/demo-pay", include_in_schema=False)
         def demo_pay(charge_id: str, body: DemoPay, d: D, principal: P) -> dict:
@@ -721,9 +733,12 @@ def create_app(deps: Deps) -> FastAPI:
             try:
                 amount = None
                 if body.amount_minor is not None:
-                    original = d.payments.charges[charge_id].amount
+                    original = d.payments.get_charge(charge_id).amount
                     amount = Money(body.amount_minor, original.currency)
                 charge = d.payments.broadcast(charge_id, amount)
+            except ValueError as exc:
+                # Simulating a payment on the live rail would be a lie.
+                raise HTTPException(409, str(exc)) from exc
             except KeyError:
                 raise HTTPException(404, "no such charge") from None
             return {"charge_id": charge.charge_id, "tx_hash": charge.tx_hash}
@@ -820,7 +835,13 @@ class DemoPay(BaseModel):
     amount_minor: int | None = None
 
 
+class PurchaseRequest(BaseModel):
+    # "demo" settles on the simulated chain; "live" needs real USDC on Base.
+    rail: str | None = None
+
+
 class PublishRequest(BaseModel):
+    rail: str | None = None
     # Optional capability benchmarks. Mandatory suites are added server-side,
     # so omitting them here does not skip them.
     benchmarks: list[str] = []

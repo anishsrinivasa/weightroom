@@ -121,19 +121,26 @@ def build_payments(s: Settings) -> tuple[PaymentProvider, bool]:
     from keystone.providers.hosted_checkout import from_env as hosted_from_env
     from keystone.providers.onchain import from_env as onchain_from_env
 
+    demo = DemoChainProvider(
+        chain=s.chain,
+        block_time_s=s.block_time_s,
+        required_confirmations=s.confirmations,
+    )
+
     # On-chain first: it needs no account, holds no keys, and takes no fee.
     for build in (onchain_from_env, coinbase_from_env, hosted_from_env):
         provider = build()
-        if provider is not None:
+        if provider is None:
+            continue
+        if s.is_production:
             return provider, False
-    return (
-        DemoChainProvider(
-            chain=s.chain,
-            block_time_s=s.block_time_s,
-            required_confirmations=s.confirmations,
-        ),
-        True,
-    )
+        # Outside production, keep the simulated rail alongside the real one so
+        # the demo stays clickable while real payments are being exercised.
+        # The production guard still refuses to ship this pairing.
+        from keystone.providers.dual import DualPaymentProvider
+
+        return DualPaymentProvider(provider, demo), False
+    return demo, True
 
 
 # --------------------------------------------------------------------------

@@ -48,11 +48,33 @@ class OpenAIServerClient(ModelClient):
     """Talks to the local vLLM OpenAI-compatible server."""
 
     def __init__(self, model_name: str, base_url: str = _BASE_URL, seed: int = 0) -> None:
+        self.model_name = model_name
+        self.base_url = base_url
+        self.seed = seed
+        # One client per event loop, created on first use in that loop.
+        #
+        # An AsyncOpenAI holds an httpx connection pool bound to the loop it
+        # was built in. Callers here run batches through repeated
+        # `asyncio.run(...)`, and each of those closes its loop -- so a client
+        # built once and reused across them eventually reaches for a socket
+        # attached to a dead loop and fails with a bare "Connection error",
+        # part-way through a run rather than at the start.
+        self._per_loop: dict[object, object] = {}
+
+    @property
+    def _client(self):
+        import asyncio
+
         from openai import AsyncOpenAI
 
-        self.model_name = model_name
-        self.seed = seed
-        self._client = AsyncOpenAI(base_url=base_url, api_key="not-used", max_retries=2)
+        loop = asyncio.get_running_loop()
+        client = self._per_loop.get(loop)
+        if client is None:
+            client = AsyncOpenAI(
+                base_url=self.base_url, api_key="not-used", max_retries=2
+            )
+            self._per_loop[loop] = client
+        return client
 
     async def chat(
         self,

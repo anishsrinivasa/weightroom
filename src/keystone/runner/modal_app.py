@@ -470,6 +470,51 @@ def evaluate(
     only: list[str] | None = None,
     seed: int = 0,
 ):
+    """Wrapper that guarantees a failure is readable by the caller.
+
+    Modal serialises a raised exception as an object. A torch or datasets
+    exception cannot be reconstructed by a client that does not import those
+    packages, so the caller gets "could not deserialize remote exception" and
+    the real message is destroyed in transit. Flattening the traceback to text
+    here means it always survives.
+    """
+    import traceback
+
+    try:
+        yield from _evaluate(
+            cache_key,
+            capabilities,
+            modality,
+            max_context,
+            tensor_parallel_size,
+            only,
+            seed,
+        )
+    except Exception as exc:  # noqa: BLE001 - losing this is the whole problem
+        report = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )[-6000:]
+
+        # A connection error means the server went away, and why it went away
+        # is in its log rather than in this traceback. Without the tail the
+        # caller sees "Connection error." and learns nothing.
+        try:
+            log = Path("/tmp/vllm.log").read_text(errors="replace").splitlines()
+            report += "\n--- vllm log tail ---\n" + "\n".join(log[-40:])
+        except OSError:
+            pass
+        raise RuntimeError(report) from None
+
+
+def _evaluate(
+    cache_key: str,
+    capabilities: dict,
+    modality: list[str],
+    max_context: int | None = None,
+    tensor_parallel_size: int = 1,
+    only: list[str] | None = None,
+    seed: int = 0,
+):
     import asyncio
     import sys
 
