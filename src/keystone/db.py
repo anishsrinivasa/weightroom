@@ -15,6 +15,7 @@ make a decision the columns should be answering.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Iterable
 
@@ -27,6 +28,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     select,
     update,
@@ -107,6 +109,12 @@ class ListingRow(Base):
     # additive SQLite development migration upgrade existing databases safely.
     domain_tags: Mapped[list | None] = mapped_column(JSON, default=list, nullable=True)
     size_tag: Mapped[str | None] = mapped_column(String(32), default=None, nullable=True)
+    # Redistribution terms the seller attached. Distinct from the upstream
+    # licence on the model card, which `provenance` reads and checks; this is a
+    # term of sale between two parties here. Nullable so existing rows upgrade,
+    # and `licensing.parse` resolves a missing value to the stricter default --
+    # a blank must never widen a buyer's rights.
+    license_kind: Mapped[str | None] = mapped_column(String(32), default=None, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -182,8 +190,42 @@ class OrderRow(Base):
     currency: Mapped[str] = mapped_column(String(8))
     status: Mapped[str] = mapped_column(String(16), index=True)
     charge_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    # Snapshotted from the listing at purchase, not read back through it. A
+    # seller can change the terms on a future sale; what this buyer agreed to
+    # is fixed at the moment they agreed, and re-reading the listing would
+    # rewrite history every time the seller edited it.
+    license_kind: Mapped[str | None] = mapped_column(String(32), default=None, nullable=True)
+    license_accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=None, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+
+class VoteRow(Base):
+    """One account's up or down vote on one listing.
+
+    A row per (voter, listing) with a unique constraint rather than a pair of
+    counters on `listings`: counters cannot tell whether a person has already
+    voted, so they cannot be changed or withdrawn, and anyone able to call the
+    endpoint twice can run the number up on their own.
+
+    Votes require an account for the same reason. An anonymous counter measures
+    how many times a button was pressed, which is not the thing a buyer reads
+    it as.
+    """
+
+    __tablename__ = "votes"
+    __table_args__ = (UniqueConstraint("voter_id", "listing_id", name="uq_vote_once"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    voter_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    listing_id: Mapped[str] = mapped_column(String(64), ForeignKey("listings.id"), index=True)
+    #: +1 or -1. Stored as the value rather than a boolean so the sum is the
+    #: score and a third state can be added without rewriting every row.
+    value: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class PayoutRow(Base):
@@ -512,7 +554,9 @@ class Store:
 
     # -- orders ----------------------------------------------------------
 
-    def create_order(self, s: Session, order: Order) -> OrderRow:
+    def create_order(
+        self, s: Session, order: Order, *, license_kind: str | None = None
+    ) -> OrderRow:
         row = OrderRow(
             id=order.order_id,
             buyer_id=order.buyer_id,
@@ -523,9 +567,65 @@ class Store:
             status=order.status.value,
             charge_id=order.charge_id,
             created_at=order.created_at,
+            license_kind=license_kind,
+            license_accepted_at=_utcnow() if license_kind else None,
         )
         s.add(row)
         return row
+
+
+    # -- votes ------------------------------------------------------------
+
+    def cast_vote(self, s: Session, *, voter_id: str, listing_id: str, value: int) -> None:
+        """Record one account's vote, replacing any earlier one.
+
+        Idempotent by (voter, listing): pressing the same button twice leaves
+        the same single row, and switching sides moves it rather than adding a
+        second. `value` of 0 withdraws.
+        """
+        row = s.scalars(
+            select(VoteRow).where(
+                VoteRow.voter_id == voter_id, VoteRow.listing_id == listing_id
+            )
+        ).first()
+        if value == 0:
+            if row is not None:
+                s.delete(row)
+            return
+        if row is None:
+            s.add(VoteRow(
+                id=f"vot_{uuid.uuid4().hex[:16]}",
+                voter_id=voter_id,
+                listing_id=listing_id,
+                value=value,
+            ))
+        else:
+            row.value = value
+
+    def vote_tally(
+        self, s: Session, listing_ids: list[str], *, voter_id: str | None = None
+    ) -> dict[str, dict]:
+        """Up and down counts per listing, plus this viewer's own vote.
+
+        Batched deliberately: the catalogue renders a tally on every card, and
+        a query per card is how a listing page starts costing more than the
+        evaluation did.
+        """
+        if not listing_ids:
+            return {}
+        tally = {
+            listing_id: {"up": 0, "down": 0, "score": 0, "mine": 0}
+            for listing_id in listing_ids
+        }
+        for row in s.scalars(
+            select(VoteRow).where(VoteRow.listing_id.in_(listing_ids))
+        ):
+            entry = tally[row.listing_id]
+            entry["up" if row.value > 0 else "down"] += 1
+            entry["score"] += row.value
+            if voter_id and row.voter_id == voter_id:
+                entry["mine"] = row.value
+        return tally
 
     def get_order(self, s: Session, order_id: str) -> Order | None:
         row = s.get(OrderRow, order_id)
