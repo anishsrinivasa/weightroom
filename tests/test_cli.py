@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 import json
 from pathlib import Path
+import re
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -9,16 +10,13 @@ from keystone.cli import _has_pending_certification, app
 from keystone.storage import artifact_key
 
 
-def test_dev_command_is_available_for_the_managed_local_stack(monkeypatch) -> None:
-    # GitHub Actions forces ANSI output, which inserts style escapes inside
-    # option names and makes these content assertions platform-dependent.
-    monkeypatch.delenv("FORCE_COLOR", raising=False)
-    monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
-    result = CliRunner().invoke(app, ["dev", "--help"], color=False)
+def test_dev_command_is_available_for_the_managed_local_stack() -> None:
+    result = CliRunner().invoke(app, ["dev", "--help"])
+    plain_output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.output)
 
     assert result.exit_code == 0
-    assert "local API and certification worker" in result.output
-    assert "--worker-interval" in result.output
+    assert "local API and certification worker" in plain_output
+    assert "--worker-interval" in plain_output
 
 
 def test_idle_worker_checks_local_queue_before_opening_modal() -> None:
