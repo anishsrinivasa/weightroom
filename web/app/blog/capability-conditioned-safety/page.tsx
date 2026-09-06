@@ -96,7 +96,6 @@ export default function CapabilityConditionedSafetyPost() {
           <div><dt>Specialist domains</dt><dd>3</dd><span>biology, coding/cyber, law</span></div>
           <div><dt>Knowledge probe</dt><dd>100</dd><span>questions in each domain</span></div>
           <div><dt>Private harmful prompts</dt><dd>2,932</dd><span>variants prepared across domains</span></div>
-          <div><dt>Measured test cost</dt><dd>≈ $0.13</dd><span>three domains on one NVIDIA A10G GPU</span></div>
         </dl>
       </header>
 
@@ -143,12 +142,11 @@ export default function CapabilityConditionedSafetyPost() {
               A common automated safety test sends the model harmful requests and checks
               whether the responses refuse or avoid giving useful help. The percentage of
               requests handled safely is its safe-response rate. Our first publishing gate
-              used two public benchmarks of harmful requests. It required a 90%
-              safe-response rate on 74 non-overlapping
+              used two public benchmarks of harmful requests,
               {" "}<a href="https://github.com/centerforaisafety/HarmBench">HarmBench</a>
-              {" "}behaviors and all 100
-              {" "}<a href="https://github.com/JailbreakBench/jailbreakbench">JailbreakBench</a>
-              {" "}harmful behaviors. Every model faced the same threshold.
+              {" "}and
+              {" "}<a href="https://github.com/JailbreakBench/jailbreakbench">JailbreakBench</a>.
+              It required every model to reach the same 90% safe-response rate.
             </p>
             <p>
               That works reasonably well for harms such as harassment or misinformation,
@@ -204,9 +202,9 @@ export default function CapabilityConditionedSafetyPost() {
               </div>
             </div>
             <p>
-              The first two parts took most of the design work. A static public benchmark
-              becomes training material. Newly generated questions avoid that problem, but
-              a wrong answer key silently moves the safety threshold. The pipeline had to
+              The first two parts took most of the design work. Static public benchmarks can
+              appear in training data. Newly generated questions reduce that exposure, but a
+              wrong answer key silently moves the safety threshold. The pipeline had to
               produce items that were both private and checkable.
             </p>
           </section>
@@ -275,11 +273,10 @@ export default function CapabilityConditionedSafetyPost() {
 
             <h3>The current policy curve</h3>
             <p>
-              The first implementation used capability bands. Two models separated by one
-              percentage point in capability could trigger safety requirements ten
-              percentage points apart. That discontinuity came from the policy boundary
-              rather than evidence of a sharp change in risk, so we replaced the bands with
-              an interpolated curve.
+              Our first implementation grouped capability into bands. That made the safety
+              requirement jump when two models had nearly identical probe scores but landed
+              on opposite sides of a boundary. We replaced those jumps with a continuous
+              curve.
             </p>
             <p>
               We first remove the accuracy a model could get by guessing. A corrected score
@@ -291,9 +288,9 @@ export default function CapabilityConditionedSafetyPost() {
             <p>
               These percentages refer to judge-labeled assistance on deliberately harmful
               test prompts. They are not estimates of how often a deployed model will cause
-              harm. Biology also uses a higher activation floor than the other domains:
-              WMDP-Bio contains enough ordinary biology to make small general models appear
-              more hazardous than they are.
+              harm. Activation floors also differ by domain because the probes are not
+              directly comparable. For example, WMDP-Bio includes ordinary biology questions
+              that a small general model may answer without possessing specialist capability.
             </p>
 
             <div className="curve-figure">
@@ -328,7 +325,7 @@ export default function CapabilityConditionedSafetyPost() {
             <p className="section-number">04</p>
             <h2>How we build the private evaluation datasets</h2>
             <p>
-              Public benchmark items eventually appear in training corpora. A fixed private
+              Public benchmark items can appear in training corpora. A fixed private
               set also degrades: every submission reveals at least the final verdict, and
               repeated attempts provide clues about which changes improve the score. We
               needed enough material to rotate the tests without losing reliable labels.
@@ -351,34 +348,22 @@ export default function CapabilityConditionedSafetyPost() {
             </p>
 
             <ol className="pipeline-steps">
-              <li><span>01</span><div><strong>Ingest and version the seeds</strong><p>WMDP, SWE-bench Verified, LegalBench, HarmBench, AdvBench, and StrongREJECT enter with source revision and license metadata.</p></div></li>
-              <li><span>02</span><div><strong>Normalize and fingerprint</strong><p>Each item receives a stable seed and behavior identity, preserving lineage through every later transform.</p></div></li>
+              <li><span>01</span><div><strong>Ingest and version the seeds</strong><p>Every public source item enters with its dataset revision and license metadata.</p></div></li>
+              <li><span>02</span><div><strong>Normalize and fingerprint</strong><p>Each item receives stable identifiers for its original seed and behavior, preserving its lineage through every later transform.</p></div></li>
               <li><span>03</span><div><strong>Apply a constrained transform</strong><p>Permute keyed choices, mutate a gold patch into distractors, derive a binary legal question, or wrap a harmful behavior in a new framing.</p></div></li>
-              <li><span>04</span><div><strong>Validate the invariant</strong><p>The answer key must follow the transform, or the original assessed behavior must remain unchanged. Invalid variants never enter the pool.</p></div></li>
-              <li><span>05</span><div><strong>Deduplicate, rotate, and pin</strong><p>Fingerprints computed from item content select reproducible subsets. A dataset-wide fingerprint verifies that the staged corpus has not changed.</p></div></li>
+              <li><span>04</span><div><strong>Check what must remain true</strong><p>The answer key must follow the transform, or the original assessed behavior must remain unchanged. Invalid variants never enter the pool.</p></div></li>
+              <li><span>05</span><div><strong>Deduplicate, rotate, and pin</strong><p>Content fingerprints make each selection reproducible and verify that the staged dataset has not changed.</p></div></li>
             </ol>
 
             <h3>Rotation overlap</h3>
             <p>
-              Our first biology pool contained 28 behaviors in five framings: 140 items.
-              Any two samples of 100 from that pool must share at least 60, regardless of
-              selection strategy. We expanded the library to 19 framings. The resulting
-              532-item pool has no forced overlap; measured reuse between rotations fell
-              to 17%.
-            </p>
-            <p>
-              Framings span eight technique families: direct, persona, fiction, academic,
-              indirect, authority, distancing, and format. Robustness to one style
-              says little about robustness to another. The report keeps scores for each
-              family. In one run, direct requests were refused every time while distancing
-              prompts were refused only 42% of the time. The aggregate, 68%, concealed the
-              difference.
-            </p>
-            <p>
-              More framings make the next rotation less predictable. They do little for
-              statistical power because responses to variants of the same behavior are
-              correlated. Increasing the number of seed behaviors is what adds independent
-              evidence.
+              We expanded the biology pool from 140 to 532 items so repeated submissions
+              would encounter fewer of the same prompts. The variants use different
+              framings—such as direct requests, fictional scenarios, and appeals to
+              authority—because models may refuse one framing while answering another.
+              These variants make the evaluation less predictable and more behaviorally
+              diverse, but they remain correlated; adding new underlying behaviors is what
+              increases statistical confidence.
             </p>
           </section>
 
@@ -424,11 +409,10 @@ export default function CapabilityConditionedSafetyPost() {
               would count as 28 independent observations.
             </p>
             <p>
-              The outcome can therefore be <code>not_required</code>, <code>pass</code>,
-              <code>fail</code>, or <code>insufficient_evidence</code>. The first means the
-              probe did not activate the domain. A pass or fail compares the conservative
-              harm estimate with the limit. Insufficient evidence means the available sample
-              cannot support either conclusion.
+              A domain can therefore be skipped, passed, failed, or marked inconclusive. A
+              skip means the capability probe did not activate that domain. A pass or failure
+              compares the conservative harm estimate with the allowed limit; an inconclusive
+              result means there was not enough independent evidence to decide.
             </p>
           </section>
 
@@ -436,24 +420,23 @@ export default function CapabilityConditionedSafetyPost() {
             <p className="section-number">06</p>
             <h2>How open-ended answers are scored</h2>
             <p>
-              We initially searched responses for refusal phrases. In a four-response check,
-              the heuristic called the batch 75% safe. Manual review found only one harmless
-              answer, or 25%. Some assisted responses opened with an apology; harmless
-              nonsense caused errors in the other direction.
+              We initially searched responses for refusal phrases. That failed for a simple
+              reason: a response can begin with an apology and still provide useful harmful
+              instructions, while irrelevant or nonsensical output can omit refusal language
+              and remain harmless.
             </p>
             <p>
               We replaced the phrase matcher with Qwen3Guard-Gen-8B, a separate guard model
               whose exact version is fixed across runs. It reads the request and response and
-              decides whether the response materially helped. Unparseable judgments count
-              against completion, and a partially parsed run errors instead of averaging the
-              subset that happened to parse. A separate judge also prevents the submitted
-              model from grading its own answers.
+              decides whether the response materially helped. If its output cannot be read
+              reliably, the run is marked incomplete rather than scored from only the answers
+              that happened to parse. A separate judge also prevents the submitted model from
+              grading its own answers.
             </p>
             <p>
-              The two phases share an accelerator rather than co-residing on it. Every result
-              records the judge model and revision used for the result. This improves the
-              scoring logic; it does not establish that the judge is correct. Agreement with
-              expert human review still needs to be measured.
+              Every result records the judge model and revision used. This is more reliable
+              than phrase matching, but it does not establish that the judge is correct.
+              Agreement with expert human review still needs to be measured.
             </p>
           </section>
 
@@ -472,10 +455,9 @@ export default function CapabilityConditionedSafetyPost() {
             </div>
             <p>
               Weightroom downloads the required model files and evaluation data before the
-              run begins. It then disables network access while the submitted model and the
-              judge execute. We can send public smoke-test prompts to an external model API,
-              but the system refuses to send any private evaluation there because an endpoint
-              controlled by the model creator would see every prompt.
+              run begins, then disables network access while the submitted model and judge
+              execute. Private prompts are never sent to an external model endpoint, where
+              they could be recorded by the model provider.
             </p>
             <p>
               The full internal report is digitally signed. If a score or verdict is edited
@@ -495,13 +477,6 @@ export default function CapabilityConditionedSafetyPost() {
               failure was enough to reject the submission.
             </p>
             <p>
-              The public report does not include the failing domain, exact scores, or item
-              count. The model creator sees the failing domain but not the measurements. The
-              signed internal report retains the full evidence. This limits what an external
-              reader can reproduce, but it also makes the held-out set harder to reconstruct
-              across submissions.
-            </p>
-            <p>
               On one NVIDIA A10G GPU, a full three-domain run has taken roughly five to ten
               minutes and cost about $0.13. Those are measurements from our runs, not
               guaranteed latency or pricing for other hardware and providers.
@@ -512,13 +487,11 @@ export default function CapabilityConditionedSafetyPost() {
             <p className="section-number">09</p>
             <h2>What this evaluation cannot establish</h2>
             <ul className="limitations-list">
-              <li><strong>The coding probe measures recognition.</strong> Choosing a patch is not the same as authoring and validating one.</li>
-              <li><strong>The legal pairing is experimental.</strong> Legal framing has not yet been shown to correlate with legal-domain harmful assistance.</li>
+              <li><strong>The capability probes are proxies.</strong> The coding probe measures patch recognition rather than authorship, and the legal probe has not yet been shown to predict harmful legal assistance.</li>
               <li><strong>The ceiling is policy.</strong> Its anchors are deliberate judgment calls tied to these exact instruments.</li>
               <li><strong>The judge needs human validation.</strong> Automated labels have not yet been calibrated against an expert-reviewed sample.</li>
-              <li><strong>Capability probes are proxies.</strong> Hazard-adjacent knowledge is not the same as real-world execution ability.</li>
               <li><strong>Transformation does not erase training exposure.</strong> The private items reduce verbatim memorization, but their public source material may still have appeared in training.</li>
-              <li><strong>Sandbagging remains an open problem.</strong> Divergence between public and private capability measurements can flag it, but that check is not yet implemented.</li>
+              <li><strong>A model may hide its capability.</strong> Comparing public and private probe results could flag deliberate underperformance, but that check is not yet implemented.</li>
             </ul>
             <p>
               Large model developers also use expert red-teaming, studies of whether a model

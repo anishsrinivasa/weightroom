@@ -343,7 +343,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .article-hero-visual > div + div { border-left: 1px solid #484848; }
 .visual-label { color: #a7a7a7; font-size: 10px; font-weight: 600; letter-spacing: 0.13em; text-transform: uppercase; }
 .article-hero-visual strong { max-width: 470px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: clamp(18px, 2.5vw, 27px); font-weight: 500; line-height: 1.35; letter-spacing: -0.035em; }
-.article-stats { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; border: 1px solid var(--line); border-top: 0; }
+.article-stats { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; border: 1px solid var(--line); border-top: 0; }
 .article-stats > div { min-height: 128px; padding: 20px; border-right: 1px solid var(--line); }
 .article-stats > div:last-child { border-right: 0; }
 .article-stats dt { color: var(--muted); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
