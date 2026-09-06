@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 from keystone.runner.inspect_benchmarks import (
     PendingRubricRun,
     _json_object,
+    _swe_modal_sandbox_spec,
     result_from_inspect_logs,
     score_rubric_run,
 )
@@ -68,6 +70,22 @@ def test_inspect_results_fail_closed_when_sample_never_returns() -> None:
 
 def test_json_object_accepts_fenced_judge_output() -> None:
     assert _json_object('analysis\n```json\n{"items": []}\n```')["items"] == []
+
+
+def test_swe_modal_spec_uses_current_networkless_extension(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    sample = SimpleNamespace(
+        id="django__django-11039",
+        metadata={"image_name": "example/swe-image:latest"},
+    )
+
+    spec = _swe_modal_sandbox_spec("modal", sample)
+    content = Path(spec.config).read_text(encoding="utf-8")
+
+    assert "x-modal:" in content
+    assert "x-inspect_modal_sandbox" not in content
+    assert "network_mode: none" in content
+    assert "block_network: true" in content
 
 
 def test_rubric_proxy_scores_all_items(tmp_path) -> None:

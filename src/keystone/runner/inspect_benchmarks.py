@@ -138,6 +138,11 @@ def run_swe_bench_verified(
         sandbox_type="modal",
         allow_internet=False,
         revision=SWE_BENCH_VERIFIED_REVISION,
+        # inspect-evals 0.19.0 still emits the legacy
+        # ``x-inspect_modal_sandbox`` extension. inspect-sandboxes 0.5.0 uses
+        # ``x-modal`` and also understands Docker's network_mode, so supply the
+        # compatible spec explicitly rather than silently losing isolation.
+        sandbox_config=_swe_modal_sandbox_spec,
     )
     available_ids = [str(sample.id) for sample in task.dataset]
     chosen = sample_task_ids(
@@ -145,6 +150,34 @@ def run_swe_bench_verified(
         artifact_digest=artifact_digest,
         suite_id=benchmark.suite_id,
     )
+
+
+def _swe_modal_sandbox_spec(sandbox_type: str, sample: Any):
+    from inspect_ai.util import SandboxEnvironmentSpec
+
+    metadata = sample.metadata or {}
+    image_name = metadata["image_name"]
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "-", str(sample.id))
+    config = Path("/tmp/inspect-config/swe-bench") / f"{safe_id}.yaml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(
+        "\n".join(
+            [
+                "services:",
+                "  default:",
+                f"    image: {image_name}",
+                "    command: sleep infinity",
+                "    working_dir: /testbed",
+                "    network_mode: none",
+                "x-modal:",
+                "  timeout: 14400",
+                "  block_network: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return SandboxEnvironmentSpec(type=sandbox_type, config=str(config))
     logs = inspect_eval(
         task,
         model=f"openai-api/keystone/{served_model_name}",
