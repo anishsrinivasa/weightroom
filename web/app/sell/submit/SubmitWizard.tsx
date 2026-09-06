@@ -542,18 +542,22 @@ export function SubmitWizard() {
                 <label key={benchmark.suite_id}>
                   <input type="checkbox" checked={selected.has(benchmark.suite_id)} onChange={() => toggleBenchmark(benchmark.suite_id)} />
                   <span className="benchmark-option-copy">
-                    <strong>{benchmark.display_name}</strong>
-                    {benchmark.source_url ? (
-                      <a
-                        className="benchmark-source-link"
-                        href={benchmark.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        View benchmark ↗
-                      </a>
-                    ) : null}
+                    <span className="benchmark-option-heading">
+                      <strong>{benchmark.display_name}</strong>
+                      {benchmark.source_url ? (
+                        <a
+                          aria-label={`View ${benchmark.display_name} benchmark source`}
+                          className="benchmark-source-link"
+                          href={benchmark.source_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          ↗
+                        </a>
+                      ) : null}
+                    </span>
+                    <small>{benchmark.description}</small>
                   </span>
                   <b>{benchmark.price_is_estimate ? "≈ " : ""}{formatUsdc(benchmark.price_minor)}</b>
                 </label>
