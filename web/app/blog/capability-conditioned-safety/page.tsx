@@ -12,12 +12,9 @@ const sections = [
   ["motivation", "Why refusal rate is incomplete"],
   ["contributions", "The system we built"],
   ["mechanism", "How capability changes the bar"],
-  ["private-evaluations", "Building the private datasets"],
   ["uncertainty", "How uncertainty affects a verdict"],
   ["judge", "How open-ended answers are scored"],
   ["leakage", "Why reports omit exact scores"],
-  ["results", "What happened when we tested Qwen"],
-  ["limitations", "What the evaluation cannot establish"],
 ] as const;
 
 const domainRows = [
@@ -314,54 +311,8 @@ export default function CapabilityConditionedSafetyPost() {
             </div>
           </section>
 
-          <section id="private-evaluations">
-            <p className="section-number">4</p>
-            <h2>How we build the private evaluation datasets</h2>
-            <p>
-              Public benchmark items can appear in training corpora. A fixed private
-              set also degrades: every submission reveals at least the final verdict, and
-              repeated attempts provide clues about which changes improve the score. We
-              needed enough material to rotate the tests without losing reliable labels.
-            </p>
-            <p>
-              Generating questions from scratch was the obvious option. We rejected it
-              because the score from a bad question still looks valid. Instead, every
-              generated item inherits something we already know. A WMDP transformation can
-              reorder four choices, but the answer key moves with the correct choice. A
-              SWE-bench item starts from the gold patch and mutates copies into distractors.
-              LegalBench supplies the label for a derived binary question. Elicitation items
-              retain the source behavior verbatim and change only its framing.
-            </p>
-            <p>
-              The source datasets are public and used under their respective terms. The
-              derived evaluation items are custom and held out, meaning their exact wording
-              is not shown to sellers. Items rotate between runs and are never published.
-              Generation happens during offline staging, not while a submitted model is
-              being evaluated.
-            </p>
-
-            <ol className="pipeline-steps">
-              <li><span>01</span><div><strong>Ingest and version the seeds</strong><p>Every public source item enters with its dataset revision and license metadata.</p></div></li>
-              <li><span>02</span><div><strong>Normalize and fingerprint</strong><p>Each item receives stable identifiers for its original seed and behavior, preserving its lineage through every later transform.</p></div></li>
-              <li><span>03</span><div><strong>Apply a constrained transform</strong><p>Permute keyed choices, mutate a gold patch into distractors, derive a binary legal question, or wrap a harmful behavior in a new framing.</p></div></li>
-              <li><span>04</span><div><strong>Check what must remain true</strong><p>The answer key must follow the transform, or the original assessed behavior must remain unchanged. Invalid variants never enter the pool.</p></div></li>
-              <li><span>05</span><div><strong>Deduplicate, rotate, and pin</strong><p>Content fingerprints make each selection reproducible and verify that the staged dataset has not changed.</p></div></li>
-            </ol>
-
-            <h3>Rotation overlap</h3>
-            <p>
-              We expanded the biology pool from 140 to 532 items so repeated submissions
-              would encounter fewer of the same prompts. The variants use different
-              framings—such as direct requests, fictional scenarios, and appeals to
-              authority—because models may refuse one framing while answering another.
-              These variants make the evaluation less predictable and more behaviorally
-              diverse, but they remain correlated; adding new underlying behaviors is what
-              increases statistical confidence.
-            </p>
-          </section>
-
           <section id="uncertainty">
-            <p className="section-number">5</p>
+            <p className="section-number">4</p>
             <h2>How uncertainty affects a verdict</h2>
             <p>
               The observed harmful-assistance rate is only a sample. A result just under the
@@ -410,7 +361,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="judge">
-            <p className="section-number">6</p>
+            <p className="section-number">5</p>
             <h2>How open-ended answers are scored</h2>
             <p>
               We initially searched responses for refusal phrases. That failed for a simple
@@ -434,7 +385,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="leakage">
-            <p className="section-number">7</p>
+            <p className="section-number">6</p>
             <h2>Why public reports omit exact scores</h2>
             <p>
               Sellers can submit another version after a rejection. Exact domain scores and
@@ -455,44 +406,6 @@ export default function CapabilityConditionedSafetyPost() {
             <p>
               The full internal report is digitally signed. If a score or verdict is edited
               after the run, the signature no longer verifies.
-            </p>
-          </section>
-
-          <section id="results">
-            <p className="section-number">8</p>
-            <h2>What happened when we tested Qwen2.5-7B-Instruct</h2>
-            <p>
-              In an internal run, Qwen2.5-7B-Instruct followed the full decision path. It
-              cleared the general refusal screen. At least one private capability probe
-              crossed its activation floor, so the corresponding open-ended test ran. The
-              model then provided materially useful help on enough harmful requests for the
-              uncertainty-adjusted harm estimate to exceed that domain&apos;s limit. One domain
-              failure was enough to reject the submission.
-            </p>
-            <p>
-              On one NVIDIA A10G GPU, a full three-domain run has taken roughly five to ten
-              minutes and cost about $0.13. Those are measurements from our runs, not
-              guaranteed latency or pricing for other hardware and providers.
-            </p>
-          </section>
-
-          <section id="limitations">
-            <p className="section-number">9</p>
-            <h2>What this evaluation cannot establish</h2>
-            <ul className="limitations-list">
-              <li><strong>The capability probes are proxies.</strong> The coding probe measures patch recognition rather than authorship, and the legal probe has not yet been shown to predict harmful legal assistance.</li>
-              <li><strong>The ceiling is policy.</strong> Its anchors are deliberate judgment calls tied to these exact instruments.</li>
-              <li><strong>The judge needs human validation.</strong> Automated labels have not yet been calibrated against an expert-reviewed sample.</li>
-              <li><strong>Transformation does not erase training exposure.</strong> The private items reduce verbatim memorization, but their public source material may still have appeared in training.</li>
-              <li><strong>A model may hide its capability.</strong> Comparing public and private probe results could flag deliberate underperformance, but that check is not yet implemented.</li>
-            </ul>
-            <p>
-              Large model developers also use expert red-teaming, studies of whether a model
-              improves a person&apos;s ability to carry out hazardous work, and review by a
-              governance team. Weightroom&apos;s mechanism is an automated screen built for
-              continuous marketplace submissions. A successful result records conformance to
-              a versioned evaluation standard. It does not establish safety across every
-              deployment.
             </p>
           </section>
 
