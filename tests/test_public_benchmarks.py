@@ -17,7 +17,7 @@ def test_catalogue_contains_only_requested_benchmarks() -> None:
         "gdpval",
         "harvey_lab",
         "mmlu_pro",
-        "frontiermath",
+        "math_500",
     }
 
 
@@ -58,7 +58,7 @@ def test_task_sample_refuses_an_undersized_pool() -> None:
         sample_task_ids(
             [f"task-{index}" for index in range(99)],
             artifact_digest="a" * 64,
-            suite_id="frontiermath",
+            suite_id="math_500",
         )
 
 

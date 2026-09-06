@@ -130,7 +130,7 @@ BENCHMARKS: tuple[PublicBenchmark, ...] = (
     PublicBenchmark(
         suite_id="mmlu_pro",
         display_name="MMLU-Pro",
-        version="2025-11",
+        version="b189ec765aa7ed75c8acfea42df31fdae71f97be",
         description="12,000+ reasoning-focused multiple-choice questions across 14 academic and professional domains.",
         score_direction="higher",
         harness_kind="multiple_choice",
@@ -140,16 +140,16 @@ BENCHMARKS: tuple[PublicBenchmark, ...] = (
         source_url="https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
     ),
     PublicBenchmark(
-        suite_id="frontiermath",
-        display_name="FrontierMath",
-        version="2025-02-28",
-        description="Expert-level mathematics with controlled problem access and independently verifiable answers.",
+        suite_id="math_500",
+        display_name="MATH-500",
+        version="6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be",
+        description="500 public competition-mathematics problems with exact-answer verification.",
         score_direction="higher",
         harness_kind="expert_math",
-        task_count=338,
-        setup_cost_minor=1_000_000,
-        inference_cost_minor_per_task_at_reference=33_000,
-        source_url="https://epoch.ai/frontiermath/tiers-1-4/about",
+        task_count=500,
+        setup_cost_minor=100_000,
+        inference_cost_minor_per_task_at_reference=20_000,
+        source_url="https://huggingface.co/datasets/HuggingFaceH4/MATH-500",
     ),
 )
 

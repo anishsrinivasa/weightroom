@@ -49,7 +49,7 @@ PUBLIC_IDS = {
     "gdpval",
     "harvey_lab",
     "mmlu_pro",
-    "frontiermath",
+    "math_500",
 }
 
 
@@ -100,7 +100,7 @@ def test_every_listing_gets_a_populated_product_page(suites) -> None:
     evidence on it.
     """
     assert set(mandatory_ids(suites)) == {SAFETY, CAPABILITY}
-    assert optional_ids(suites) == [REASONING]
+    assert set(optional_ids(suites)) == {"math_500", "mmlu_pro", REASONING}
 
 
 def test_menu_exposes_gate_metadata(suites) -> None:
@@ -164,8 +164,8 @@ def test_unknown_benchmark_is_an_error_not_a_silent_drop(suites) -> None:
 # --------------------------------------------------------------------------
 
 def test_declined_are_reported(suites) -> None:
-    assert set(declined_ids(suites, [])) == {REASONING}
-    assert declined_ids(suites, [REASONING]) == []
+    assert set(declined_ids(suites, [])) == {"math_500", "mmlu_pro", REASONING}
+    assert set(declined_ids(suites, [REASONING])) == {"math_500", "mmlu_pro"}
 
 
 def test_declined_survives_redaction_for_every_audience() -> None:
@@ -263,14 +263,14 @@ def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
     listing_id = _listing(client, deps)
     r = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": ["frontiermath"]},
+        json={"benchmarks": ["math_500"]},
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert r["amount"] == "1.750000 USDC"  # includes the mandatory safety evaluation
+    assert r["amount"] == "0.590000 USDC"  # includes the mandatory safety evaluation
     assert r["safety_evaluation"]["price"] == "0.090000 USDC"
-    assert set(r["running"]) == {"frontiermath"}
-    assert set(r["declined"]) == PUBLIC_IDS - {"frontiermath"}
+    assert set(r["running"]) == {"math_500"}
+    assert set(r["declined"]) == PUBLIC_IDS - {"math_500"}
 
 
 def test_publish_allows_no_public_benchmarks(client: TestClient, deps: Deps) -> None:
@@ -301,17 +301,17 @@ def test_selection_is_persisted_for_the_worker(client: TestClient, deps: Deps) -
     listing_id = _listing(client, deps)
     client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": ["frontiermath"]},
+        json={"benchmarks": ["math_500"]},
         headers=_hdr("tok-creator"),
     )
     with deps.store.session() as s:
         row = deps.store.get_listing(s, listing_id)
-        assert set(row.selected_benchmarks) == {"frontiermath"}
+        assert set(row.selected_benchmarks) == {"math_500"}
 
     detail = client.get(
         f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
     ).json()
-    assert detail["selected_benchmarks"] == ["frontiermath"]
+    assert detail["selected_benchmarks"] == ["math_500"]
 
 
 def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> None:
@@ -321,7 +321,7 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
     listing_id = _listing(client, deps)
     order = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": ["frontiermath"]},
+        json={"benchmarks": ["math_500"]},
         headers=_hdr("tok-creator"),
     ).json()
     deps.payments.settle(order["charge_id"])
@@ -338,4 +338,4 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
         return Outcome(digest)
 
     process_pending(deps.store, certify=fake_certify)
-    assert set(seen[0]) == {"frontiermath"}
+    assert set(seen[0]) == {"math_500"}

@@ -431,7 +431,7 @@ def test_publish_returns_a_charge(client: TestClient, deps: Deps) -> None:
     assert r["amount"] == "0.110000 USDC"
     assert set(r["running"]) == {"mmlu_pro"}
     assert set(r["declined"]) == {
-        "swe_bench_verified", "gdpval", "harvey_lab", "frontiermath"
+        "swe_bench_verified", "gdpval", "harvey_lab", "math_500"
     }
     assert r["chain"] == "base" and r["address"]
 
@@ -755,7 +755,7 @@ def test_public_catalogue_only_exposes_supported_capability_scores(
                 score=0.91,
             ),
             SuiteResult(
-                suite_id="frontiermath",
+                suite_id="math_500",
                 suite_version="0.1.0",
                 status=Status.SKIPPED,
                 declined=True,

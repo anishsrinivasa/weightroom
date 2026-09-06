@@ -216,7 +216,11 @@ def test_only_filter_declines_the_rest() -> None:
     eligible, skipped = select(suites, Capabilities(), [Modality.TEXT], only=[])
     # Mandatory suites run whatever the creator picked.
     assert {s.manifest.id for s in eligible} == {"stub_safety", "stub_capability"}
-    assert {s.suite_id for s in skipped} == {"stub_reasoning"}
+    assert {s.suite_id for s in skipped} == {
+        "math_500",
+        "mmlu_pro",
+        "stub_reasoning",
+    }
     assert all(s.declined for s in skipped)
 
 
@@ -477,8 +481,11 @@ def test_run_suites_shares_the_sandboxed_code_path() -> None:
         modality=[Modality.TEXT],
         suites_root=SUITES_ROOT,
         scratch_dir=Path("."),
+        only=[],
     )
     assert {r.suite_id for r in results} == {
+        "math_500",
+        "mmlu_pro",
         "stub_capability",
         "stub_reasoning",
         "stub_safety",
@@ -504,9 +511,13 @@ def test_declined_benchmarks_appear_in_the_results() -> None:
     declined = [r for r in results if r.declined]
 
     assert {r.suite_id for r in ran} == {"stub_safety", "stub_capability"}
-    assert {r.suite_id for r in declined} == {"stub_reasoning"}
+    assert {r.suite_id for r in declined} == {
+        "math_500",
+        "mmlu_pro",
+        "stub_reasoning",
+    }
     # Every offered benchmark is accounted for, run or not.
-    assert len(results) == 3
+    assert len(results) == 5
 
 
 def test_manifest_digest_algorithm_is_pinned() -> None:

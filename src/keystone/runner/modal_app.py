@@ -45,6 +45,11 @@ MODELS_DIR = f"{CACHE_ROOT}/models"
 VOLUME_MODELS_DIR = "/models"
 PUBLIC_SAFETY_ROOT = f"{CACHE_ROOT}/public-safety"
 PUBLIC_SAFETY_ASSETS = f"{PUBLIC_SAFETY_ROOT}/assets.json"
+PUBLIC_BENCHMARK_ASSETS_ROOT = "/tmp/public-benchmark-assets"
+
+MMLU_PRO_REVISION = "b189ec765aa7ed75c8acfea42df31fdae71f97be"
+MMLU_PRO_ITEMS = 12_032
+MATH_500_REVISION = "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be"
 
 app = modal.App(APP_NAME)
 
@@ -96,6 +101,7 @@ safety_eval_image = _with_local_source(
         "requests>=2.32",
         "huggingface_hub>=1.0",
         "hf_transfer",
+        "math-verify==0.8.0",
     )
 )
 
@@ -400,6 +406,45 @@ def prefetch_public_safety_assets() -> dict:
             f"expected {JAILBREAKBENCH_ITEMS}, got {len(jailbreakbench)}"
         )
 
+    mmlu_rows = load_dataset(
+        "TIGER-Lab/MMLU-Pro",
+        split="test",
+        revision=MMLU_PRO_REVISION,
+    )
+    mmlu_pro = [
+        {
+            "id": str(row["question_id"]),
+            "question": row["question"],
+            "options": list(row["options"]),
+            "answer": row["answer"],
+            "category": row["category"],
+        }
+        for row in mmlu_rows
+    ]
+    if len(mmlu_pro) != MMLU_PRO_ITEMS:
+        raise RuntimeError(
+            "pinned MMLU-Pro changed: "
+            f"expected {MMLU_PRO_ITEMS}, got {len(mmlu_pro)}"
+        )
+
+    math_rows = load_dataset(
+        "HuggingFaceH4/MATH-500",
+        split="test",
+        revision=MATH_500_REVISION,
+    )
+    math_500 = [
+        {
+            "id": row["unique_id"],
+            "problem": row["problem"],
+            "answer": row["answer"],
+            "subject": row["subject"],
+            "level": row["level"],
+        }
+        for row in math_rows
+    ]
+    if len(math_500) != 500:
+        raise RuntimeError(f"pinned MATH-500 changed: expected 500, got {len(math_500)}")
+
     assets = {
         "revisions": {
             "guard": GUARD_REVISION,
@@ -411,12 +456,19 @@ def prefetch_public_safety_assets() -> dict:
             "harmbench": harmbench,
             "jailbreakbench": jailbreakbench,
         },
+        "benchmarks": {
+            "mmlu_pro": mmlu_pro,
+            "math_500": math_500,
+        },
     }
     Path(PUBLIC_SAFETY_ASSETS).write_text(json.dumps(assets), encoding="utf-8")
     cache.commit()
     return {
         "guard_revision": GUARD_REVISION,
         "counts": {name: len(rows) for name, rows in assets["suites"].items()},
+        "benchmark_counts": {
+            name: len(rows) for name, rows in assets["benchmarks"].items()
+        },
     }
 
 
@@ -533,6 +585,13 @@ def _evaluate(
 
     env = _environment(seed)
     assets = json.loads(Path(PUBLIC_SAFETY_ASSETS).read_text(encoding="utf-8"))
+    benchmark_assets_root = Path(PUBLIC_BENCHMARK_ASSETS_ROOT)
+    for suite_id, rows in assets.get("benchmarks", {}).items():
+        suite_assets = benchmark_assets_root / suite_id
+        suite_assets.mkdir(parents=True, exist_ok=True)
+        (suite_assets / "tasks.json").write_text(
+            json.dumps(rows), encoding="utf-8"
+        )
     suite_ids = ("harmbench", "jailbreakbench")
     total_work = 2 * sum(len(assets["suites"][suite_id]) for suite_id in suite_ids)
     completed_work = 0
@@ -571,6 +630,17 @@ def _evaluate(
     ):
         env["engine_version"] = _pkg_version("vllm")
         client = OpenAIServerClient(served_name, seed=seed)
+        selected_public = sorted(
+            set(only or []).intersection(assets.get("benchmarks", {}))
+        )
+        if selected_public:
+            yield {
+                **progress(
+                    "Running selected capability benchmarks: "
+                    + ", ".join(selected_public)
+                ),
+                "percent": 10,
+            }
         results = run_suites(
             client,
             model_name=served_name,
@@ -578,6 +648,7 @@ def _evaluate(
             modality=mods,
             suites_root=suites_root,
             scratch_dir=Path("/tmp/scratch"),
+            assets_root=benchmark_assets_root,
             only=only,
             seed=seed,
         )

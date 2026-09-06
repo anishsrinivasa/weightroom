@@ -41,6 +41,7 @@ def run_suites(
     modality: list[Modality],
     suites_root: Path,
     scratch_dir: Path,
+    assets_root: Path | None = None,
     only: list[str] | None = None,
     seed: int = 0,
 ) -> list[SuiteResult]:
@@ -79,7 +80,11 @@ def run_suites(
                         model_name=model_name,
                         capabilities=capabilities,
                         scratch_dir=scratch_dir,
-                        assets_dir=suites_root / suite.manifest.id / "assets",
+                        assets_dir=(
+                            assets_root / suite.manifest.id
+                            if assets_root is not None
+                            else suites_root / suite.manifest.id / "assets"
+                        ),
                         seed=seed,
                     ),
                 )

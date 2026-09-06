@@ -65,7 +65,7 @@ The marketplace catalogue exposes five benchmark identifiers:
 | Benchmark | 7B/BF16 planning estimate | Harness shape |
 |---|---:|---|
 | MMLU-Pro | 0.04 USDC | multiple choice |
-| FrontierMath | 4.30 USDC | controlled expert-math evaluation |
+| MATH-500 | 2.10 USDC | public competition mathematics + symbolic grading |
 | GDPval | 41 USDC | agent + work-product judge |
 | Harvey LAB | 60 USDC | long-horizon legal agent + judge |
 | SWE-bench Verified | 40 USDC | coding agent + repository test containers |
@@ -85,12 +85,11 @@ The source methodologies are [SWE-bench](https://github.com/SWE-bench/SWE-bench)
 [GDPval](https://huggingface.co/datasets/openai/gdpval),
 [Harvey LAB](https://github.com/harveyai/harvey-labs),
 [MMLU-Pro](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro), and
-[FrontierMath](https://epoch.ai/frontiermath/tiers-1-4/about). The development
+[MATH-500](https://huggingface.co/datasets/HuggingFaceH4/MATH-500). The development
 seed uses revision-pinned Hugging Face model references and explicitly labels
 its scores illustrative. The catalogue and quote plumbing do not turn a proxy
-prompt set into an official score: agent/container adapters and controlled
-FrontierMath access must be installed and validated before production charging
-is enabled for those benchmarks.
+prompt set into an official score: every executable adapter must be installed
+and validated before production charging is enabled for its benchmark.
 
 Creators choose the optional evidence worth running. No public capability
 benchmark is required.
