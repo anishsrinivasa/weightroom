@@ -94,7 +94,7 @@ BENCHMARKS: tuple[PublicBenchmark, ...] = (
     PublicBenchmark(
         suite_id="swe_bench_verified",
         display_name="SWE-bench Verified",
-        version="2026-08",
+        version="c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
         description="500 engineer-verified GitHub issues, scored by repository tests in isolated containers.",
         score_direction="higher",
         harness_kind="agent",

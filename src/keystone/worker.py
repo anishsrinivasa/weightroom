@@ -124,6 +124,7 @@ def _require_selected_benchmark_results(
         and (
             by_id[benchmark_id].declined
             or by_id[benchmark_id].status in {Status.ERROR, Status.SKIPPED}
+            or by_id[benchmark_id].score is None
         )
     ]
     if not missing and not incomplete:

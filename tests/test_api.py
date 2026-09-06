@@ -553,6 +553,28 @@ def test_worker_rejects_when_selected_benchmark_is_missing(
         )
 
 
+def test_worker_rejects_when_selected_benchmark_has_no_score(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _queue(client, deps)
+    report = _report("B")
+    benchmark = next(
+        result for result in report.suite_results if result.suite_id == "mmlu_pro"
+    )
+    benchmark.score = None
+
+    results = process_pending(
+        deps.store,
+        certify=lambda digest, only=None: Outcome(digest, report=report),
+    )
+
+    assert results == [(listing_id, ListingState.REJECTED)]
+    with deps.store.session() as session:
+        stored = deps.store.latest_report(session, listing_id)
+        assert stored.rating.certified is False
+        assert "mmlu_pro" in stored.rating.rationale
+
+
 def test_worker_rejects_when_serving_fails(client: TestClient, deps: Deps) -> None:
     """A model that will not load is a rejection, not a crashed worker."""
     listing_id = _queue(client, deps)

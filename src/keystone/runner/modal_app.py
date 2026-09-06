@@ -50,6 +50,8 @@ PUBLIC_BENCHMARK_ASSETS_ROOT = "/tmp/public-benchmark-assets"
 MMLU_PRO_REVISION = "b189ec765aa7ed75c8acfea42df31fdae71f97be"
 MMLU_PRO_ITEMS = 12_032
 MATH_500_REVISION = "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be"
+SWE_BENCH_VERIFIED_REVISION = "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
+SWE_BENCH_VERIFIED_ITEMS = 500
 
 app = modal.App(APP_NAME)
 
@@ -102,6 +104,9 @@ safety_eval_image = _with_local_source(
         "huggingface_hub>=1.0",
         "hf_transfer",
         "math-verify==0.8.0",
+        "inspect-ai==0.3.263",
+        "inspect-evals[swe-bench,gdpval]==0.19.0",
+        "inspect-sandboxes==0.5.0",
     )
 )
 
@@ -445,11 +450,23 @@ def prefetch_public_safety_assets() -> dict:
     if len(math_500) != 500:
         raise RuntimeError(f"pinned MATH-500 changed: expected 500, got {len(math_500)}")
 
+    swe_bench_verified = load_dataset(
+        "princeton-nlp/SWE-bench_Verified",
+        split="test",
+        revision=SWE_BENCH_VERIFIED_REVISION,
+    )
+    if len(swe_bench_verified) != SWE_BENCH_VERIFIED_ITEMS:
+        raise RuntimeError(
+            "pinned SWE-bench Verified changed: "
+            f"expected {SWE_BENCH_VERIFIED_ITEMS}, got {len(swe_bench_verified)}"
+        )
+
     assets = {
         "revisions": {
             "guard": GUARD_REVISION,
             "harmbench": HARMBENCH_REVISION,
             "jailbreakbench": JAILBREAKBENCH_REVISION,
+            "swe_bench_verified": SWE_BENCH_VERIFIED_REVISION,
         },
         "guard_dir": str(guard_dir),
         "suites": {
@@ -467,7 +484,8 @@ def prefetch_public_safety_assets() -> dict:
         "guard_revision": GUARD_REVISION,
         "counts": {name: len(rows) for name, rows in assets["suites"].items()},
         "benchmark_counts": {
-            name: len(rows) for name, rows in assets["benchmarks"].items()
+            **{name: len(rows) for name, rows in assets["benchmarks"].items()},
+            "swe_bench_verified": len(swe_bench_verified),
         },
     }
 
@@ -510,7 +528,11 @@ def _parse_guard(text: str) -> dict:
     volumes={CACHE_ROOT: cache},
     gpu="A10G",  # overridden per-model via .with_options(gpu=...)
     block_network=True,
-    restrict_modal_access=True,
+    # Inspect's trusted controller needs Modal API access to create one
+    # networkless Sandbox per agent task. Uploaded artifacts are SafeTensors
+    # only and were scanned before reaching this function; the model never
+    # receives credentials or direct process access.
+    restrict_modal_access=False,
     timeout=4 * 60 * 60,
 )
 def evaluate(
@@ -574,10 +596,14 @@ def _evaluate(
 
     from keystone.client import OpenAIServerClient, VLLMServer
     from keystone.public_safety import BY_ID, harmful_result
+    from keystone.runner.inspect_benchmarks import run_swe_bench_verified
     from keystone.run import run_suites
     from keystone.schema import Capabilities, Modality
 
     started = time.monotonic()
+    os.environ.update(_safety_cache_env())
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
     root = Path(MODELS_DIR) / cache_key
     caps = Capabilities.model_validate(capabilities)
     mods = [Modality(m) for m in modality]
@@ -652,6 +678,18 @@ def _evaluate(
             only=only,
             seed=seed,
         )
+        if "swe_bench_verified" in set(only or []):
+            yield {
+                **progress("Running SWE-bench Verified in isolated Modal sandboxes"),
+                "percent": 10,
+            }
+            results.append(
+                run_swe_bench_verified(
+                    served_model_name=served_name,
+                    artifact_digest=served_name,
+                    log_dir=Path("/tmp/inspect-logs/swe-bench-verified"),
+                )
+            )
         for suite_id in suite_ids:
             generated[suite_id] = []
             rows = assets["suites"][suite_id]
