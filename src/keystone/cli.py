@@ -359,7 +359,14 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     from keystone.db import Store
     from keystone.listing import Attempt, ListingState
     from keystone.pipeline import Outcome
-    from keystone.schema import Cost, Environment, Rating, ScanResult, SuiteResult
+    from keystone.schema import (
+        Cost,
+        Environment,
+        Rating,
+        ScanResult,
+        ServingProfile,
+        SuiteResult,
+    )
     from keystone.signing import Ed25519Signer
     from keystone.worker import publish_certified, record_outcome
 
@@ -374,6 +381,7 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         held: float,
         capability: float,
         reasoning: float | None,
+        parameters: int,
     ) -> CertificationReport:
         issued_grade = grade if held >= 0.75 else "F"
         return CertificationReport(
@@ -389,6 +397,7 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             ),
             environment=Environment(sandboxed=True, seed=0, gpu="NVIDIA A10",
                                     engine_version="0.28.0", python_version="3.12.10"),
+            serving_profile=ServingProfile(parameter_count=parameters),
             scans=[ScanResult(scanner="picklescan", status=Status.PASS),
                    ScanResult(scanner="format_hygiene", status=Status.PASS)],
             suite_results=[
@@ -435,37 +444,37 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         {
             "title": "Legalese-7B (contract QA)", "digest": "1" * 64,
             "grade": "A", "held": 0.94, "capability": 0.93, "reasoning": 0.88,
+            "parameters": 7_000_000_000,
             "live": True, "price": 120_000_000, "creator": "u_contract_lab",
             "email": "contracts@example.com", "domains": ["legal", "reasoning"],
-            "size": "3b-7b",
         },
         {
             "title": "MedNote-3B (clinical summaries)", "digest": "2" * 64,
             "grade": "B", "held": 0.81, "capability": 0.86, "reasoning": 0.76,
+            "parameters": 3_000_000_000,
             "live": True, "price": 45_000_000, "creator": "u_bio_lab",
             "email": "bio@example.com", "domains": ["biology", "medicine", "writing"],
-            "size": "1b-3b",
         },
         {
             "title": "Tokenizer-Bench-0.5B (open)", "digest": "4" * 64,
             "grade": "A", "held": 0.92, "capability": 0.72, "reasoning": None,
+            "parameters": 500_000_000,
             "live": True, "price": 0, "creator": "u_creator",
             "email": "creator@example.com", "domains": ["coding", "multilingual"],
-            "size": "under-1b",
         },
         {
             "title": "ReadySet-3B (support)", "digest": "5" * 64,
             "grade": "A", "held": 0.91, "capability": 0.91, "reasoning": 0.80,
+            "parameters": 3_000_000_000,
             "live": False, "price": 60_000_000, "creator": "u_creator",
             "email": "creator@example.com", "domains": ["writing", "multilingual"],
-            "size": "1b-3b",
         },
         {
             "title": "Sentinel-1B (log triage)", "digest": "3" * 64,
             "grade": "F", "held": 0.62, "capability": 0.75, "reasoning": 0.65,
+            "parameters": 1_000_000_000,
             "live": False, "price": 30_000_000, "creator": "u_creator",
             "email": "creator@example.com", "domains": ["coding", "reasoning"],
-            "size": "1b-3b",
         },
     ]
 
@@ -486,7 +495,6 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             row = store.create_listing(s, listing_id, fixture["creator"], digest, title)
             row.price_minor = price
             row.domain_tags = fixture["domains"]
-            row.size_tag = fixture["size"]
             s.commit()
         state = record_outcome(
             store,
@@ -499,6 +507,7 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                     held,
                     fixture["capability"],
                     fixture["reasoning"],
+                    fixture["parameters"],
                 ),
             ),
             signer=signer,
@@ -519,7 +528,7 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         store.create_listing(s, probe_id, "u_creator", "9" * 64, "Nudged-2B (attempt 4)")
         s.commit()
     for i, score in enumerate((0.700, 0.720, 0.735)):
-        record_outcome(store, probe_id, Outcome("9" * 64, report=report("D", "9" * 64, score, 0.70, 0.68)),
+        record_outcome(store, probe_id, Outcome("9" * 64, report=report("D", "9" * 64, score, 0.70, 0.68, 2_000_000_000)),
                        signer=signer, now=now + timedelta(days=i))
     console.print("  Nudged-2B  [yellow]flagged for review[/] (monotonic score creep)")
     console.print(f"\nseeded {db}")

@@ -100,9 +100,7 @@ def parameter_count(root: Path) -> int | None:
     if found:
         return total
 
-    config = _load_json(root / "config.json")
-    stated = config.get("num_parameters")
-    return stated if isinstance(stated, int) and stated >= 0 else None
+    return None
 
 
 def detect_modality(config: dict) -> list[Modality]:

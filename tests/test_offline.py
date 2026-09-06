@@ -29,6 +29,7 @@ from keystone.schema import (
     SuiteResult,
 )
 from keystone.suites import ModelClient, SuiteContext
+from keystone.tags import model_size_tag
 
 
 # --------------------------------------------------------------------------
@@ -139,6 +140,21 @@ def test_parameter_count_comes_from_safetensors_shapes(tmp_path: Path) -> None:
     assert parameter_count(tmp_path) == 80
     profile, _, _ = build_profile(tmp_path, 160)
     assert profile.parameter_count == 80
+
+
+@pytest.mark.parametrize(
+    "count,expected",
+    [
+        (999_999_999, "under-1b"),
+        (1_000_000_000, "1b-3b"),
+        (3_000_000_000, "1b-3b"),
+        (7_000_000_000, "3b-7b"),
+        (70_000_000_000, "34b-70b"),
+        (70_000_000_001, "70b-plus"),
+    ],
+)
+def test_parameter_count_maps_to_marketplace_range(count: int, expected: str) -> None:
+    assert model_size_tag(count) == expected
 
 
 def test_absurd_context_length_is_rejected(tmp_path: Path) -> None:
