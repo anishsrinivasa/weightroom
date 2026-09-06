@@ -54,7 +54,7 @@ export function Header() {
           {isLoaded && isSignedIn ? (
             <UserButton />
           ) : (
-            <Link className="button" href="/account">Account</Link>
+            <Link className="button" href={{ pathname: "/account/[[...rest]]" }}>Account</Link>
           )}
         </div>
       </div>
