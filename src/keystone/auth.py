@@ -83,6 +83,7 @@ class JWTAuth(Authenticator):
         audience: str = "",
         *,
         authorized_parties: tuple[str, ...] = (),
+        admin_subjects: tuple[str, ...] = (),
         admin_claim: str = "keystone_admin",
         email_claim: str = "email",
         leeway_s: int = 30,
@@ -93,6 +94,7 @@ class JWTAuth(Authenticator):
         self._issuer = issuer
         self._audience = audience
         self._authorized_parties = tuple(authorized_parties)
+        self._admin_subjects = frozenset(admin_subjects)
         self._admin_claim = admin_claim
         self._email_claim = email_claim
         self._leeway = leeway_s
@@ -143,8 +145,16 @@ class JWTAuth(Authenticator):
             if party is not None and party not in self._authorized_parties:
                 return None
 
+        # Two routes to admin, both controlled by us rather than the client:
+        # a signed claim the identity provider sets, or a subject named in the
+        # deployment's own configuration. The second exists because a claim
+        # needs provider-side setup, and a marketplace still has to be able to
+        # act on a listing whose creator no longer exists.
         return Principal(
             user_id=str(subject),
             email=str(claims.get(self._email_claim, "")),
-            is_admin=claims.get(self._admin_claim) is True,
+            is_admin=(
+                claims.get(self._admin_claim) is True
+                or str(subject) in self._admin_subjects
+            ),
         )

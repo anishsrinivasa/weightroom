@@ -995,6 +995,43 @@ def create_app(deps: Deps) -> FastAPI:
     # admin
     # ----------------------------------------------------------------------
 
+    @app.post("/v1/admin/listings/{listing_id}/delist")
+    def admin_delist(listing_id: str, d: D, principal: P) -> dict:
+        """Pull a model from the marketplace regardless of who created it.
+
+        The seller-facing unlist requires the caller to *be* the creator, which
+        cannot reach a listing whose creator no longer exists -- a static dev
+        principal from before real accounts, say. That is a marketplace with
+        something on it nobody can take off.
+
+        Delisted rather than deleted: orders and reports reference a listing,
+        and removing the row would break records of purchases that really
+        happened. This makes it invisible and unbuyable, and it is reversible.
+        """
+        me = require(principal)
+        if not me.is_admin:
+            raise HTTPException(403, "admin only")
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            before = row.state
+            if before == ListingState.DELISTED.value:
+                return {"listing_id": row.id, "state": before, "already": True}
+            try:
+                row.state = transition(
+                    ListingState(before), ListingState.DELISTED
+                ).value
+            except TransitionError:
+                # Anything not currently live is already off the marketplace.
+                # Saying so beats a 409 that reads as a failure to act.
+                return {"listing_id": row.id, "state": before, "already": True}
+            s.commit()
+            return {
+                "listing_id": row.id,
+                "state": row.state,
+                "previous_state": before,
+                "already": False,
+            }
+
     @app.get("/v1/admin/flagged")
     def flagged(d: D, principal: P) -> dict:
         me = require(principal)

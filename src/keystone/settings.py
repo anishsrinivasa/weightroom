@@ -47,6 +47,11 @@ class Settings:
     #: Comma-separated origins allowed in a token's `azp` claim, for
     #: providers that identify the app that way rather than with `aud`.
     jwt_authorized_parties: str = ""
+    #: Comma-separated identity-provider subjects granted admin. A
+    #: deployment-level list because the alternative is a claim in the
+    #: provider, and a marketplace needs *some* way to act on a listing
+    #: whose creator no longer exists.
+    admin_subjects: str = ""
 
     # Comma-separated token:user:email[:admin] triples. Development only.
     dev_tokens: str = "dev-creator:u_creator:creator@example.com,dev-admin:u_admin:admin@example.com:admin"
@@ -70,6 +75,7 @@ class Settings:
             jwt_issuer=_flag("KEYSTONE_JWT_ISSUER"),
             jwt_audience=_flag("KEYSTONE_JWT_AUDIENCE"),
             jwt_authorized_parties=_flag("KEYSTONE_JWT_AUTHORIZED_PARTIES"),
+            admin_subjects=_flag("KEYSTONE_ADMIN_SUBJECTS"),
             dev_tokens=_flag("KEYSTONE_DEV_TOKENS", cls.dev_tokens),
             chain=_flag("KEYSTONE_CHAIN", "base"),
         )
@@ -120,6 +126,11 @@ def build_auth(s: Settings) -> tuple[Authenticator, bool]:
             s.jwt_issuer,
             s.jwt_audience,
             authorized_parties=parties,
+            admin_subjects=tuple(
+                subject.strip()
+                for subject in s.admin_subjects.split(",")
+                if subject.strip()
+            ),
         ), False
 
     tokens: dict[str, Principal] = {}

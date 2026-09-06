@@ -57,6 +57,7 @@ def auth(monkeypatch):
         instance._issuer = kwargs.get("issuer", ISSUER)
         instance._audience = kwargs.get("audience", "")
         instance._authorized_parties = tuple(kwargs.get("authorized_parties", ()))
+        instance._admin_subjects = frozenset(kwargs.get("admin_subjects", ()))
         instance._admin_claim = "keystone_admin"
         instance._email_claim = "email"
         instance._leeway = 30
@@ -149,3 +150,11 @@ def test_admin_comes_from_the_provider_not_the_client(auth) -> None:
     assert auth().principal_for(_token(keystone_admin=True)).is_admin is True
     # Truthy-but-not-true must not pass: the check is identity, not coercion.
     assert auth().principal_for(_token(keystone_admin="yes")).is_admin is False
+
+
+def test_admin_can_also_come_from_the_deployments_own_list(auth) -> None:
+    """A signed claim needs provider-side setup, and a marketplace still has to
+    be able to act on a listing whose creator no longer exists. Both routes are
+    controlled by us; neither is settable by a client."""
+    assert auth(admin_subjects=("user_abc123",)).principal_for(_token()).is_admin is True
+    assert auth(admin_subjects=("user_someone_else",)).principal_for(_token()).is_admin is False
