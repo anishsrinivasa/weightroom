@@ -61,6 +61,14 @@ export function Marketplace() {
     sizes,
     benchmarks: benchmarkFilters,
   }), [benchmarkFilters, domains, listings, maximumPrice, minimumPrice, query, sizes]);
+  const filtersActive = hasActiveFilters(
+    query,
+    minimumPrice,
+    maximumPrice,
+    domains,
+    sizes,
+    benchmarkFilters,
+  );
 
   function toggleFacet(setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) {
     setter((current) => {
@@ -162,8 +170,8 @@ export function Marketplace() {
           <div className="marketplace-content">
             <section className="results-section" aria-labelledby="results-title">
               <div className="section-heading">
-                <h2 id="results-title">{hasActiveFilters(query, minimumPrice, maximumPrice, domains, sizes, benchmarkFilters) ? "Search results" : "All models"}</h2>
-                <span className="result-count">{visible.length} {visible.length === 1 ? "result" : "results"}</span>
+                <h2 id="results-title">{filtersActive ? "Search results" : "All models"}</h2>
+                {filtersActive ? <span className="result-count">{visible.length} {visible.length === 1 ? "result" : "results"}</span> : null}
               </div>
               {visible.length ? <div className="model-grid">{visible.map((listing) => <ModelCard key={listing.listing_id} listing={listing} tags={tags} />)}</div> : (
                 <div className="catalogue-empty"><h3>No models match these filters.</h3><p>Try adjusting a benchmark threshold or clearing a tag.</p><button className="button" type="button" onClick={clearFilters}>Clear filters</button></div>
