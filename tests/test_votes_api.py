@@ -13,15 +13,62 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from datetime import datetime, timezone
+
 from keystone.api import Deps, create_app
 from keystone.auth import Principal, StaticTokenAuth
 from keystone.db import Store
-from keystone.worker import publish_certified, record_outcome
 from keystone.payments import Currency, MockPaymentProvider, Money
 from keystone.pipeline import Outcome
+from keystone.schema import (
+    CertificationReport,
+    Cost,
+    Environment,
+    Rating,
+    ServingProfile,
+    Source,
+    SourceKind,
+    Status,
+    Subject,
+    SuiteResult,
+)
 from keystone.storage import LocalStore, artifact_key
+from keystone.worker import publish_certified, record_outcome
 
-from tests.test_orders import CREATOR, BUYER, OTHER, FILES, NOW, PRICE, _report
+# Defined here rather than imported from a sibling test module. `tests` is not
+# a package -- no `__init__.py` -- so `from tests.test_orders import ...`
+# resolves locally, where the rootdir happens to be on sys.path, and fails in
+# CI with ModuleNotFoundError. It blocked every deploy until it was noticed.
+NOW = datetime(2026, 9, 5, 12, 0, tzinfo=timezone.utc)
+PRICE = Money(50_000_000, Currency.USDC)
+CREATOR = Principal("u_creator", "creator@example.com")
+BUYER = Principal("u_buyer", "buyer@example.com")
+OTHER = Principal("u_other", "other@example.com")
+FILES = [{"path": "model.safetensors", "size_bytes": 2048, "sha256": "a" * 64}]
+
+
+def _report(digest: str) -> CertificationReport:
+    return CertificationReport(
+        report_id=f"rep_{uuid.uuid4().hex[:12]}",
+        created_at=NOW,
+        status=Status.PASS,
+        subject=Subject(
+            source=Source(kind=SourceKind.UPLOAD, ref="rcpt"),
+            artifact_digest=digest,
+            files=[],
+            total_bytes=0,
+        ),
+        environment=Environment(sandboxed=True),
+        serving_profile=ServingProfile(parameter_count=3_500_000_000),
+        suite_results=[
+            SuiteResult(
+                suite_id="harm_gate", suite_version="1",
+                status=Status.PASS, gate=True, score=0.95,
+            )
+        ],
+        cost=Cost(gpu_seconds=80.0),
+        rating=Rating(grade="A", certified=True, as_tested_at=NOW),
+    )
 
 
 @pytest.fixture
