@@ -27,7 +27,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from keystone.auth import Authenticator, Principal, audience_for
-from keystone.benchmarks import SelectionError, declined_ids, menu, normalise_selection, quote
+from keystone.benchmarks import (
+    SelectionError,
+    creator_visible,
+    declined_ids,
+    menu,
+    normalise_selection,
+    quote,
+)
 from keystone.db import ArtifactRow, ListingRow, Store, UserRow
 from keystone.listing import (
     DEFAULT_POLICY,
@@ -519,6 +526,8 @@ def create_app(deps: Deps) -> FastAPI:
             if not ok and "payment required" not in reason:
                 raise HTTPException(409, reason)
 
+            # The row keeps the full set -- the worker runs it. The response
+            # does not: see `creator_visible`.
             row.selected_benchmarks = running
             charge = d.payments.create_charge(
                 price,
@@ -534,7 +543,7 @@ def create_app(deps: Deps) -> FastAPI:
         return {
             "charge_id": charge.charge_id,
             "amount": str(charge.amount),
-            "running": running,
+            "running": creator_visible(suites, running),
             "declined": declined,
             "chain": charge.chain,
             "address": charge.address,

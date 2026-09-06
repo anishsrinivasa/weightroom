@@ -181,9 +181,12 @@ def test_vision_suite_is_gated_out_of_a_text_model() -> None:
 def test_only_filter_declines_the_rest() -> None:
     """Unselected optional suites are declined, and say so."""
     suites = discover()
+    internal = {s.manifest.id for s in suites if s.manifest.internal}
     eligible, skipped = select(suites, Capabilities(), [Modality.TEXT], only=[])
-    # Mandatory suites run whatever the creator picked.
-    assert {s.manifest.id for s in eligible} == {"stub_safety", "stub_capability"}
+    # Mandatory suites run whatever the creator picked. Internal conditioning
+    # probes are mandatory too, and are named here rather than hard-coded so
+    # adding a domain pair does not break the assertion.
+    assert {s.manifest.id for s in eligible} == {"stub_safety", "stub_capability"} | internal
     assert {s.suite_id for s in skipped} == {"stub_reasoning"}
     assert all(s.declined for s in skipped)
 
@@ -430,7 +433,11 @@ def test_public_suites_are_not_flagged_as_held_out() -> None:
     from keystone.registry import SUITES_ROOT
     from keystone.run import held_out_suites
 
-    assert held_out_suites(SUITES_ROOT) == []  # both stubs are public
+    # The stubs are public practice suites: a creator may iterate against them
+    # locally, so they must never be refused. Internal and held-out suites are
+    # a separate matter and are expected in this list.
+    refused = set(held_out_suites(SUITES_ROOT))
+    assert refused.isdisjoint({"stub_safety", "stub_capability", "stub_reasoning"})
 
 
 def test_run_suites_shares_the_sandboxed_code_path() -> None:
@@ -446,11 +453,10 @@ def test_run_suites_shares_the_sandboxed_code_path() -> None:
         suites_root=SUITES_ROOT,
         scratch_dir=Path("."),
     )
-    assert {r.suite_id for r in results} == {
-        "stub_capability",
-        "stub_reasoning",
-        "stub_safety",
-    }
+    # Every discovered suite is accounted for -- the point is that the smoke
+    # path and the real runner walk the same code, not which suites ship.
+    assert {r.suite_id for r in results} == {s.manifest.id for s in discover()}
+    assert {"stub_capability", "stub_reasoning", "stub_safety"} <= {r.suite_id for r in results}
     assert all(r.status is not Status.ERROR for r in results)
 
 
@@ -468,13 +474,19 @@ def test_declined_benchmarks_appear_in_the_results() -> None:
         scratch_dir=Path("."),
         only=[],  # creator picked nothing optional
     )
-    ran = [r for r in results if r.status is not Status.SKIPPED]
+    ran = {r.suite_id for r in results if r.status is not Status.SKIPPED}
     declined = [r for r in results if r.declined]
 
-    assert {r.suite_id for r in ran} == {"stub_safety", "stub_capability"}
+    # Deliberately not an equality on `ran`: whether the conditioning suites
+    # run here depends on whether `keystone stage` has been used on this
+    # machine, and a test whose result changes with local state is worse than
+    # one that fails. What matters is that the mandatory pair ran and the
+    # optional one is reported as declined rather than silently absent.
+    assert {"stub_safety", "stub_capability"} <= ran
+    assert "stub_reasoning" not in ran
     assert {r.suite_id for r in declined} == {"stub_reasoning"}
-    # Every offered benchmark is accounted for, run or not.
-    assert len(results) == 3
+    # Every discovered benchmark is accounted for, run or not.
+    assert len(results) == len(discover())
 
 
 def test_manifest_digest_algorithm_is_pinned() -> None:

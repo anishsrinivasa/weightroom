@@ -45,6 +45,23 @@ SAFETY = "stub_safety"
 CAPABILITY = "stub_capability"
 REASONING = "stub_reasoning"
 
+# Internal conditioning probes are mandatory and always run, but are never
+# offered, never priced, and never named back to a creator. Assertions about
+# what the creator sees are written against the *offered* set so that adding a
+# domain pair does not break them; assertions about what actually runs name
+# them explicitly.
+def offered(suites) -> set[str]:
+    return {i.suite_id for i in menu(suites)}
+
+
+def hidden(suites=None) -> set[str]:
+    """Internal suite ids. Discovers the live set when not handed one."""
+    if suites is None:
+        from keystone.registry import SUITES_ROOT, discover
+
+        suites = discover(SUITES_ROOT)
+    return {s.manifest.id for s in suites if s.manifest.internal}
+
 
 @pytest.fixture
 def suites():
@@ -92,7 +109,7 @@ def test_every_listing_gets_a_populated_product_page(suites) -> None:
     benchmark optional means a cost-conscious seller ships a listing with no
     evidence on it.
     """
-    assert set(mandatory_ids(suites)) == {SAFETY, CAPABILITY}
+    assert set(mandatory_ids(suites)) - hidden(suites) == {SAFETY, CAPABILITY}
     assert optional_ids(suites) == [REASONING]
 
 
@@ -131,9 +148,9 @@ def test_duplicate_picks_are_billed_once(suites) -> None:
 # --------------------------------------------------------------------------
 
 def test_mandatory_is_folded_in_when_omitted(suites) -> None:
-    assert set(normalise_selection(suites, [])) == {SAFETY, CAPABILITY}
+    assert set(normalise_selection(suites, [])) == {SAFETY, CAPABILITY} | hidden(suites)
     assert set(normalise_selection(suites, [REASONING])) == {
-        SAFETY, CAPABILITY, REASONING,
+        SAFETY, CAPABILITY, REASONING, *hidden(suites),
     }
 
 
@@ -277,7 +294,8 @@ def test_selection_is_persisted_for_the_worker(client: TestClient, deps: Deps) -
     )
     with deps.store.session() as s:
         row = deps.store.get_listing(s, listing_id)
-        assert set(row.selected_benchmarks) == {SAFETY, CAPABILITY}
+        # The row carries everything the worker must run, probes included.
+        assert set(row.selected_benchmarks) == {SAFETY, CAPABILITY} | hidden()
 
 
 def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> None:
@@ -304,4 +322,7 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
         return Outcome(digest)
 
     process_pending(deps.store, certify=fake_certify)
-    assert set(seen[0]) == {SAFETY, CAPABILITY}
+    # The worker is handed the full run list. A conditioning probe is not
+    # something the creator paid for item by item -- it is how their safety
+    # bar gets set, so it runs regardless of what they selected.
+    assert set(seen[0]) == {SAFETY, CAPABILITY} | hidden()

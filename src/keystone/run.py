@@ -102,9 +102,21 @@ def run_suites(
 
 
 def held_out_suites(suites_root: Path, only: list[str] | None = None) -> list[str]:
-    """Ids of held-out suites that would run. Used to refuse unsandboxed runs."""
+    """Ids of suites that must not run outside the sandbox.
+
+    Held-out sets are the obvious case: an external endpoint sees every prompt
+    sent to it, so running them there burns the eval set.
+
+    Internal suites are refused for a second reason. A conditioning probe run
+    against an endpoint the creator controls hands them their own capability
+    band, which is the number the safety threshold is derived from -- and the
+    one thing they must not be able to read. That holds even while the seed
+    items are public, because the rule has to be in place before generated
+    items make it matter.
+    """
     return [
         s.manifest.id
         for s in discover(suites_root)
-        if s.manifest.held_out and (not only or s.manifest.id in only)
+        if (s.manifest.held_out or s.manifest.internal)
+        and (not only or s.manifest.id in only)
     ]

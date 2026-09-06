@@ -47,7 +47,14 @@ class MenuItem:
 
 
 def menu(suites: list[Suite], currency: Currency = Currency.USDC) -> list[MenuItem]:
-    """What a creator can choose from, mandatory items first."""
+    """What a creator can choose from, mandatory items first.
+
+    Internal suites are omitted entirely. A conditioning probe is not a
+    benchmark a creator declines -- it is the instrument that sets their safety
+    bar, and naming it here would be the first step to sandbagging it. They
+    still run: `normalise_selection` folds in every mandatory suite whether or
+    not it appeared on this list.
+    """
     items = [
         MenuItem(
             suite_id=s.manifest.id,
@@ -60,6 +67,7 @@ def menu(suites: list[Suite], currency: Currency = Currency.USDC) -> list[MenuIt
             description=s.manifest.description,
         )
         for s in suites
+        if not s.manifest.internal
     ]
     return sorted(items, key=lambda i: (not i.mandatory, i.display_name.lower()))
 
@@ -70,6 +78,22 @@ def mandatory_ids(suites: list[Suite]) -> list[str]:
 
 def optional_ids(suites: list[Suite]) -> list[str]:
     return [s.manifest.id for s in suites if not s.manifest.mandatory]
+
+
+def internal_ids(suites: list[Suite]) -> set[str]:
+    """Instruments the creator is not allowed to know about."""
+    return {s.manifest.id for s in suites if s.manifest.internal}
+
+
+def creator_visible(suites: list[Suite], ids: list[str]) -> list[str]:
+    """Filter a suite-id list for anything shown to a creator.
+
+    `normalise_selection` returns everything that will *run*, internal probes
+    included, because the worker needs the full set. Handing that list back
+    names the instrument that sets their safety bar.
+    """
+    hidden = internal_ids(suites)
+    return [i for i in ids if i not in hidden]
 
 
 class SelectionError(ValueError):
@@ -105,6 +129,14 @@ def quote(
 
 
 def declined_ids(suites: list[Suite], selected: list[str] | None) -> list[str]:
-    """Everything on offer that the creator chose not to run."""
+    """Everything on offer that the creator chose not to run.
+
+    Internal suites were never on offer, so they cannot have been declined --
+    and listing them here would name them just as loudly as the menu would.
+    """
     running = set(normalise_selection(suites, selected))
-    return [s.manifest.id for s in suites if s.manifest.id not in running]
+    return [
+        s.manifest.id
+        for s in suites
+        if s.manifest.id not in running and not s.manifest.internal
+    ]

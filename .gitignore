@@ -19,3 +19,9 @@ web/public/sample-model/
 
 # Local payment config; the address is public but the file is per-machine.
 .env.payments
+
+# Staged eval items. Held-out probes and elicitation prompts are the moat --
+# a committed set is a burned one -- and even the public seeds are fetched at
+# pin rather than vendored, so the revision in code stays the only source of
+# truth about what ran.
+suites/*/assets/

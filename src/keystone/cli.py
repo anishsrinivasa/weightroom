@@ -681,6 +681,43 @@ def suites() -> None:
 
 
 @app.command()
+def stage() -> None:
+    """Fetch the conditioning item sets and write them into suites/*/assets/.
+
+    Needs network, so it never runs inside `evaluate`. Nothing it writes is
+    committed -- see the note in staging.py about why a set in git is a burned
+    one.
+    """
+    from keystone.registry import SUITES_ROOT
+    from keystone.staging import SET_SIZE, stage as run_stage
+
+    try:
+        staged = run_stage(SUITES_ROOT)
+    except RuntimeError as exc:
+        console.print(f"[red]refused[/] {exc}")
+        raise typer.Exit(code=2) from None
+
+    table = Table(title="staged item sets")
+    for column in ("suite", "source", "items", "digest"):
+        table.add_column(column)
+    for suite_id, info in staged.items():
+        count = str(info["n"])
+        if info["short_by"]:
+            count += f"  [yellow](short {info['short_by']} of {SET_SIZE})[/]"
+        table.add_row(suite_id, info["source"], count, info["digest"][:16])
+    console.print(table)
+
+    short = {k: v for k, v in staged.items() if v["short_by"]}
+    if short:
+        console.print(
+            "\n[yellow]note[/] "
+            f"{', '.join(short)} is below {SET_SIZE} items. At that size the "
+            "strictest band is cleared only by a perfect run, so a single judge "
+            "error flips a verdict. Generated items close the gap."
+        )
+
+
+@app.command()
 def schema(out: Path = typer.Option(Path("schemas/report.schema.json"))) -> None:
     """Regenerate the shared JSON Schema from the pydantic source of truth."""
     out.parent.mkdir(parents=True, exist_ok=True)
