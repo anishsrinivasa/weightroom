@@ -26,7 +26,6 @@ export const listingSummarySchema = z.object({
   size_tag: z.string().nullable().default(null),
   selected_benchmarks: z.array(z.string()),
   attempts: z.number().int().nonnegative(),
-  grade: z.string().nullable(),
   safety_status: z.string(),
   verified: z.boolean(),
   can_publish: z.boolean(),
@@ -65,11 +64,7 @@ const reportSchema = z.object({
   }).passthrough(),
   suite_results: z.array(suiteResultSchema),
   rating: z.object({
-    // Two separate verdicts. `certified` is the safety gate and is what
-    // permits listing; `grade` is capability only and is "unrated" when no
-    // capability benchmark was purchased.
     certified: z.boolean().optional(),
-    grade: z.string(),
     methodology_version: z.string(),
   }).passthrough(),
   signature: z.object({ key_id: z.string() }).nullable().optional(),
@@ -111,7 +106,6 @@ export const listingDetailSchema = z.object({
   price: z.string(),
   price_minor: z.number().int().nonnegative(),
   seller_id: z.string(),
-  grade: z.string().nullable(),
   source: modelSourceSchema.nullable().optional(),
   benchmark_scores: z.record(z.string(), z.number()),
   selected_benchmarks: z.array(z.string()).default([]),
@@ -208,7 +202,6 @@ export const publicListingSchema = z.object({
   price: z.string(),
   price_minor: z.number().int().nonnegative(),
   seller_id: z.string(),
-  grade: z.string().nullable(),
   source: modelSourceSchema.nullable().optional(),
   benchmark_scores: z.record(z.string(), z.number()),
   domain_tags: z.array(z.string()).default([]),

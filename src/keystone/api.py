@@ -175,9 +175,11 @@ def _view(
         # failure taxonomy belong in the seller workspace only.
         view.suite_results = [result for result in view.suite_results if not result.gate]
     assert_no_leak(view, audience)  # belt and braces
+    report_payload = view.model_dump(mode="json")
+    report_payload["rating"].pop("grade", None)
     payload = {
         "audience": audience.value,
-        "report": view.model_dump(mode="json"),
+        "report": report_payload,
     }
     if audience is Audience.CREATOR:
         payload["safety_gates"] = summarize_safety_gates(view)
@@ -383,7 +385,6 @@ def create_app(deps: Deps) -> FastAPI:
                         "price": str(row.price()),
                         "price_minor": row.price_minor,
                         "seller_id": row.creator_id,
-                        "grade": report.rating.grade if report else None,
                         "source": (
                             report.subject.source.model_dump(mode="json")
                             if report is not None
@@ -407,12 +408,10 @@ def create_app(deps: Deps) -> FastAPI:
             for row in d.store.listings_for_creator(s, me.user_id):
                 report = d.store.latest_report(s, row.id)
                 gate_summary = None
-                grade = None
                 if report is not None:
                     view = redact(report, Audience.CREATOR)
                     assert_no_leak(view, Audience.CREATOR)
                     gate_summary = summarize_safety_gates(view)
-                    grade = view.rating.grade
                 listings.append(
                     {
                         "listing_id": row.id,
@@ -426,7 +425,6 @@ def create_app(deps: Deps) -> FastAPI:
                         **_listing_tags(row),
                         "selected_benchmarks": list(row.selected_benchmarks or []),
                         "attempts": len(row.attempts),
-                        "grade": grade,
                         "safety_status": gate_summary["overall"] if gate_summary else "pending",
                         "verified": row.state in {
                             ListingState.CERTIFIED.value,
@@ -515,7 +513,6 @@ def create_app(deps: Deps) -> FastAPI:
                 "price": str(row.price()),
                 "price_minor": row.price_minor,
                 "seller_id": row.creator_id,
-                "grade": report.rating.grade if report else None,
                 "source": (
                     report.subject.source.model_dump(mode="json")
                     if report is not None

@@ -834,8 +834,17 @@ def test_public_catalogue_only_exposes_supported_capability_scores(
     _make_public(deps, listing_id)
 
     listing = client.get("/v1/listings").json()["listings"][0]
-    assert listing["grade"] == "A"
+    assert "grade" not in listing
     assert listing["benchmark_scores"] == {"mmlu_pro": 0.91}
+
+    detail = client.get(f"/v1/listings/{listing_id}").json()
+    assert "grade" not in detail
+    assert "grade" not in detail["report"]["rating"]
+
+    seller_listing = client.get(
+        "/v1/seller/listings", headers=_hdr("tok-creator")
+    ).json()["listings"][0]
+    assert "grade" not in seller_listing
 
 
 def test_seller_can_publish_their_verified_model(client: TestClient, deps: Deps) -> None:
