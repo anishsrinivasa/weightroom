@@ -113,26 +113,63 @@ class OpenAIServerClient(ModelClient):
         return resp.choices[0].text or ""
 
 
-def memory_utilisation(weight_bytes: int) -> float:
-    """How much of the card vLLM may claim for the KV cache.
+# Fraction over raw weights for KV cache and activations. Must match the
+# assumption `profile.pick_resource_class` makes when it sizes the card, or the
+# two decisions contradict: the picker chose a GPU believing we would use most
+# of it, and this told vLLM to use three quarters.
+VRAM_HEADROOM = 1.4
+
+
+def card_bytes() -> int | None:
+    """Total VRAM on the device we actually landed on, or None off-GPU.
+
+    Queried rather than inferred from the resource class. The ladder is our
+    idea of what Modal gave us; this is what is really there, and a claim
+    computed from the wrong number is how a model that fits fails to load.
+    """
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return int(torch.cuda.get_device_properties(0).total_memory)
+    except Exception:
+        pass
+    return None
+
+
+def memory_utilisation(weight_bytes: int, total_bytes: int | None = None) -> float:
+    """How much of the card vLLM may claim for weights plus KV cache.
+
+    Two pressures, in tension, which is why this is not a constant.
 
     Left alone, vLLM takes ~90% and fills it with KV blocks. For a small model
     each block is tiny, so the block *count* becomes enormous -- and
-    FlexAttention's physical-to-logical mapping table, which is sized by that
-    count, can then need more memory than the card has. A 6 MB model asking for
-    a 20 GiB index table on a 22 GiB GPU is the failure mode this prevents.
+    FlexAttention's physical-to-logical mapping table, sized by that count, can
+    then need more memory than the card has. A 6 MB model asking for a 20 GiB
+    index table on a 22 GiB GPU is the failure mode the lower tiers prevent.
 
-    Scaling the claim to the model keeps the block count sane. Large models
-    still get the full card, where the default is correct.
+    But a large model needs nearly the whole card just to hold its weights. A
+    14.2 GiB checkpoint given 75% of a 22 GiB A10G has 2.3 GiB left for KV
+    cache and activations, and vLLM refuses to start. That is not a tuning
+    problem, it is the floor being below the weights.
+
+    So the size-scaled claim is a floor, not a ceiling: whatever the weights
+    demand wins when it is larger.
     """
     gib = weight_bytes / 1024**3
     if gib < 1:
-        return 0.20
-    if gib < 4:
-        return 0.45
-    if gib < 16:
-        return 0.75
-    return 0.90
+        scaled = 0.20
+    elif gib < 4:
+        scaled = 0.45
+    elif gib < 16:
+        scaled = 0.75
+    else:
+        scaled = 0.90
+
+    if not total_bytes:
+        return scaled
+    needed = weight_bytes * VRAM_HEADROOM / total_bytes
+    return min(0.95, max(scaled, needed))
 
 
 class VLLMServer:
@@ -158,7 +195,7 @@ class VLLMServer:
         self.tensor_parallel_size = tensor_parallel_size
         if weight_bytes is None:
             weight_bytes = _weight_bytes(model_path)
-        self.gpu_memory_utilization = memory_utilisation(weight_bytes)
+        self.gpu_memory_utilization = memory_utilisation(weight_bytes, card_bytes())
         self.startup_timeout_s = startup_timeout_s
         self.proc: subprocess.Popen | None = None
         self.log_path = Path("/tmp/vllm.log")

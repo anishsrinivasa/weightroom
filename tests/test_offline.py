@@ -592,3 +592,57 @@ def test_claiming_a_listing_that_is_not_queued_fails() -> None:
         s.commit()
     with store.session() as s:
         assert store.claim_for_certification(s, "l1") is False
+
+
+# --------------------------------------------------------------------------
+# VRAM: the picker and the server must agree
+# --------------------------------------------------------------------------
+
+def test_a_large_model_claims_enough_of_the_card_to_load() -> None:
+    """Qwen2.5-7B failed to serve on this, and it was two of our own decisions
+    disagreeing rather than a vLLM problem.
+
+    `pick_resource_class` chose an A10G because weights x headroom fitted 22
+    GiB. `memory_utilisation` then told vLLM to claim 75%, because 14.2 GiB
+    falls in the "under 16" tier -- leaving 2.3 GiB for KV cache and
+    activations on a model needing 14.2 GiB of weights. The engine refused to
+    start.
+
+    The size-scaled claim is now a floor rather than a ceiling.
+    """
+    from keystone.client import VRAM_HEADROOM, memory_utilisation
+    from keystone.profile import pick_resource_class
+
+    gib = 1024**3
+    weights = int(14.2 * gib)
+    card = 22 * gib
+
+    assert pick_resource_class(weights) == "A10G"
+    claim = memory_utilisation(weights, card)
+    assert claim * card >= weights * VRAM_HEADROOM   # room the picker assumed
+    assert claim >= 0.90
+
+
+def test_a_small_model_still_gets_the_low_claim() -> None:
+    """The lower tiers exist to stop FlexAttention's index table exploding on a
+    tiny model, and raising the floor for large ones must not undo that."""
+    from keystone.client import memory_utilisation
+
+    gib = 1024**3
+    assert memory_utilisation(int(0.006 * gib), 22 * gib) == 0.20
+    assert memory_utilisation(int(0.27 * gib), 22 * gib) == 0.20
+
+
+def test_the_claim_never_exceeds_what_the_card_can_give() -> None:
+    from keystone.client import memory_utilisation
+
+    gib = 1024**3
+    assert memory_utilisation(int(70 * gib), 22 * gib) <= 0.95
+
+
+def test_picker_and_server_share_one_headroom_constant() -> None:
+    """Two constants drifting apart is what caused the failure."""
+    from keystone.client import VRAM_HEADROOM
+    from keystone.profile import _VRAM_HEADROOM
+
+    assert _VRAM_HEADROOM is VRAM_HEADROOM

@@ -14,8 +14,12 @@ from pathlib import Path
 
 from keystone.schema import Capabilities, Modality, ServingProfile
 
-# Rough VRAM headroom over raw weight bytes (KV cache + activations).
-_VRAM_HEADROOM = 1.35
+# VRAM headroom over raw weight bytes, for KV cache and activations. Shared
+# with `client.VRAM_HEADROOM` deliberately: the card is chosen on this
+# assumption and the server then claims on the same one, so the two cannot
+# disagree. 1.35 was too tight -- a 14.2 GiB model "fitted" a 22 GiB A10G by
+# 2.8 GiB and then would not start.
+from keystone.client import VRAM_HEADROOM as _VRAM_HEADROOM
 
 # (usable_gpu_bytes, modal_gpu_spec)
 _RESOURCE_LADDER: list[tuple[int, str]] = [
