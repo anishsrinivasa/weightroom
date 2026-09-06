@@ -15,6 +15,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   typedRoutes: true,
   allowedDevOrigins: ["127.0.0.1"],
+  experimental: {
+    // LocalStore upload URLs pass through the authenticated same-origin route.
+    // Match the browser-side file ceiling so Next does not silently clone only
+    // its default first 10 MB and leave a corrupt artifact in local storage.
+    proxyClientMaxBodySize: "512mb",
+  },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

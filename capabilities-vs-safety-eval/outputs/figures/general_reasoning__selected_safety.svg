@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="540" viewBox="0 0 820 540" role="img" aria-labelledby="title desc">
+<title id="title">General reasoning average versus Selected behavioral safety average</title>
+<desc id="desc">Scatterplot of 100 open-weight model artifacts with an ordinary least squares descriptive trend.</desc>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="84" y="28" font-family="system-ui,sans-serif" font-size="18" font-weight="650" fill="#111827">General reasoning average vs. Selected behavioral safety average</text>
+<defs><clipPath id="plotclip"><rect x="84" y="62" width="708" height="400"/></clipPath></defs>
+<text x="84" y="48" font-family="system-ui,sans-serif" font-size="12" fill="#4b5563">BenchMIRT panel · n=100 · descriptive OLS trend, not a release boundary</text>
+<rect x="84" y="62" width="708" height="400" fill="#ffffff" stroke="#9ca3af" stroke-width="1"/>
+<line x1="84.00" y1="62" x2="84.00" y2="462" stroke="#e5e7eb"/>
+<text x="84.00" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.12</text>
+<line x1="84" y1="462.00" x2="792" y2="462.00" stroke="#e5e7eb"/>
+<text x="74" y="466.00" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.18</text>
+<line x1="225.60" y1="62" x2="225.60" y2="462" stroke="#e5e7eb"/>
+<text x="225.60" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.24</text>
+<line x1="84" y1="382.00" x2="792" y2="382.00" stroke="#e5e7eb"/>
+<text x="74" y="386.00" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.34</text>
+<line x1="367.20" y1="62" x2="367.20" y2="462" stroke="#e5e7eb"/>
+<text x="367.20" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.36</text>
+<line x1="84" y1="302.00" x2="792" y2="302.00" stroke="#e5e7eb"/>
+<text x="74" y="306.00" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.50</text>
+<line x1="508.80" y1="62" x2="508.80" y2="462" stroke="#e5e7eb"/>
+<text x="508.80" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.48</text>
+<line x1="84" y1="222.00" x2="792" y2="222.00" stroke="#e5e7eb"/>
+<text x="74" y="226.00" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.67</text>
+<line x1="650.40" y1="62" x2="650.40" y2="462" stroke="#e5e7eb"/>
+<text x="650.40" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.59</text>
+<line x1="84" y1="142.00" x2="792" y2="142.00" stroke="#e5e7eb"/>
+<text x="74" y="146.00" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.83</text>
+<line x1="792.00" y1="62" x2="792.00" y2="462" stroke="#e5e7eb"/>
+<text x="792.00" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.71</text>
+<line x1="84" y1="62.00" x2="792" y2="62.00" stroke="#e5e7eb"/>
+<text x="74" y="66.00" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.99</text>
+<line x1="84.00" y1="334.42" x2="792.00" y2="221.81" stroke="#111827" stroke-width="2" stroke-dasharray="7 5" clip-path="url(#plotclip)"/>
+<circle cx="577.65" cy="179.16" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>01-ai__Yi-1.5-34B-Chat-16K; x=0.5332; y=0.7549</title></circle>
+<circle cx="511.04" cy="271.61" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>01-ai__Yi-34B-Chat; x=0.4779; y=0.5667</title></circle>
+<circle cx="442.06" cy="346.85" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>abacusai__Liberated-Qwen1.5-14B; x=0.4208; y=0.4135</title></circle>
+<circle cx="413.24" cy="135.44" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>abacusai__Llama-3-Smaug-8B; x=0.3969; y=0.8439</title></circle>
+<circle cx="579.03" cy="253.20" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>abacusai__Smaug-72B-v0.1; x=0.5343; y=0.6042</title></circle>
+<circle cx="689.63" cy="196.21" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>abacusai__Smaug-Qwen2-72B-Instruct; x=0.6260; y=0.7202</title></circle>
+<circle cx="373.47" cy="148.62" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>allenai__Llama-3.1-Tulu-3-8B; x=0.3639; y=0.8171</title></circle>
+<circle cx="342.34" cy="100.39" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>allenai__OLMo-2-1124-7B-Instruct; x=0.3381; y=0.9152</title></circle>
+<circle cx="264.39" cy="339.53" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>allenai__OLMoE-1B-7B-0924-Instruct; x=0.2735; y=0.4284</title></circle>
+<circle cx="621.31" cy="116.87" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>allenai__Llama-3.1-Tulu-3-70B; x=0.5693; y=0.8817</title></circle>
+<circle cx="160.78" cy="335.35" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>amd__AMD-Llama-135m; x=0.1876; y=0.4369</title></circle>
+<circle cx="400.11" cy="355.93" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>berkeley-nest__Starling-LM-7B-alpha; x=0.3860; y=0.3950</title></circle>
+<circle cx="402.29" cy="321.69" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>CausalLM__14B; x=0.3878; y=0.4647</title></circle>
+<circle cx="564.06" cy="344.27" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>CohereForAI__c4ai-command-r-plus-08-2024; x=0.5219; y=0.4188</title></circle>
+<circle cx="582.73" cy="397.65" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__dolphin-2.9.2-Phi-3-Medium-abliterated; x=0.5374; y=0.3101</title></circle>
+<text x="588.73" y="391.65" font-family="system-ui,sans-serif" font-size="10" fill="#991b1b">dolphin-2.9.2-Phi-3-Medium…</text>
+<circle cx="429.79" cy="339.21" r="4.2" fill="#dc2626" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__Dolphin3.0-R1-Mistral-24B; x=0.4106; y=0.4291</title></circle>
+<circle cx="507.48" cy="380.77" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__dolphin-2.9.1-llama-3-70b; x=0.4750; y=0.3445</title></circle>
+<text x="513.48" y="374.77" font-family="system-ui,sans-serif" font-size="10" fill="#991b1b">dolphin-2.9.1-llama-3-70b</text>
+<circle cx="569.60" cy="437.44" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__dolphin-2.9.1-yi-1.5-34b; x=0.5265; y=0.2291</title></circle>
+<text x="575.60" y="431.44" font-family="system-ui,sans-serif" font-size="10" fill="#991b1b">dolphin-2.9.1-yi-1.5-34b</text>
+<circle cx="667.54" cy="347.09" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__dolphin-2.9.2-qwen2-72b; x=0.6077; y=0.4130</title></circle>
+<circle cx="575.01" cy="399.50" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__dolphin-2.9.3-Yi-1.5-34B-32k; x=0.5310; y=0.3063</title></circle>
+<text x="581.01" y="393.50" font-family="system-ui,sans-serif" font-size="10" fill="#991b1b">dolphin-2.9.3-Yi-1.5-34B-32k</text>
+<circle cx="409.28" cy="324.02" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__Dolphin3.0-Llama3.1-8B; x=0.3936; y=0.4600</title></circle>
+<circle cx="190.79" cy="357.22" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__Dolphin3.0-Llama3.2-1B; x=0.2125; y=0.3924</title></circle>
+<circle cx="190.26" cy="362.52" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>cognitivecomputations__Dolphin3.0-Qwen2.5-0.5B; x=0.2121; y=0.3816</title></circle>
+<circle cx="278.24" cy="306.49" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>deepseek-ai__deepseek-llm-7b-chat; x=0.2850; y=0.4957</title></circle>
+<circle cx="283.97" cy="316.06" r="4.2" fill="#dc2626" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>deepseek-ai__DeepSeek-R1-Distill-Qwen-7B; x=0.2898; y=0.4762</title></circle>
+<circle cx="258.91" cy="310.67" r="4.2" fill="#dc2626" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>deepseek-ai__DeepSeek-R1-Distill-Llama-8B; x=0.2690; y=0.4872</title></circle>
+<circle cx="508.07" cy="285.35" r="4.2" fill="#dc2626" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>deepseek-ai__DeepSeek-R1-Distill-Qwen-32B; x=0.4755; y=0.5387</title></circle>
+<circle cx="189.53" cy="342.50" r="4.2" fill="#dc2626" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>deepseek-ai__DeepSeek-R1-Distill-Qwen-1.5B; x=0.2115; y=0.4224</title></circle>
+<circle cx="330.86" cy="109.87" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>google__gemma-1.1-7b-it; x=0.3286; y=0.8959</title></circle>
+<circle cx="599.41" cy="189.05" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>google__gemma-2-27b-it; x=0.5512; y=0.7347</title></circle>
+<circle cx="373.27" cy="287.52" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>gradientai__Llama-3-8B-Instruct-Gradient-1048k; x=0.3638; y=0.5343</title></circle>
+<circle cx="354.80" cy="380.85" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>HuggingFaceH4__zephyr-7b-beta; x=0.3485; y=0.3443</title></circle>
+<circle cx="162.10" cy="372.81" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>HuggingFaceTB__SmolLM2-360M-Instruct; x=0.1887; y=0.3607</title></circle>
+<circle cx="452.48" cy="176.51" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>ibm-granite__granite-3.0-8b-instruct; x=0.4294; y=0.7603</title></circle>
+<circle cx="479.45" cy="300.71" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>ibm-granite__granite-3.2-8b-instruct; x=0.4518; y=0.5074</title></circle>
+<circle cx="398.40" cy="265.26" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>ibm__merlinite-7b; x=0.3846; y=0.5796</title></circle>
+<circle cx="369.51" cy="366.14" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Intel__neural-chat-7b-v3-3; x=0.3606; y=0.3742</title></circle>
+<circle cx="563.54" cy="206.41" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>internlm__internlm2_5-7b-chat; x=0.5215; y=0.6994</title></circle>
+<circle cx="451.62" cy="187.68" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>LLM360__K2-Chat; x=0.4287; y=0.7375</title></circle>
+<circle cx="283.05" cy="271.28" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>lmsys__vicuna-7b-v1.5; x=0.2890; y=0.5673</title></circle>
+<circle cx="696.36" cy="224.66" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>meta-llama__Llama-3.1-70B-Instruct; x=0.6315; y=0.6622</title></circle>
+<circle cx="472.79" cy="209.15" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>meta-llama__Llama-3.1-8B-Instruct; x=0.4462; y=0.6938</title></circle>
+<circle cx="235.10" cy="162.20" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>meta-llama__Llama-3.2-1B-Instruct; x=0.2492; y=0.7894</title></circle>
+<circle cx="416.01" cy="157.94" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>meta-llama__Llama-3.2-3B-Instruct; x=0.3992; y=0.7981</title></circle>
+<circle cx="704.47" cy="230.37" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>meta-llama__Llama-3.3-70B-Instruct; x=0.6383; y=0.6506</title></circle>
+<circle cx="447.27" cy="86.56" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>meta-llama__Meta-Llama-3-8B-Instruct; x=0.4251; y=0.9434</title></circle>
+<circle cx="605.94" cy="192.03" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>microsoft__Phi-3-medium-4k-instruct; x=0.5566; y=0.7287</title></circle>
+<circle cx="512.95" cy="187.36" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>microsoft__Phi-3-mini-4k-instruct; x=0.4795; y=0.7382</title></circle>
+<circle cx="614.65" cy="171.37" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>microsoft__Phi-3.5-MoE-instruct; x=0.5638; y=0.7707</title></circle>
+<circle cx="696.49" cy="117.43" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>microsoft__phi-4; x=0.6316; y=0.8805</title></circle>
+<circle cx="429.86" cy="332.54" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mistralai__Ministral-8B-Instruct-2410; x=0.4107; y=0.4426</title></circle>
+<circle cx="358.63" cy="325.78" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mistralai__Mistral-7B-Instruct-v0.2; x=0.3516; y=0.4564</title></circle>
+<circle cx="709.88" cy="308.98" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mistralai__Mistral-Large-Instruct-2411; x=0.6427; y=0.4906</title></circle>
+<circle cx="453.40" cy="340.82" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mistralai__Mistral-Nemo-Instruct-2407; x=0.4302; y=0.4258</title></circle>
+<circle cx="535.44" cy="332.05" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mistralai__Mistral-Small-Instruct-2409; x=0.4982; y=0.4436</title></circle>
+<circle cx="341.68" cy="297.33" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mlabonne__AlphaMonarch-7B; x=0.3376; y=0.5143</title></circle>
+<circle cx="428.34" cy="375.86" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mlabonne__Daredevil-8B-abliterated; x=0.4094; y=0.3544</title></circle>
+<circle cx="611.75" cy="342.83" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mlabonne__Hermes-3-Llama-3.1-70B-lorablated; x=0.5614; y=0.4217</title></circle>
+<circle cx="443.77" cy="376.91" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mlabonne__Meta-Llama-3.1-8B-Instruct-abliterated; x=0.4222; y=0.3523</title></circle>
+<circle cx="485.45" cy="376.11" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>mlabonne__NeuralDaredevil-8B-abliterated; x=0.4567; y=0.3540</title></circle>
+<circle cx="257.73" cy="205.93" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Nexusflow__NexusRaven-V2-13B; x=0.2680; y=0.7004</title></circle>
+<circle cx="594.99" cy="363.89" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>NousResearch__DeepHermes-3-Mistral-24B-Preview; x=0.5475; y=0.3788</title></circle>
+<circle cx="402.49" cy="367.18" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>NousResearch__Hermes-2-Pro-Mistral-7B; x=0.3880; y=0.3721</title></circle>
+<circle cx="633.18" cy="311.56" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>NousResearch__Hermes-3-Llama-3.1-70B; x=0.5792; y=0.4854</title></circle>
+<circle cx="458.61" cy="375.14" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>NousResearch__Nous-Hermes-2-SOLAR-10.7B; x=0.4345; y=0.3559</title></circle>
+<circle cx="260.50" cy="366.78" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>NousResearch__Nous-Hermes-llama-2-7b; x=0.2703; y=0.3729</title></circle>
+<circle cx="335.68" cy="329.24" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>nvidia__AceInstruct-1.5B; x=0.3326; y=0.4494</title></circle>
+<circle cx="639.31" cy="196.85" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>nvidia__AceInstruct-72B; x=0.5843; y=0.7189</title></circle>
+<circle cx="605.61" cy="188.81" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>nvidia__AceMath-72B-Instruct; x=0.5563; y=0.7352</title></circle>
+<circle cx="466.06" cy="318.39" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>nvidia__AceMath-7B-Instruct; x=0.4407; y=0.4714</title></circle>
+<circle cx="636.02" cy="247.01" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>nvidia__Llama-3.1-Nemotron-70B-Instruct-HF; x=0.5815; y=0.6168</title></circle>
+<circle cx="247.37" cy="320.00" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>nvidia__OpenMath2-Llama3.1-8B; x=0.2594; y=0.4682</title></circle>
+<circle cx="363.90" cy="362.68" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Open-Orca__Mistral-7B-OpenOrca; x=0.3560; y=0.3813</title></circle>
+<circle cx="159.20" cy="270.88" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>OpenAssistant__oasst-sft-1-pythia-12b; x=0.1863; y=0.5682</title></circle>
+<circle cx="417.46" cy="331.25" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>openchat__openchat-3.5-0106; x=0.4004; y=0.4453</title></circle>
+<circle cx="127.47" cy="318.95" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>PrimeIntellect__INTELLECT-1-Instruct; x=0.1600; y=0.4703</title></circle>
+<circle cx="172.19" cy="291.14" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>PygmalionAI__pygmalion-6b; x=0.1971; y=0.5269</title></circle>
+<circle cx="707.04" cy="169.68" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Qwen__Qwen2-72B-Instruct; x=0.6404; y=0.7742</title></circle>
+<circle cx="515.66" cy="204.73" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Qwen__Qwen2-VL-7B-Instruct; x=0.4818; y=0.7028</title></circle>
+<circle cx="220.86" cy="265.74" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Qwen__Qwen2.5-0.5B-Instruct; x=0.2374; y=0.5786</title></circle>
+<circle cx="363.64" cy="244.92" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Qwen__Qwen2.5-1.5B-Instruct; x=0.3558; y=0.6210</title></circle>
+<circle cx="649.34" cy="198.30" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Qwen__Qwen2.5-14B-Instruct; x=0.5926; y=0.7159</title></circle>
+<circle cx="748.53" cy="173.46" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Qwen__Qwen2.5-72B-Instruct; x=0.6748; y=0.7665</title></circle>
+<circle cx="453.47" cy="159.23" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Qwen__Qwen2.5-Coder-7B-Instruct; x=0.4302; y=0.7955</title></circle>
+<circle cx="178.19" cy="263.65" r="4.2" fill="#dc2626" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>Qwen__QwQ-32B; x=0.2021; y=0.5829</title></circle>
+<circle cx="446.87" cy="378.68" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>refuelai__Llama-3-Refueled; x=0.4248; y=0.3487</title></circle>
+<circle cx="547.91" cy="191.95" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>rhymes-ai__Aria; x=0.5085; y=0.7288</title></circle>
+<circle cx="478.59" cy="371.93" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>speakleash__Bielik-11B-v2.3-Instruct; x=0.4511; y=0.3625</title></circle>
+<circle cx="220.99" cy="368.79" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>stabilityai__stablelm-2-zephyr-1_6b; x=0.2376; y=0.3688</title></circle>
+<circle cx="312.93" cy="379.00" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>teknium__OpenHermes-13B; x=0.3137; y=0.3481</title></circle>
+<circle cx="406.11" cy="408.34" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>teknium__OpenHermes-2.5-Mistral-7B; x=0.3910; y=0.2883</title></circle>
+<text x="412.11" y="402.34" font-family="system-ui,sans-serif" font-size="10" fill="#991b1b">OpenHermes-2.5-Mistral-7B</text>
+<circle cx="237.41" cy="265.50" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>TencentARC__LLaMA-Pro-8B; x=0.2512; y=0.5791</title></circle>
+<circle cx="285.09" cy="337.60" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>TencentARC__LLaMA-Pro-8B-Instruct; x=0.2907; y=0.4323</title></circle>
+<circle cx="545.40" cy="87.20" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>tiiuae__Falcon3-7B-Instruct; x=0.5064; y=0.9421</title></circle>
+<circle cx="169.42" cy="280.05" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>tiiuae__falcon-7b-instruct; x=0.1948; y=0.5495</title></circle>
+<circle cx="156.82" cy="415.65" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>TinyLlama__TinyLlama-1.1B-Chat-v1.0; x=0.1844; y=0.2734</title></circle>
+<circle cx="167.57" cy="294.68" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>togethercomputer__GPT-NeoXT-Chat-Base-20B; x=0.1933; y=0.5197</title></circle>
+<circle cx="418.91" cy="343.79" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>upstage__SOLAR-10.7B-Instruct-v1.0; x=0.4016; y=0.4197</title></circle>
+<circle cx="332.97" cy="198.94" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>WizardLMTeam__WizardLM-13B-V1.2; x=0.3304; y=0.7146</title></circle>
+<circle cx="455.58" cy="189.45" r="4.2" fill="#2563eb" fill-opacity="0.72" stroke="#ffffff" stroke-width="0.8"><title>WizardLMTeam__WizardLM-70B-V1.0; x=0.4320; y=0.7339</title></circle>
+<text x="438.0" y="516" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#111827">General reasoning average (higher = more capable)</text>
+<text x="20" y="262.0" text-anchor="middle" transform="rotate(-90 20 262.0)" font-family="system-ui,sans-serif" font-size="12" fill="#111827">Selected behavioral safety average (higher = safer)</text>
+<circle cx="610" cy="30" r="4" fill="#2563eb"/><text x="619" y="34" font-family="system-ui,sans-serif" font-size="11" fill="#374151">Instruct</text>
+<circle cx="682" cy="30" r="4" fill="#dc2626"/><text x="691" y="34" font-family="system-ui,sans-serif" font-size="11" fill="#374151">Reasoning</text>
+<circle cx="762" cy="30" r="4" fill="#059669"/><text x="771" y="34" font-family="system-ui,sans-serif" font-size="11" fill="#374151">Other</text>
+</svg>

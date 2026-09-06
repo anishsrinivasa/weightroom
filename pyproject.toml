@@ -21,6 +21,7 @@ dependencies = [
     "pyjwt[crypto]>=2.9",
     "psycopg[binary]>=3.2",
     "pycryptodome>=3.20",
+    "math-verify==0.8.0",
 ]
 
 [build-system]
@@ -32,3 +33,15 @@ packages = ["src/keystone"]
 
 [project.scripts]
 keystone = "keystone.cli:app"
+
+[dependency-groups]
+# pytest was installed ad hoc and `uv sync` pruned it, taking the whole test
+# suite with it. Declared so a fresh checkout can run the tests.
+dev = [
+    "pytest>=8",
+    # `tests/test_inspect_benchmarks.py` imports this directly. It is pinned in
+    # the Modal image and was missing locally, so those tests errored on import
+    # rather than reporting anything about the adapters.
+    "inspect-ai==0.3.263",
+    "inspect-evals[swe-bench,gdpval]==0.19.0",
+]

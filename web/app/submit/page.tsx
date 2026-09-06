@@ -1,7 +1,5 @@
-import { SubmitWizard } from "./SubmitWizard";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "New submission" };
-
-export default function SubmitPage() {
-  return <SubmitWizard />;
+export default function LegacySubmitPage() {
+  redirect("/sell/submit");
 }

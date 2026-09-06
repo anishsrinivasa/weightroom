@@ -48,12 +48,17 @@ export function shortDigest(value: string): string {
   return value.length > 12 ? `${value.slice(0, 12)}…` : value;
 }
 
+function apiDate(value: string): Date {
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
+}
+
 export function formatDate(value: string): string {
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
-  }).format(new Date(value));
+  }).format(apiDate(value));
 }
 
 export function formatDateTime(value: string): string {
@@ -62,5 +67,5 @@ export function formatDateTime(value: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(apiDate(value));
 }

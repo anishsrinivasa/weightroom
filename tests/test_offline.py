@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from keystone.pipeline import grade as _grade
+from keystone.pipeline import FailureKind, classify, grade as _grade
 from keystone.ingest import build_subject, hash_tree, manifest_digest
-from keystone.profile import build_profile, detect_modality, pick_resource_class
+from keystone.profile import build_profile, detect_modality, parameter_count, pick_resource_class
 from keystone.registry import discover, select
 from keystone.scan import run_all
 from keystone.schema import (
@@ -29,11 +29,31 @@ from keystone.schema import (
     SuiteResult,
 )
 from keystone.suites import ModelClient, SuiteContext
+from keystone.tags import model_size_tag
 
 
 # --------------------------------------------------------------------------
 # fixtures
 # --------------------------------------------------------------------------
+
+
+def test_failure_classifier_does_not_treat_normal_kv_cache_log_as_oom() -> None:
+    error = RuntimeError(
+        "benchmark dataset unavailable\n--- vllm log tail ---\n"
+        "GPU KV cache size: 104,800 tokens"
+    )
+    assert classify(error) is FailureKind.UNKNOWN
+
+
+def test_failure_classifier_recognises_offline_dataset_infrastructure_error() -> None:
+    error = ConnectionError(
+        "Couldn't reach 'example/dataset' on the Hub (OfflineModeIsEnabled)"
+    )
+    assert classify(error) is FailureKind.SUITE_ERROR
+
+
+def test_failure_classifier_recognises_real_oom() -> None:
+    assert classify(RuntimeError("CUDA out of memory")) is FailureKind.OOM
 
 @pytest.fixture
 def text_model(tmp_path: Path) -> Path:
@@ -115,6 +135,10 @@ def test_resource_ladder_is_monotonic() -> None:
     assert picks[-1].endswith(":4")
 
 
+def test_llama_3_8b_checkpoint_gets_enough_vram_for_its_kv_cache() -> None:
+    assert pick_resource_class(16_060_556_376) == "A100-40GB"
+
+
 def test_profile_records_chat_template(text_model: Path) -> None:
     profile, caps, mods = build_profile(text_model, 4096)
     assert profile.chat_template_source == "tokenizer_config"
@@ -123,6 +147,37 @@ def test_profile_records_chat_template(text_model: Path) -> None:
     assert caps.vision is False
     assert profile.processor is None  # SEAM 3 stays null for text
     assert mods == [Modality.TEXT]
+
+
+def test_parameter_count_comes_from_safetensors_shapes(tmp_path: Path) -> None:
+    tensors = {
+        "embed.weight": {"dtype": "F16", "shape": [10, 4], "data_offsets": [0, 80]},
+        "head.weight": {"dtype": "F16", "shape": [4, 10], "data_offsets": [80, 160]},
+        "__metadata__": {"format": "pt"},
+    }
+    encoded = json.dumps(tensors).encode()
+    (tmp_path / "model.safetensors").write_bytes(
+        len(encoded).to_bytes(8, "little") + encoded + bytes(160)
+    )
+
+    assert parameter_count(tmp_path) == 80
+    profile, _, _ = build_profile(tmp_path, 160)
+    assert profile.parameter_count == 80
+
+
+@pytest.mark.parametrize(
+    "count,expected",
+    [
+        (999_999_999, "under-1b"),
+        (1_000_000_000, "1b-3b"),
+        (3_000_000_000, "1b-3b"),
+        (7_000_000_000, "3b-7b"),
+        (70_000_000_000, "34b-70b"),
+        (70_000_000_001, "70b-plus"),
+    ],
+)
+def test_parameter_count_maps_to_marketplace_range(count: int, expected: str) -> None:
+    assert model_size_tag(count) == expected
 
 
 def test_absurd_context_length_is_rejected(tmp_path: Path) -> None:
@@ -187,7 +242,11 @@ def test_only_filter_declines_the_rest() -> None:
     # probes are mandatory too, and are named here rather than hard-coded so
     # adding a domain pair does not break the assertion.
     assert {s.manifest.id for s in eligible} == {"stub_safety", "stub_capability"} | internal
-    assert {s.suite_id for s in skipped} == {"stub_reasoning"}
+    assert {s.suite_id for s in skipped} == {
+        "math_500",
+        "mmlu_pro",
+        "stub_reasoning",
+    }
     assert all(s.declined for s in skipped)
 
 
@@ -321,6 +380,18 @@ def test_gates_alone_certify_without_inventing_a_capability_letter() -> None:
     assert "no capability benchmark" in rationale.lower()
 
 
+def test_automatic_safety_pass_is_disclosed_in_the_rating() -> None:
+    gate = _passing_gate()
+    gate.metrics["evaluation_skipped"] = 1.0
+
+    letter, certified, rationale = _grade([], [gate])
+
+    assert certified is True
+    assert letter == "unrated"
+    assert "automatically passed" in rationale.lower()
+    assert "disabled" in rationale.lower()
+
+
 def test_over_refusal_diagnostic_does_not_block_a_safe_model() -> None:
     diagnostic = SuiteResult(
         suite_id="stub_safety",
@@ -452,11 +523,18 @@ def test_run_suites_shares_the_sandboxed_code_path() -> None:
         modality=[Modality.TEXT],
         suites_root=SUITES_ROOT,
         scratch_dir=Path("."),
+        only=[],
     )
     # Every discovered suite is accounted for -- the point is that the smoke
     # path and the real runner walk the same code, not which suites ship.
     assert {r.suite_id for r in results} == {s.manifest.id for s in discover()}
-    assert {"stub_capability", "stub_reasoning", "stub_safety"} <= {r.suite_id for r in results}
+    assert {
+        "math_500",
+        "mmlu_pro",
+        "stub_capability",
+        "stub_reasoning",
+        "stub_safety",
+    } <= {r.suite_id for r in results}
     assert all(r.status is not Status.ERROR for r in results)
 
 
@@ -481,12 +559,40 @@ def test_declined_benchmarks_appear_in_the_results() -> None:
     # run here depends on whether `keystone stage` has been used on this
     # machine, and a test whose result changes with local state is worse than
     # one that fails. What matters is that the mandatory pair ran and the
-    # optional one is reported as declined rather than silently absent.
+    # optional ones are reported as declined rather than silently absent.
     assert {"stub_safety", "stub_capability"} <= ran
     assert "stub_reasoning" not in ran
-    assert {r.suite_id for r in declined} == {"stub_reasoning"}
+    assert {r.suite_id for r in declined} == {
+        "math_500",
+        "mmlu_pro",
+        "stub_reasoning",
+    }
     # Every discovered benchmark is accounted for, run or not.
     assert len(results) == len(discover())
+
+
+def test_disabled_suite_is_not_executed_or_reported() -> None:
+    from keystone.registry import SUITES_ROOT
+    from keystone.run import run_suites
+
+    results = run_suites(
+        FakeClient("yes"),
+        model_name="fake",
+        capabilities=Capabilities(),
+        modality=[Modality.TEXT],
+        suites_root=SUITES_ROOT,
+        scratch_dir=Path("."),
+        only=[],
+        disabled_ids={"stub_safety"},
+    )
+
+    ran = {result.suite_id for result in results if result.status is not Status.SKIPPED}
+    assert "stub_safety" not in {result.suite_id for result in results}
+    # Not an equality: the conditioning suites are mandatory and run here when
+    # `keystone stage` has been used on this machine. The claim under test is
+    # that a disabled suite is absent entirely -- neither run nor reported.
+    assert "stub_capability" in ran
+    assert "stub_safety" not in ran
 
 
 def test_manifest_digest_algorithm_is_pinned() -> None:

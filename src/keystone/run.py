@@ -10,6 +10,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from keystone.conditioning import (
     BASELINE_ITEMS,
@@ -221,6 +222,47 @@ def _not_required(suite) -> SuiteResult:
     )
 
 
+def _reporter(suite, emit):
+    """Progress events for one suite, filtered for what a creator may learn.
+
+    Streaming progress is a seller-facing feature and conditioning made it a
+    leak. Two rules, both about the same secret:
+
+    An **internal** suite emits nothing at all. A probe's id appearing in the
+    stream tells a creator a capability measurement is being taken, and the
+    only content of that suite is the number they must never see.
+
+    A **conditioned** suite emits a fraction, never counts. Its item budget is
+    derived from the tolerated-harm ceiling, which is derived from the
+    capability band -- so "0 / 128" and "0 / 192" are that band, printed on the
+    progress bar. Percent-of-run carries the same usefulness and none of the
+    number.
+    """
+    manifest = suite.manifest
+    if manifest.internal:
+        return lambda completed, total: None
+
+    if manifest.conditioned_by:
+        def report(completed: int, total: int) -> None:
+            emit({
+                "suite_id": manifest.id,
+                "display_name": manifest.name,
+                "percent": round(100 * completed / total) if total else 0,
+            })
+
+        return report
+
+    def report(completed: int, total: int) -> None:
+        emit({
+            "suite_id": manifest.id,
+            "display_name": manifest.name,
+            "completed": completed,
+            "total": total,
+        })
+
+    return report
+
+
 def collect_suites(
     client: ModelClient,
     *,
@@ -229,8 +271,11 @@ def collect_suites(
     modality: list[Modality],
     suites_root: Path,
     scratch_dir: Path,
+    assets_root: Path | None = None,
     only: list[str] | None = None,
+    disabled_ids: set[str] | None = None,
     seed: int = 0,
+    on_progress: Callable[[dict], None] = lambda event: None,
 ) -> tuple[list[SuiteResult], list[Pending]]:
     """Phase one. Everything that needs the model under test served.
 
@@ -239,7 +284,13 @@ def collect_suites(
     tearing down this model and standing up the judge, which is why the two
     halves are separate callables rather than one.
     """
-    eligible, skipped = select(discover(suites_root), capabilities, modality, only=only)
+    disabled_ids = disabled_ids or set()
+    installed = [
+        suite
+        for suite in discover(suites_root)
+        if suite.manifest.id not in disabled_ids
+    ]
+    eligible, skipped = select(installed, capabilities, modality, only=only)
 
     results = [
         SuiteResult(
@@ -266,9 +317,14 @@ def collect_suites(
             model_name=model_name,
             capabilities=capabilities,
             scratch_dir=scratch_dir,
-            assets_dir=suites_root / suite.manifest.id / "assets",
+            assets_dir=(
+                assets_root / suite.manifest.id
+                if assets_root is not None
+                else suites_root / suite.manifest.id / "assets"
+            ),
             seed=seed,
             item_budget=budget,
+            on_progress=_reporter(suite, on_progress),
         )
 
     direct = [s for s in eligible if not s.manifest.judged]
@@ -314,8 +370,11 @@ def run_suites(
     modality: list[Modality],
     suites_root: Path,
     scratch_dir: Path,
+    assets_root: Path | None = None,
     only: list[str] | None = None,
+    disabled_ids: set[str] | None = None,
     seed: int = 0,
+    on_progress: Callable[[dict], None] = lambda event: None,
     judge: Judge | None = None,
 ) -> list[SuiteResult]:
     """Both phases, back to back.
@@ -335,8 +394,11 @@ def run_suites(
         modality=modality,
         suites_root=suites_root,
         scratch_dir=scratch_dir,
+        assets_root=assets_root,
         only=only,
+        disabled_ids=disabled_ids,
         seed=seed,
+        on_progress=on_progress,
     )
     if pending:
         results.extend(

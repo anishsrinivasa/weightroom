@@ -12,7 +12,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from keystone.schema import Capabilities, Modality, SuiteResult
 
@@ -63,6 +63,10 @@ class SuiteContext:
     # demonstrate a bar depends on how strict that bar is. None means run
     # everything staged.
     item_budget: int | None = None
+    on_progress: Callable[[int, int], None] = field(
+        default=lambda completed, total: None,
+        repr=False,
+    )
 
 
 # --------------------------------------------------------------------------

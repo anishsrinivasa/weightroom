@@ -10,15 +10,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 from keystone.schema import Capabilities, Modality, ServingProfile
 
-# VRAM headroom over raw weight bytes, for KV cache and activations. Shared
-# with `client.VRAM_HEADROOM` deliberately: the card is chosen on this
-# assumption and the server then claims on the same one, so the two cannot
-# disagree. 1.35 was too tight -- a 14.2 GiB model "fitted" a 22 GiB A10G by
-# 2.8 GiB and then would not start.
+# VRAM headroom over raw weight bytes, for KV cache, activations, CUDA graphs
+# and engine overhead. Shared with `client.VRAM_HEADROOM` deliberately: the card
+# is chosen on this assumption and the server then claims on the same one, so
+# the two cannot disagree. 1.35 put a 15 GiB checkpoint on a 22 GiB A10G, where
+# vLLM loaded the weights and then could not allocate an 8K-token KV cache.
+from keystone.client import MAX_CLAIM as _MAX_CLAIM
 from keystone.client import VRAM_HEADROOM as _VRAM_HEADROOM
 
 # (usable_gpu_bytes, modal_gpu_spec)
@@ -69,6 +71,43 @@ def weight_bytes(root: Path) -> int:
     )
 
 
+def parameter_count(root: Path) -> int | None:
+    """Count checkpoint parameters from safetensors headers without loading weights.
+
+    Tensor shapes are authoritative and independent of dtype or quantization.
+    Malformed files are left for the scanner to reject; this metadata pass
+    simply reports unknown instead of guessing from byte size.
+    """
+    total = 0
+    seen: set[str] = set()
+    found = False
+    try:
+        for path in sorted(root.rglob("*.safetensors")):
+            with path.open("rb") as handle:
+                header_size = int.from_bytes(handle.read(8), "little")
+                if header_size <= 0 or header_size > 100 * 1024 * 1024:
+                    return None
+                header = json.loads(handle.read(header_size))
+            for name, tensor in header.items():
+                if name == "__metadata__" or name in seen:
+                    continue
+                shape = tensor.get("shape") if isinstance(tensor, dict) else None
+                if not isinstance(shape, list) or not all(
+                    isinstance(dimension, int) and dimension >= 0 for dimension in shape
+                ):
+                    return None
+                total += math.prod(shape)
+                seen.add(name)
+                found = True
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+
+    if found:
+        return total
+
+    return None
+
+
 def detect_modality(config: dict) -> list[Modality]:
     """SEAM 1. Text-only in the MVP; vision models are detected, not guessed at."""
     arch = " ".join(config.get("architectures") or []).lower()
@@ -80,9 +119,18 @@ def detect_modality(config: dict) -> list[Modality]:
 
 
 def pick_resource_class(total_weight_bytes: int) -> str:
+    """Smallest card the model fits, measured the way the server measures it.
+
+    Capacity is discounted by `MAX_CLAIM` because that is the most vLLM will
+    ever be told to take. Sizing against raw capacity puts a model on a card
+    that has the room on paper and not in practice -- a 15 GiB checkpoint
+    "fitted" a 22 GiB A10G, and the engine then could not allocate a KV cache.
+    Raising the headroom constant hides that for one model size and creates a
+    fresh disagreement for the next; the cap belongs in the arithmetic.
+    """
     need = int(total_weight_bytes * _VRAM_HEADROOM)
     for capacity, spec in _RESOURCE_LADDER:
-        if need <= capacity:
+        if need <= int(capacity * _MAX_CLAIM):
             return spec
     return _RESOURCE_LADDER[-1][1]
 
@@ -121,6 +169,7 @@ def build_profile(
             hashlib.sha256(template.encode()).hexdigest() if template else None
         ),
         resource_class=pick_resource_class(total_weight_bytes),
+        parameter_count=parameter_count(local),
         head_dim=head_dimension(config),
         processor=None,  # SEAM 3: populated for VLMs
     )

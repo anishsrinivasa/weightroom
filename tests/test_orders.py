@@ -6,7 +6,9 @@ Before this existed, any authenticated user could download any listed model.
 
 from __future__ import annotations
 
+import io
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +37,7 @@ from keystone.schema import (
     SourceKind,
     Status,
     Subject,
+    ServingProfile,
     SuiteResult,
 )
 from keystone.storage import LocalStore, artifact_key
@@ -81,6 +84,7 @@ def _report(digest: str) -> CertificationReport:
             total_bytes=0,
         ),
         environment=Environment(sandboxed=True),
+        serving_profile=ServingProfile(parameter_count=3_500_000_000),
         suite_results=[
             SuiteResult(
                 suite_id="harm_gate",
@@ -176,6 +180,47 @@ def test_creator_reaches_their_own_artifact(client: TestClient, deps: Deps) -> N
     assert client.get(
         f"/v1/listings/{listing_id}/download", headers=_hdr("tok-creator")
     ).status_code == 200
+
+
+def test_creator_downloads_every_file_as_one_zip(client: TestClient, deps: Deps) -> None:
+    listing_id = _live_listing(client, deps)
+    response = client.get(
+        f"/v1/listings/{listing_id}/download.zip", headers=_hdr("tok-creator")
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert response.headers["content-disposition"] == 'attachment; filename="Sellable.zip"'
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["model.safetensors"]
+        assert archive.read("model.safetensors") == b"x" * 2048
+
+
+def test_zip_download_refused_without_purchase(client: TestClient, deps: Deps) -> None:
+    listing_id = _live_listing(client, deps)
+    response = client.get(
+        f"/v1/listings/{listing_id}/download.zip", headers=_hdr("tok-buyer")
+    )
+    assert response.status_code == 402
+
+
+def test_listing_detail_reports_owner_and_buyer_entitlement(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _live_listing(client, deps)
+
+    owner = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
+    assert owner["is_owner"] is True
+    assert owner["entitled"] is True
+    assert owner["size_tag"] == "3b-7b"
+
+    buyer = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-buyer")).json()
+    assert buyer["is_owner"] is False
+    assert buyer["entitled"] is False
+
+    _buy(client, deps, listing_id)
+    buyer = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-buyer")).json()
+    assert buyer["entitled"] is True
 
 
 def test_free_listings_entitle_directly(client: TestClient, deps: Deps) -> None:

@@ -44,6 +44,13 @@ FILES = [{"path": "model.safetensors", "size_bytes": 2048, "sha256": "a" * 64}]
 SAFETY = "stub_safety"
 CAPABILITY = "stub_capability"
 REASONING = "stub_reasoning"
+PUBLIC_IDS = {
+    "swe_bench_verified",
+    "gdpval",
+    "harvey_lab",
+    "mmlu_pro",
+    "math_500",
+}
 
 # Internal conditioning probes are mandatory and always run, but are never
 # offered, never priced, and never named back to a creator. Assertions about
@@ -110,12 +117,16 @@ def test_every_listing_gets_a_populated_product_page(suites) -> None:
     evidence on it.
     """
     assert set(mandatory_ids(suites)) - hidden(suites) == {SAFETY, CAPABILITY}
-    assert optional_ids(suites) == [REASONING]
+    assert set(optional_ids(suites)) == {"math_500", "mmlu_pro", REASONING}
 
 
 def test_menu_exposes_gate_metadata(suites) -> None:
     safety = next(i for i in menu(suites) if i.suite_id == SAFETY)
     assert safety.gate is False  # current public over-refusal diagnostic is not a harm gate
+    assert safety.diagnostic is True
+
+    capability = next(i for i in menu(suites) if i.suite_id == CAPABILITY)
+    assert capability.diagnostic is False
 
 
 # --------------------------------------------------------------------------
@@ -170,8 +181,8 @@ def test_unknown_benchmark_is_an_error_not_a_silent_drop(suites) -> None:
 # --------------------------------------------------------------------------
 
 def test_declined_are_reported(suites) -> None:
-    assert set(declined_ids(suites, [])) == {REASONING}
-    assert declined_ids(suites, [REASONING]) == []
+    assert set(declined_ids(suites, [])) == {"math_500", "mmlu_pro", REASONING}
+    assert set(declined_ids(suites, [REASONING])) == {"math_500", "mmlu_pro"}
 
 
 def test_declined_survives_redaction_for_every_audience() -> None:
@@ -258,21 +269,47 @@ def _listing(client: TestClient, deps: Deps) -> str:
 
 def test_menu_endpoint_is_public(client: TestClient) -> None:
     body = client.get("/v1/benchmarks").json()
-    assert {b["suite_id"] for b in body["benchmarks"]} == {SAFETY, CAPABILITY, REASONING}
-    assert body["mandatory_total"] == "25.000000 USDC"
+    assert {b["suite_id"] for b in body["benchmarks"]} == PUBLIC_IDS
+    assert all(b["price_is_estimate"] for b in body["benchmarks"])
+    assert all(b["sample_size"] == 100 for b in body["benchmarks"])
+    assert body["safety_evaluation"]["required"] is True
+    assert body["safety_evaluation"]["screen_ids"] == ["harmbench", "jailbreakbench"]
 
 
-def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
+def test_publish_quotes_the_selection(client: TestClient, deps: Deps, monkeypatch) -> None:
+    # These pin benchmark pricing, so the mandatory safety charge is
+    # switched off rather than folded into every expected total.
+    monkeypatch.setenv("KEYSTONE_RUN_SAFETY_EVALUATION", "false")
     listing_id = _listing(client, deps)
     r = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": [REASONING]},
+        json={"benchmarks": ["math_500"]},
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert r["amount"] == "45.000000 USDC"       # 25 mandatory + 20 reasoning
-    assert set(r["running"]) == {SAFETY, CAPABILITY, REASONING}
-    assert r["declined"] == []
+    assert r["amount"] == "0.500000 USDC"
+    assert r["safety_evaluation"]["price"] == "0.000000 USDC"
+    assert r["safety_evaluation"]["automatic_pass"] is True
+    assert set(r["running"]) == {"math_500"}
+    assert set(r["declined"]) == PUBLIC_IDS - {"math_500"}
+
+
+def test_publish_allows_no_public_benchmarks(client: TestClient, deps: Deps, monkeypatch) -> None:
+    # These pin benchmark pricing, so the mandatory safety charge is
+    # switched off rather than folded into every expected total.
+    monkeypatch.setenv("KEYSTONE_RUN_SAFETY_EVALUATION", "false")
+    listing_id = _listing(client, deps)
+    response = client.post(
+        f"/v1/listings/{listing_id}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
+    ).json()
+
+    assert response["amount"] == "0.000000 USDC"
+    assert response["safety_evaluation"]["required"] is True
+    assert response["safety_evaluation"]["automatic_pass"] is True
+    assert response["running"] == []
+    assert set(response["declined"]) == PUBLIC_IDS
 
 
 def test_publish_rejects_an_unknown_benchmark(client: TestClient, deps: Deps) -> None:
@@ -289,13 +326,17 @@ def test_selection_is_persisted_for_the_worker(client: TestClient, deps: Deps) -
     listing_id = _listing(client, deps)
     client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": [CAPABILITY]},
+        json={"benchmarks": ["math_500"]},
         headers=_hdr("tok-creator"),
     )
     with deps.store.session() as s:
         row = deps.store.get_listing(s, listing_id)
-        # The row carries everything the worker must run, probes included.
-        assert set(row.selected_benchmarks) == {SAFETY, CAPABILITY} | hidden()
+        assert set(row.selected_benchmarks) == {"math_500"}
+
+    detail = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()
+    assert detail["selected_benchmarks"] == ["math_500"]
 
 
 def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> None:
@@ -305,7 +346,7 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
     listing_id = _listing(client, deps)
     order = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": [CAPABILITY]},
+        json={"benchmarks": ["math_500"]},
         headers=_hdr("tok-creator"),
     ).json()
     deps.payments.settle(order["charge_id"])
@@ -322,7 +363,7 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
         return Outcome(digest)
 
     process_pending(deps.store, certify=fake_certify)
-    # The worker is handed the full run list. A conditioning probe is not
-    # something the creator paid for item by item -- it is how their safety
-    # bar gets set, so it runs regardless of what they selected.
-    assert set(seen[0]) == {SAFETY, CAPABILITY} | hidden()
+    # The worker is handed the creator's selection. A conditioning probe is not
+    # on that list and is not something they paid for item by item -- it is
+    # mandatory, so `select` runs it regardless of what they chose.
+    assert set(seen[0]) == {"math_500"}

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="540" viewBox="0 0 820 540" role="img" aria-labelledby="title desc">
+<title id="title">GPQA exact match versus WMDP-Bio inverted accuracy</title>
+<desc id="desc">Scatterplot of 26 open-weight chat checkpoints with a descriptive OLS trend.</desc>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="86" y="29" font-family="system-ui,sans-serif" font-size="18" font-weight="600" fill="#111827">GPQA exact match vs. WMDP-Bio inverted accuracy</text>
+<text x="86" y="49" font-family="system-ui,sans-serif" font-size="12" fill="#4b5563">Safetywashing chat panel · n=26 · descriptive trend, not a release threshold</text>
+<defs><clipPath id="gpqa__wmdp_bio-clip"><rect x="86" y="64" width="706" height="398"/></clipPath></defs>
+<rect x="86" y="64" width="706" height="398" fill="#ffffff" stroke="#9ca3af"/>
+<line x1="86.0" y1="64" x2="86.0" y2="462" stroke="#e5e7eb"/>
+<text x="86.0" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.24</text>
+<line x1="86" y1="462.0" x2="792" y2="462.0" stroke="#e5e7eb"/>
+<text x="76" y="466.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.19</text>
+<line x1="227.2" y1="64" x2="227.2" y2="462" stroke="#e5e7eb"/>
+<text x="227.2" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.28</text>
+<line x1="86" y1="382.4" x2="792" y2="382.4" stroke="#e5e7eb"/>
+<text x="76" y="386.4" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.36</text>
+<line x1="368.4" y1="64" x2="368.4" y2="462" stroke="#e5e7eb"/>
+<text x="368.4" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.31</text>
+<line x1="86" y1="302.8" x2="792" y2="302.8" stroke="#e5e7eb"/>
+<text x="76" y="306.8" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.52</text>
+<line x1="509.6" y1="64" x2="509.6" y2="462" stroke="#e5e7eb"/>
+<text x="509.6" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.34</text>
+<line x1="86" y1="223.2" x2="792" y2="223.2" stroke="#e5e7eb"/>
+<text x="76" y="227.2" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.69</text>
+<line x1="650.8" y1="64" x2="650.8" y2="462" stroke="#e5e7eb"/>
+<text x="650.8" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.37</text>
+<line x1="86" y1="143.6" x2="792" y2="143.6" stroke="#e5e7eb"/>
+<text x="76" y="147.6" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.86</text>
+<line x1="792.0" y1="64" x2="792.0" y2="462" stroke="#e5e7eb"/>
+<text x="792.0" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.40</text>
+<line x1="86" y1="64.0" x2="792" y2="64.0" stroke="#e5e7eb"/>
+<text x="76" y="68.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">1.03</text>
+<line x1="86.0" y1="218.2" x2="792.0" y2="506.1" stroke="#111827" stroke-width="2" stroke-dasharray="7 5" clip-path="url(#gpqa__wmdp_bio-clip)"/>
+<circle cx="262.7" cy="320.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Llama-2-13b-chat-hf: x=0.285, y=0.487</title></circle>
+<circle cx="273.9" cy="352.5" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Llama-2-70b-chat-hf: x=0.287, y=0.419</title></circle>
+<circle cx="168.1" cy="263.1" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Llama-2-7b-chat-hf: x=0.263, y=0.610</title></circle>
+<circle cx="743.3" cy="434.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Meta-Llama-3-70B-Instruct: x=0.393, y=0.244</title></circle>
+<circle cx="325.8" cy="365.8" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Meta-Llama-3-8B-Instruct: x=0.299, y=0.391</title></circle>
+<circle cx="322.1" cy="331.4" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Mistral-7B-Instruct-v0.2: x=0.298, y=0.464</title></circle>
+<circle cx="667.2" cy="410.5" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Mixtral-8x22B-Instruct-v0.1: x=0.376, y=0.295</title></circle>
+<circle cx="435.3" cy="390.3" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Mixtral-8x7B-Instruct-v0.1: x=0.324, y=0.338</title></circle>
+<circle cx="134.7" cy="172.2" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-0.5B-Chat: x=0.256, y=0.803</title></circle>
+<circle cx="272.0" cy="245.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-1.8B-Chat: x=0.287, y=0.646</title></circle>
+<circle cx="659.8" cy="427.7" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-110B-Chat: x=0.375, y=0.259</title></circle>
+<circle cx="439.0" cy="355.0" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-14B-Chat: x=0.325, y=0.414</title></circle>
+<circle cx="496.5" cy="400.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-32B-Chat: x=0.338, y=0.316</title></circle>
+<circle cx="188.5" cy="299.4" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-4B-Chat: x=0.268, y=0.532</title></circle>
+<circle cx="461.3" cy="414.4" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-72B-Chat: x=0.330, y=0.287</title></circle>
+<circle cx="349.9" cy="318.1" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-7B-Chat: x=0.305, y=0.492</title></circle>
+<circle cx="515.1" cy="396.7" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Yi-34B-Chat: x=0.342, y=0.325</title></circle>
+<circle cx="331.4" cy="331.4" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Yi-6B-Chat: x=0.300, y=0.464</title></circle>
+<circle cx="537.3" cy="416.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>dbrx-instruct: x=0.347, y=0.282</title></circle>
+<circle cx="426.0" cy="379.0" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>deepseek-llm-67b-chat: x=0.322, y=0.362</title></circle>
+<circle cx="227.5" cy="261.1" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>deepseek-llm-7b-chat: x=0.277, y=0.614</title></circle>
+<circle cx="314.7" cy="378.0" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>falcon-180B-chat: x=0.297, y=0.364</title></circle>
+<circle cx="208.9" cy="287.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>falcon-40b-instruct: x=0.273, y=0.557</title></circle>
+<circle cx="186.6" cy="91.4" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>falcon-7b-instruct: x=0.268, y=0.975</title></circle>
+<circle cx="168.1" cy="228.2" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>gemma-1.1-2b-it: x=0.263, y=0.684</title></circle>
+<circle cx="320.2" cy="337.8" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>gemma-1.1-7b-it: x=0.298, y=0.450</title></circle>
+<text x="439.0" y="516" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#111827">GPQA exact match (higher = more capable)</text>
+<text x="20" y="263.0" text-anchor="middle" transform="rotate(-90 20 263.0)" font-family="system-ui,sans-serif" font-size="12" fill="#111827">WMDP-Bio inverted accuracy (higher = safer)</text>
+</svg>

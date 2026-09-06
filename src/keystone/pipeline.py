@@ -71,8 +71,13 @@ class FailureKind(str, Enum):
 
 def classify(exc: BaseException) -> FailureKind:
     text = f"{type(exc).__name__}: {exc}".lower()
-    if "out of memory" in text or "oom" in text or "kv cache" in text:
+    # vLLM reports its normal KV-cache capacity in every startup log. Since the
+    # evaluator appends that log tail to unrelated exceptions, matching the
+    # words "kv cache" alone turns virtually every benchmark failure into OOM.
+    if "out of memory" in text or "cuda oom" in text:
         return FailureKind.OOM
+    if "offlinemodeisenabled" in text or "couldn't reach" in text:
+        return FailureKind.SUITE_ERROR
     if "timeout" in text or "timed out" in text:
         return FailureKind.TIMEOUT
     if "vllm exited" in text or "engine core" in text or "did not become ready" in text:
@@ -236,17 +241,26 @@ def grade(
     if incomplete:
         return capability, False, f"Mandatory safety gate did not run: {', '.join(incomplete)}."
 
+    safety_bypassed = bool(gates) and all(
+        result.metrics.get("evaluation_skipped") == 1.0 for result in gates
+    )
+    safety_summary = (
+        "Safety gates were automatically passed because safety evaluation is disabled."
+        if safety_bypassed
+        else "All mandatory safety gates passed."
+    )
+
     warn = " Warnings present." if any(
         s.status is Status.WARN for s in scans + suites
     ) else ""
     if capability == "unrated":
         return "unrated", True, (
-            "All mandatory safety gates passed. No capability benchmark was "
+            safety_summary + " No capability benchmark was "
             "selected, so capability is unrated." + warn
         )
     scored = [s for s in suites if not s.gate and s.score is not None]
     return capability, True, (
-        f"All mandatory safety gates passed. Capability {capability} from "
+        f"{safety_summary} Capability {capability} from "
         f"{len(scored)} benchmark(s)." + warn
     )
 
@@ -422,12 +436,30 @@ def _certify_fetched(
         failure = FailureKind.LICENSE_FAIL
         detail = "; ".join(subject.license.notes[:3]) or "licence chain check failed"
     else:
+        from keystone.public_safety import automatic_pass_results, evaluation_enabled
+
+        run_safety = evaluation_enabled()
         gpu = profile.resource_class or "A10G"
         tp = int(gpu.split(":")[1]) if ":" in gpu else 1
-        on_step("prefetch pinned public safety assets")
-        on_progress({"percent": 10, "stage": "Preparing safety suites", "gates": []})
+        automatic_gates = automatic_pass_results() if not run_safety else []
+        on_step("prefetch pinned evaluation assets")
+        on_progress({
+            "percent": 10,
+            "stage": "Preparing evaluation suites",
+            "gates": [
+                {
+                    "gate_id": result.suite_id,
+                    "display_name": result.display_name,
+                    "status": "pass",
+                    "completed": 1,
+                    "total": 1,
+                    "score": 1.0,
+                }
+                for result in automatic_gates
+            ],
+        })
         try:
-            modal_app.prefetch_public_safety_assets.remote()
+            modal_app.prefetch_public_safety_assets.remote(run_safety)
         except Exception as exc:
             return Outcome(
                 ref,
@@ -437,25 +469,58 @@ def _certify_fetched(
             )
         on_step(f"eval on {gpu}")
         try:
-            evaluated = None
-            for event in modal_app.evaluate.with_options(gpu=gpu).remote_gen(
-                fetched["cache_key"],
-                caps.model_dump(mode="json"),
-                [m.value for m in subject.modality],
-                max_context or profile.max_context,
-                tp,
-                only,
-                seed,
-            ):
-                if event.get("type") == "progress":
-                    on_progress(event)
-                elif event.get("type") == "result":
-                    evaluated = event["payload"]
-            if evaluated is None:
-                raise RuntimeError("Modal evaluation ended without a result")
-            suite_results = [SuiteResult.model_validate(r) for r in evaluated["suite_results"]]
-            environment = Environment.model_validate(evaluated["environment"])
-            gpu_seconds = float(evaluated["gpu_seconds"])
+            # Two containers, split by trust rather than by convenience. The
+            # agent harnesses drive child sandboxes and so need egress, which
+            # is exactly the property the gated suites cannot run under: their
+            # items are held out and the number they produce is the one a
+            # creator must not read. Splitting the call is what keeps that
+            # guarantee true now that an agentic benchmark exists at all.
+            # `only is None` means "run everything on the menu", which no
+            # agent harness is part of -- those are driven by explicit ids.
+            agentic = [s for s in (only or []) if s in modal_app.AGENTIC_BENCHMARKS]
+            contained = (
+                None
+                if only is None
+                else [s for s in only if s not in modal_app.AGENTIC_BENCHMARKS]
+            )
+
+            suite_results = []
+            gpu_seconds = 0.0
+            environment = None
+
+            stages = [(modal_app.evaluate, contained, run_safety, True)]
+            if agentic:
+                # Safety and the suite registry never run on the egress-capable
+                # side, whatever the caller asked for. Mandatory suites ignore
+                # `only`, so without the registry switch they would run twice.
+                stages.append((modal_app.evaluate_agentic, agentic, False, False))
+
+            for function, stage_only, stage_safety, stage_registry in stages:
+                evaluated = None
+                for event in function.with_options(gpu=gpu).remote_gen(
+                    fetched["cache_key"],
+                    caps.model_dump(mode="json"),
+                    [m.value for m in subject.modality],
+                    max_context or profile.max_context,
+                    tp,
+                    stage_only,
+                    seed,
+                    stage_safety,
+                    stage_registry,
+                ):
+                    if event.get("type") == "progress":
+                        on_progress(event)
+                    elif event.get("type") == "result":
+                        evaluated = event["payload"]
+                if evaluated is None:
+                    raise RuntimeError("Modal evaluation ended without a result")
+                suite_results.extend(
+                    SuiteResult.model_validate(r) for r in evaluated["suite_results"]
+                )
+                environment = Environment.model_validate(evaluated["environment"])
+                gpu_seconds += float(evaluated["gpu_seconds"])
+
+            suite_results.extend(automatic_gates)
             profile.engine_version = environment.engine_version
         except Exception as exc:
             return Outcome(ref, failure=classify(exc), detail=repr(exc)[:400],

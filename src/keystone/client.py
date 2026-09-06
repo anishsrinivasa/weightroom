@@ -119,6 +119,11 @@ class OpenAIServerClient(ModelClient):
 # of it, and this told vLLM to use three quarters.
 VRAM_HEADROOM = 1.4
 
+# vLLM is never told to claim the whole card: some is already gone to the CUDA
+# context and the allocator needs slack. The picker has to know this figure,
+# because a card it sizes on raw capacity is a card the server cannot fill.
+MAX_CLAIM = 0.95
+
 
 def card_bytes() -> int | None:
     """Total VRAM on the device we actually landed on, or None off-GPU.
@@ -169,7 +174,7 @@ def memory_utilisation(weight_bytes: int, total_bytes: int | None = None) -> flo
     if not total_bytes:
         return scaled
     needed = weight_bytes * VRAM_HEADROOM / total_bytes
-    return min(0.95, max(scaled, needed))
+    return min(MAX_CLAIM, max(scaled, needed))
 
 
 class VLLMServer:

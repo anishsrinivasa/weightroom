@@ -17,8 +17,9 @@ from typing import TYPE_CHECKING
 
 from keystone.db import Store
 from keystone.listing import Attempt, AttemptPolicy, DEFAULT_POLICY, Listing, ListingState
-from keystone.pipeline import Outcome
-from keystone.schema import CertificationReport, Status
+from keystone.pipeline import FailureKind, Outcome
+from keystone.schema import CertificationReport, Status, SuiteResult
+from keystone.tags import model_size_tag
 
 if TYPE_CHECKING:
     from keystone.storage import ArtifactStore
@@ -86,6 +87,9 @@ def record_outcome(
         store.save_listing(s, listing)
 
         if report is not None:
+            row = store.get_listing(s, listing_id)
+            if row is not None:
+                row.size_tag = model_size_tag(report.serving_profile.parameter_count)
             # Sign before storing, so the stored bytes are the signed bytes and
             # nothing can diverge between what we keep and what we attest to.
             if signer is not None:
@@ -95,6 +99,60 @@ def record_outcome(
             )
         s.commit()
         return listing.state
+
+
+def _require_selected_benchmark_results(
+    outcome: Outcome, selected: list[str]
+) -> Outcome:
+    """Fail closed if the harness omitted a benchmark the seller paid for.
+
+    The public benchmark catalogue and the executable suite registry are
+    intentionally separate.  Until an official adapter exists for every
+    catalogue entry, that separation must never turn a missing run into a
+    successful certificate.
+    """
+    if outcome.report is None or not selected:
+        return outcome
+
+    report = outcome.report.model_copy(deep=True)
+    by_id = {result.suite_id: result for result in report.suite_results}
+    missing = [benchmark_id for benchmark_id in selected if benchmark_id not in by_id]
+    incomplete = [
+        benchmark_id
+        for benchmark_id in selected
+        if benchmark_id in by_id
+        and (
+            by_id[benchmark_id].declined
+            or by_id[benchmark_id].status in {Status.ERROR, Status.SKIPPED}
+            or by_id[benchmark_id].score is None
+        )
+    ]
+    if not missing and not incomplete:
+        return outcome
+
+    for benchmark_id in missing:
+        report.suite_results.append(
+            SuiteResult(
+                suite_id=benchmark_id,
+                suite_version="unavailable",
+                status=Status.ERROR,
+                display_name=benchmark_id,
+                diagnostic=True,
+            )
+        )
+
+    invalid = sorted(set(missing + incomplete))
+    detail = "selected benchmark did not complete: " + ", ".join(invalid)
+    report.status = Status.ERROR
+    report.rating.certified = False
+    report.rating.rationale = detail
+    return Outcome(
+        outcome.ref,
+        report=report,
+        failure=FailureKind.SUITE_ERROR,
+        detail=detail,
+        wall_s=outcome.wall_s,
+    )
 
 
 def process_pending(
@@ -112,7 +170,7 @@ def process_pending(
 
     `certify` is injectable so this is testable without Modal or a GPU.
     """
-    from keystone.pipeline import FailureKind, Outcome, certify_uploaded
+    from keystone.pipeline import certify_uploaded
 
     if certify is None and artifacts is None:
         raise ValueError("an artifact store is required for uploaded-model certification")
@@ -151,7 +209,10 @@ def process_pending(
         def persist_progress(event: dict) -> None:
             nonlocal live_gates
             if event.get("gates"):
-                live_gates = event["gates"]
+                merged = {gate["gate_id"]: gate for gate in live_gates}
+                for gate in event["gates"]:
+                    merged[gate["gate_id"]] = gate
+                live_gates = list(merged.values())
             with store.session() as progress_session:
                 store.set_evaluation_progress(
                     progress_session,
@@ -176,7 +237,7 @@ def process_pending(
                     digest,
                     files,
                     artifacts,
-                    only=selected or None,
+                    only=selected,
                     on_step=on_step,
                     on_progress=persist_progress,
                 )
@@ -196,8 +257,10 @@ def process_pending(
                 failure=FailureKind.UNKNOWN,
                 detail=repr(exc)[:400],
             )
+        outcome = _require_selected_benchmark_results(outcome, selected)
         state = record_outcome(store, listing_id, outcome, policy=policy, signer=signer)
         final_gates = live_gates
+        terminal_stage = "Evaluation complete"
         if outcome.report is not None:
             final_gates = [
                 {
@@ -211,10 +274,26 @@ def process_pending(
                 for result in outcome.report.suite_results
                 if result.gate
             ]
+        elif outcome.failure is not None:
+            # A pipeline/infrastructure failure is not evidence that a model
+            # failed a safety gate. Preserve already-completed automatic passes
+            # and mark only unfinished gates as errors.
+            final_gates = [
+                {
+                    **gate,
+                    "status": (
+                        gate.get("status")
+                        if gate.get("status") in {"pass", "fail"}
+                        else "error"
+                    ),
+                }
+                for gate in live_gates
+            ]
+            terminal_stage = "Evaluation failed"
         persist_progress(
             {
                 "percent": 100,
-                "stage": "Evaluation complete",
+                "stage": terminal_stage,
                 "gates": final_gates,
             }
         )

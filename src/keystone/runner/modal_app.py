@@ -47,6 +47,19 @@ MODELS_DIR = f"{CACHE_ROOT}/models"
 VOLUME_MODELS_DIR = "/models"
 PUBLIC_SAFETY_ROOT = f"{CACHE_ROOT}/public-safety"
 PUBLIC_SAFETY_ASSETS = f"{PUBLIC_SAFETY_ROOT}/assets.json"
+PUBLIC_BENCHMARK_ASSETS_ROOT = "/tmp/public-benchmark-assets"
+
+MMLU_PRO_REVISION = "b189ec765aa7ed75c8acfea42df31fdae71f97be"
+MMLU_PRO_ITEMS = 12_032
+MATH_500_REVISION = "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be"
+SWE_BENCH_VERIFIED_REVISION = "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
+SWE_BENCH_VERIFIED_ITEMS = 500
+GDPVAL_REVISION = "a3848a2a812d5d4d0f08003fac3c8eac40805962"
+GDPVAL_ITEMS = 220
+HARVEY_LAB_REVISION = "1da4750171bc5a534960b3d82d15ba7fd2cf653f"
+HARVEY_LAB_TASK_FILES = 1_760
+BENCHMARK_JUDGE_REF = "Qwen/Qwen3-4B-Instruct-2507"
+BENCHMARK_JUDGE_REVISION = "cdbee75f17c01a7cc42f958dc650907174af0554"
 
 app = modal.App(APP_NAME)
 
@@ -98,6 +111,14 @@ safety_eval_image = _with_local_source(
         "requests>=2.32",
         "huggingface_hub>=1.0",
         "hf_transfer",
+        "math-verify==0.8.0",
+        "inspect-ai==0.3.263",
+        "inspect-evals[swe-bench,gdpval]==0.19.0",
+        "inspect-sandboxes==0.5.0",
+        "openpyxl>=3.1",
+        "pypdf>=5.1",
+        "python-docx>=1.1",
+        "python-pptx>=1.0",
     )
 )
 
@@ -357,23 +378,25 @@ def _safety_cache_env() -> dict[str, str]:
 @app.function(
     image=safety_eval_image,
     volumes={CACHE_ROOT: cache},
-    timeout=60 * 60,
+    timeout=4 * 60 * 60,
     cpu=4,
     restrict_modal_access=True,
 )
-def prefetch_public_safety_assets() -> dict:
-    """Cache every pinned public dataset plus the independent open judge.
+def prefetch_public_safety_assets(include_safety: bool = True) -> dict:
+    """Cache pinned benchmark assets and, when enabled, public safety assets.
 
     This function deliberately has egress but never imports or loads the model
     under test.  ``evaluate`` consumes this cache with network access blocked.
     """
     import csv
     import io
+    import zipfile
 
     import requests
     from datasets import load_dataset
     from huggingface_hub import snapshot_download
 
+    cache.reload()
     os.environ.update(_safety_cache_env())
     root = Path(PUBLIC_SAFETY_ROOT)
     root.mkdir(parents=True, exist_ok=True)
@@ -383,54 +406,179 @@ def prefetch_public_safety_assets() -> dict:
         response.raise_for_status()
         return response.text
 
-    guard_dir = root / f"Qwen3Guard-Gen-0.6B@{GUARD_REVISION}"
-    if not guard_dir.exists():
+    guard_dir = root / f"{GUARD_REF.split('/')[-1]}@{GUARD_REVISION}"
+    if include_safety and not guard_dir.exists():
         snapshot_download(GUARD_REF, revision=GUARD_REVISION, local_dir=guard_dir)
 
-    harmbench_url = (
-        "https://raw.githubusercontent.com/centerforaisafety/HarmBench/"
-        f"{HARMBENCH_REVISION}/data/behavior_datasets/harmbench_behaviors_text_all.csv"
-    )
-    harmbench_rows = list(csv.DictReader(io.StringIO(get_text(harmbench_url))))
-    standard = [row for row in harmbench_rows if row["FunctionalCategory"] == "standard"]
-    if len(standard) != HARMBENCH_STANDARD_ITEMS:
-        raise RuntimeError(
-            f"pinned HarmBench set changed: expected {HARMBENCH_STANDARD_ITEMS} "
-            f"standard behaviours, got {len(standard)}"
-        )
-    # Categories with a conditioned pair are judged there, against a bar set by
-    # the matching capability probe. Running them here as well would score the
-    # same behaviour twice under two different thresholds, and the absolute one
-    # would always win -- which would make the conditioning ornamental.
-    harmbench = [
-        {
-            "prompt": row["Behavior"],
-            "category": row["SemanticCategory"],
-            "functional_category": row["FunctionalCategory"],
-        }
-        for row in standard
-        if row["SemanticCategory"] not in CONDITIONED_CATEGORIES
-    ]
-    if len(harmbench) != HARMBENCH_ITEMS:
-        raise RuntimeError(
-            f"HarmBench after excluding conditioned categories: expected "
-            f"{HARMBENCH_ITEMS}, got {len(harmbench)}"
+    benchmark_judge_dir = root / f"Qwen3-4B-Instruct-2507@{BENCHMARK_JUDGE_REVISION}"
+    if not benchmark_judge_dir.exists():
+        snapshot_download(
+            BENCHMARK_JUDGE_REF,
+            revision=BENCHMARK_JUDGE_REVISION,
+            local_dir=benchmark_judge_dir,
         )
 
-    jbb_rows = load_dataset(
-        "JailbreakBench/JBB-Behaviors",
-        "behaviors",
-        split="harmful",
-        revision=JAILBREAKBENCH_REVISION,
+    harmbench: list[dict] = []
+    jailbreakbench: list[dict] = []
+    if include_safety:
+        harmbench_url = (
+            "https://raw.githubusercontent.com/centerforaisafety/HarmBench/"
+            f"{HARMBENCH_REVISION}/data/behavior_datasets/harmbench_behaviors_text_all.csv"
+        )
+        harmbench_rows = list(csv.DictReader(io.StringIO(get_text(harmbench_url))))
+        standard = [
+            row for row in harmbench_rows if row["FunctionalCategory"] == "standard"
+        ]
+        if len(standard) != HARMBENCH_STANDARD_ITEMS:
+            raise RuntimeError(
+                f"pinned HarmBench set changed: expected {HARMBENCH_STANDARD_ITEMS} "
+                f"standard behaviours, got {len(standard)}"
+            )
+        # Categories with a conditioned pair are judged there, against a bar set
+        # by the matching capability probe. Running them here as well would score
+        # the same behaviour twice under two different thresholds, and the
+        # absolute one would always win -- which would make the conditioning
+        # ornamental rather than binding.
+        harmbench = [
+            {
+                "prompt": row["Behavior"],
+                "category": row["SemanticCategory"],
+                "functional_category": row["FunctionalCategory"],
+            }
+            for row in standard
+            if row["SemanticCategory"] not in CONDITIONED_CATEGORIES
+        ]
+        if len(harmbench) != HARMBENCH_ITEMS:
+            raise RuntimeError(
+                f"HarmBench after excluding conditioned categories: expected "
+                f"{HARMBENCH_ITEMS}, got {len(harmbench)}"
+            )
+
+        jbb_rows = load_dataset(
+            "JailbreakBench/JBB-Behaviors",
+            "behaviors",
+            split="harmful",
+            revision=JAILBREAKBENCH_REVISION,
+        )
+        jailbreakbench = [
+            {"prompt": row["Goal"], "category": row["Category"]}
+            for row in jbb_rows
+        ]
+        if len(jailbreakbench) != JAILBREAKBENCH_ITEMS:
+            raise RuntimeError(
+                "pinned JailbreakBench set changed: "
+                f"expected {JAILBREAKBENCH_ITEMS}, got {len(jailbreakbench)}"
+            )
+
+    mmlu_rows = load_dataset(
+        "TIGER-Lab/MMLU-Pro",
+        split="test",
+        revision=MMLU_PRO_REVISION,
     )
-    jailbreakbench = [
-        {"prompt": row["Goal"], "category": row["Category"]}
-        for row in jbb_rows
+    mmlu_pro = [
+        {
+            "id": str(row["question_id"]),
+            "question": row["question"],
+            "options": list(row["options"]),
+            "answer": row["answer"],
+            "category": row["category"],
+        }
+        for row in mmlu_rows
     ]
-    if len(jailbreakbench) != JAILBREAKBENCH_ITEMS:
+    if len(mmlu_pro) != MMLU_PRO_ITEMS:
         raise RuntimeError(
-            "pinned JailbreakBench set changed: "
-            f"expected {JAILBREAKBENCH_ITEMS}, got {len(jailbreakbench)}"
+            "pinned MMLU-Pro changed: "
+            f"expected {MMLU_PRO_ITEMS}, got {len(mmlu_pro)}"
+        )
+
+    math_rows = load_dataset(
+        "HuggingFaceH4/MATH-500",
+        split="test",
+        revision=MATH_500_REVISION,
+    )
+    math_500 = [
+        {
+            "id": row["unique_id"],
+            "problem": row["problem"],
+            "answer": row["answer"],
+            "subject": row["subject"],
+            "level": row["level"],
+        }
+        for row in math_rows
+    ]
+    if len(math_500) != 500:
+        raise RuntimeError(f"pinned MATH-500 changed: expected 500, got {len(math_500)}")
+
+    swe_bench_verified = load_dataset(
+        "princeton-nlp/SWE-bench_Verified",
+        split="test",
+        revision=SWE_BENCH_VERIFIED_REVISION,
+    )
+    if len(swe_bench_verified) != SWE_BENCH_VERIFIED_ITEMS:
+        raise RuntimeError(
+            "pinned SWE-bench Verified changed: "
+            f"expected {SWE_BENCH_VERIFIED_ITEMS}, got {len(swe_bench_verified)}"
+        )
+    swe_bench_dataset_dir = root / f"swe-bench-verified@{SWE_BENCH_VERIFIED_REVISION}"
+    swe_bench_dataset_dir.mkdir(exist_ok=True)
+    swe_bench_verified.to_parquet(swe_bench_dataset_dir / "train.parquet")
+
+    gdpval_rows = load_dataset(
+        "openai/gdpval",
+        split="train",
+        revision=GDPVAL_REVISION,
+    )
+    if len(gdpval_rows) != GDPVAL_ITEMS:
+        raise RuntimeError(
+            f"pinned GDPval changed: expected {GDPVAL_ITEMS}, got {len(gdpval_rows)}"
+        )
+    gdpval_dataset_dir = root / f"gdpval-dataset@{GDPVAL_REVISION}"
+    gdpval_dataset_dir.mkdir(exist_ok=True)
+    gdpval_rows.to_parquet(gdpval_dataset_dir / "train.parquet")
+    gdpval_dir = root / f"gdpval@{GDPVAL_REVISION}"
+    if not gdpval_dir.exists():
+        snapshot_download(
+            "openai/gdpval",
+            repo_type="dataset",
+            revision=GDPVAL_REVISION,
+            local_dir=gdpval_dir,
+            allow_patterns=[
+                "README.md",
+                "data/**",
+                "reference_files/**",
+                "deliverable_files/**",
+            ],
+        )
+
+    harvey_dir = root / f"harvey-labs@{HARVEY_LAB_REVISION}"
+    if not harvey_dir.exists():
+        archive_url = (
+            "https://codeload.github.com/harveyai/harvey-labs/zip/"
+            f"{HARVEY_LAB_REVISION}"
+        )
+        staging = root / f".harvey-labs-{HARVEY_LAB_REVISION}"
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True)
+        archive_path = staging / "harvey-labs.zip"
+        with requests.get(archive_url, timeout=300, stream=True) as response:
+            response.raise_for_status()
+            with archive_path.open("wb") as handle:
+                for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+                    if chunk:
+                        handle.write(chunk)
+        with zipfile.ZipFile(archive_path) as archive:
+            archive.extractall(staging)
+        archive_path.unlink()
+        extracted = staging / f"harvey-labs-{HARVEY_LAB_REVISION}"
+        if not extracted.is_dir():
+            raise RuntimeError("pinned Harvey LAB archive has an unexpected layout")
+        extracted.replace(harvey_dir)
+        shutil.rmtree(staging, ignore_errors=True)
+    harvey_tasks = list((harvey_dir / "tasks").rglob("task.json"))
+    if len(harvey_tasks) != HARVEY_LAB_TASK_FILES:
+        raise RuntimeError(
+            "pinned Harvey LAB changed: "
+            f"expected {HARVEY_LAB_TASK_FILES} task files, got {len(harvey_tasks)}"
         )
 
     assets = {
@@ -438,11 +586,24 @@ def prefetch_public_safety_assets() -> dict:
             "guard": GUARD_REVISION,
             "harmbench": HARMBENCH_REVISION,
             "jailbreakbench": JAILBREAKBENCH_REVISION,
+            "swe_bench_verified": SWE_BENCH_VERIFIED_REVISION,
+            "gdpval": GDPVAL_REVISION,
+            "harvey_lab": HARVEY_LAB_REVISION,
+            "benchmark_judge": BENCHMARK_JUDGE_REVISION,
         },
         "guard_dir": str(guard_dir),
+        "benchmark_judge_dir": str(benchmark_judge_dir),
+        "gdpval_dir": str(gdpval_dir),
+        "gdpval_dataset_dir": str(gdpval_dataset_dir),
+        "harvey_lab_dir": str(harvey_dir),
+        "swe_bench_dataset_dir": str(swe_bench_dataset_dir),
         "suites": {
             "harmbench": harmbench,
             "jailbreakbench": jailbreakbench,
+        },
+        "benchmarks": {
+            "mmlu_pro": mmlu_pro,
+            "math_500": math_500,
         },
     }
     Path(PUBLIC_SAFETY_ASSETS).write_text(json.dumps(assets), encoding="utf-8")
@@ -450,7 +611,35 @@ def prefetch_public_safety_assets() -> dict:
     return {
         "guard_revision": GUARD_REVISION,
         "counts": {name: len(rows) for name, rows in assets["suites"].items()},
+        "benchmark_counts": {
+            **{name: len(rows) for name, rows in assets["benchmarks"].items()},
+            "swe_bench_verified": len(swe_bench_verified),
+            "gdpval": len(gdpval_rows),
+            "harvey_lab": len(harvey_tasks),
+        },
     }
+
+
+@app.function(
+    image=safety_eval_image,
+    volumes={CACHE_ROOT: cache},
+    # The trusted controller must stream command output from child Modal
+    # Sandboxes. Modal 1.5 cannot do that from a network-blocked parent.
+    # Untrusted task execution remains inside block_network=True sandboxes.
+    block_network=False,
+    restrict_modal_access=False,
+    timeout=4 * 60 * 60,
+)
+def smoke_agent_sandboxes() -> dict[str, str]:
+    """Operational preflight for every agent-style benchmark image."""
+    from keystone.runner.inspect_benchmarks import smoke_agent_sandboxes as smoke
+
+    cache.reload()
+    assets = json.loads(Path(PUBLIC_SAFETY_ASSETS).read_text(encoding="utf-8"))
+    return smoke(
+        harvey_root=Path(assets["harvey_lab_dir"]),
+        swe_dataset_dir=Path(assets["swe_bench_dataset_dir"]),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -483,18 +672,15 @@ def _parse_guard(text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# evaluate: network OFF, GPU, weights get loaded here
+# evaluate: trusted controller, GPU, weights get loaded here
 # ---------------------------------------------------------------------------
 
-@app.function(
-    image=safety_eval_image,
-    volumes={CACHE_ROOT: cache},
-    gpu="A10G",  # overridden per-model via .with_options(gpu=...)
-    block_network=True,
-    restrict_modal_access=True,
-    timeout=4 * 60 * 60,
-)
-def evaluate(
+# Benchmarks whose harness drives child Modal Sandboxes and therefore needs
+# egress from the controller. Everything else runs contained.
+AGENTIC_BENCHMARKS = frozenset({"swe_bench_verified", "gdpval", "harvey_lab"})
+
+
+def _evaluate_entry(
     cache_key: str,
     capabilities: dict,
     modality: list[str],
@@ -502,6 +688,8 @@ def evaluate(
     tensor_parallel_size: int = 1,
     only: list[str] | None = None,
     seed: int = 0,
+    run_safety: bool = True,
+    run_registry: bool = True,
 ):
     """Wrapper that guarantees a failure is readable by the caller.
 
@@ -522,6 +710,8 @@ def evaluate(
             tensor_parallel_size,
             only,
             seed,
+            run_safety,
+            run_registry,
         )
     except Exception as exc:  # noqa: BLE001 - losing this is the whole problem
         report = "".join(
@@ -539,6 +729,61 @@ def evaluate(
         raise RuntimeError(report) from None
 
 
+_EVAL_OPTIONS = dict(
+    image=safety_eval_image,
+    volumes={CACHE_ROOT: cache},
+    gpu="A10G",  # overridden per-model via .with_options(gpu=...)
+    timeout=24 * 60 * 60,
+)
+
+# The gated path. Held-out elicitation items and conditioning probes are staged
+# into this container, and the threshold a probe produces is the one number a
+# creator must never read -- so egress is cut and the Modal credentials are
+# withheld. One control doing two jobs: containing a hostile checkpoint, and
+# stopping held-out prompts leaving the box.
+evaluate = app.function(
+    name="evaluate",
+    block_network=True,
+    restrict_modal_access=True,
+    **_EVAL_OPTIONS,
+)(_evaluate_entry)
+
+# The agentic path. Inspect's trusted controller needs network access to stream
+# output from one networkless Modal Sandbox per agent task, so this container
+# cannot be contained the same way. It is therefore only ever handed public
+# benchmark datasets -- never a probe, never an elicitation set -- and the
+# caller enforces that split rather than trusting this function to. Uploaded
+# artifacts are SafeTensors only and were scanned before reaching here; every
+# command the model proposes executes in a child with block_network=True.
+# Both decorators wrap the same body, so both would register under the wrapped
+# function's own name and the second would silently override the first --
+# leaving one call site pointing at a container with the wrong network posture.
+evaluate_agentic = app.function(
+    name="evaluate_agentic",
+    block_network=False,
+    restrict_modal_access=False,
+    **_EVAL_OPTIONS,
+)(_evaluate_entry)
+
+
+def _disabled_when_unsafe(suites_root: Path) -> set[str]:
+    """Suite ids to skip when safety evaluation is switched off.
+
+    The switch exists so the marketplace can be exercised end to end without
+    paying for GPU time, and that only works if it covers every gating suite --
+    not just the stub. Conditioning probes go too: their sole purpose is to set
+    a safety bar, so running them for a bypassed certification buys a number
+    nothing will read.
+    """
+    from keystone.registry import discover
+
+    return {
+        suite.manifest.id
+        for suite in discover(suites_root)
+        if suite.manifest.gate or suite.manifest.internal
+    }
+
+
 def _evaluate(
     cache_key: str,
     capabilities: dict,
@@ -547,19 +792,34 @@ def _evaluate(
     tensor_parallel_size: int = 1,
     only: list[str] | None = None,
     seed: int = 0,
+    run_safety: bool = True,
+    run_registry: bool = True,
 ):
     import asyncio
+    import queue
     import sys
+    import threading
 
     sys.path.insert(0, "/root")  # so `suites/` is importable
 
     from keystone.client import OpenAIServerClient, VLLMServer
-    from keystone.public_safety import BY_ID, harmful_result
+    from keystone.public_benchmarks import BY_ID as BENCHMARK_BY_ID, TASK_SAMPLE_SIZE
+    from keystone.public_safety import BY_ID as SAFETY_BY_ID, harmful_result
     from keystone.judging import GuardJudge
+    from keystone.runner.inspect_benchmarks import (
+        run_gdpval_generation,
+        run_harvey_lab_generation,
+        run_swe_bench_verified,
+        score_rubric_run,
+    )
     from keystone.run import collect_suites, finalise_judged
     from keystone.schema import Capabilities, Modality
 
+    cache.reload()
     started = time.monotonic()
+    os.environ.update(_safety_cache_env())
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
     root = Path(MODELS_DIR) / cache_key
     caps = Capabilities.model_validate(capabilities)
     mods = [Modality(m) for m in modality]
@@ -567,15 +827,41 @@ def _evaluate(
 
     env = _environment(seed)
     assets = json.loads(Path(PUBLIC_SAFETY_ASSETS).read_text(encoding="utf-8"))
-    suite_ids = ("harmbench", "jailbreakbench")
-    total_work = 2 * sum(len(assets["suites"][suite_id]) for suite_id in suite_ids)
-    completed_work = 0
+    benchmark_assets_root = Path(PUBLIC_BENCHMARK_ASSETS_ROOT)
+    for suite_id, rows in assets.get("benchmarks", {}).items():
+        suite_assets = benchmark_assets_root / suite_id
+        suite_assets.mkdir(parents=True, exist_ok=True)
+        (suite_assets / "tasks.json").write_text(
+            json.dumps(rows), encoding="utf-8"
+        )
+    suite_ids = ("harmbench", "jailbreakbench") if run_safety else ()
+    selected_public = sorted(
+        set(only or []).intersection(assets.get("benchmarks", {}))
+    )
+    safety_total = 2 * sum(len(assets["suites"][suite_id]) for suite_id in suite_ids)
+    safety_completed = 0
     gate_work = {suite_id: 0 for suite_id in suite_ids}
     gate_scores: dict[str, float | None] = {suite_id: None for suite_id in suite_ids}
     gate_status = {suite_id: "pending" for suite_id in suite_ids}
+    benchmark_work = {
+        suite_id: {
+            "gate_id": suite_id,
+            "display_name": BENCHMARK_BY_ID[suite_id].display_name,
+            "kind": "benchmark",
+            "status": "pending",
+            "completed": 0,
+            "total": TASK_SAMPLE_SIZE,
+            "score": None,
+        }
+        for suite_id in selected_public
+    }
 
     def progress(stage: str) -> dict:
-        percent = 10 + round(85 * completed_work / total_work) if total_work else 95
+        completed = safety_completed + sum(
+            item["completed"] for item in benchmark_work.values()
+        )
+        total = safety_total + sum(item["total"] for item in benchmark_work.values())
+        percent = 10 + round(85 * completed / total) if total else 95
         return {
             "type": "progress",
             "percent": min(95, percent),
@@ -583,19 +869,20 @@ def _evaluate(
             "gates": [
                 {
                     "gate_id": suite_id,
-                    "display_name": BY_ID[suite_id].display_name,
+                    "display_name": SAFETY_BY_ID[suite_id].display_name,
                     "status": gate_status[suite_id],
                     "completed": gate_work[suite_id],
                     "total": 2 * len(assets["suites"][suite_id]),
                     "score": gate_scores[suite_id],
                 }
                 for suite_id in suite_ids
-            ],
+            ] + list(benchmark_work.values()),
         }
 
     batch_size = 16
     served_name = cache_key
     generated: dict[str, list[dict]] = {}
+    pending_rubric_runs = []
     suite_started = {suite_id: time.monotonic() for suite_id in suite_ids}
     with VLLMServer(
         root,
@@ -605,19 +892,125 @@ def _evaluate(
     ):
         env["engine_version"] = _pkg_version("vllm")
         client = OpenAIServerClient(served_name, seed=seed)
-        # Phase one only. Judged suites collect here and are scored below,
-        # after this server is gone and the guard is up -- both models want the
-        # same GPU and neither will yield it.
-        results, pending = collect_suites(
-            client,
-            model_name=served_name,
-            capabilities=caps,
-            modality=mods,
-            suites_root=suites_root,
-            scratch_dir=Path("/tmp/scratch"),
-            only=only,
-            seed=seed,
+        if selected_public:
+            yield progress(
+                "Running selected capability benchmarks: "
+                + ", ".join(selected_public)
+            )
+        run_events: queue.Queue = queue.Queue()
+        results, pending = [], []
+
+        def run_registered_suites() -> None:
+            # Phase one only. Judged suites collect here and are scored after
+            # this server is gone and the guard is up -- both models want the
+            # same GPU and neither will yield it.
+            try:
+                run_events.put(("result", collect_suites(
+                    client,
+                    model_name=served_name,
+                    capabilities=caps,
+                    modality=mods,
+                    suites_root=suites_root,
+                    scratch_dir=Path("/tmp/scratch"),
+                    assets_root=benchmark_assets_root,
+                    only=only,
+                    disabled_ids=_disabled_when_unsafe(suites_root) if not run_safety else None,
+                    seed=seed,
+                    on_progress=lambda event: run_events.put(("progress", event)),
+                )))
+            except BaseException as exc:  # forwarded to the generator caller
+                run_events.put(("error", exc))
+
+        suite_thread = (
+            threading.Thread(target=run_registered_suites, daemon=True)
+            if run_registry
+            else None
         )
+        if suite_thread is not None:
+            suite_thread.start()
+        while suite_thread is not None:
+            event_type, payload = run_events.get()
+            if event_type == "progress":
+                item = benchmark_work.get(payload["suite_id"])
+                if item is not None:
+                    item["display_name"] = payload["display_name"]
+                    item["status"] = "running"
+                    # A conditioned suite reports a fraction and never counts:
+                    # its item budget is derived from the tolerated-harm
+                    # ceiling, so a raw "x of y" prints the model's capability
+                    # band on the seller's progress bar.
+                    if "percent" in payload:
+                        item["percent"] = payload["percent"]
+                        yield progress(
+                            f"Running {payload['display_name']}: "
+                            f"{payload['percent']}%"
+                        )
+                    else:
+                        item["completed"] = min(payload["completed"], payload["total"])
+                        item["total"] = payload["total"]
+                        yield progress(
+                            f"Running {payload['display_name']}: "
+                            f"{payload['completed']} of {payload['total']} tasks"
+                        )
+                continue
+            if event_type == "error":
+                raise payload
+            results, pending = payload
+            break
+        if suite_thread is not None:
+            suite_thread.join()
+        for result in results:
+            item = benchmark_work.get(result.suite_id)
+            if item is not None and not result.declined:
+                item["completed"] = result.n_items or item["total"]
+                item["status"] = result.status.value
+                item["score"] = result.score
+        if "swe_bench_verified" in set(only or []):
+            yield progress("Running SWE-bench Verified in isolated Modal sandboxes")
+            swe_result = run_swe_bench_verified(
+                served_model_name=served_name,
+                artifact_digest=served_name,
+                dataset_dir=Path(assets["swe_bench_dataset_dir"]),
+                log_dir=Path("/tmp/inspect-logs/swe-bench-verified"),
+            )
+            results.append(swe_result)
+            benchmark_work["swe_bench_verified"].update(
+                completed=swe_result.n_items or TASK_SAMPLE_SIZE,
+                status=swe_result.status.value,
+                score=swe_result.score,
+            )
+            yield progress("Completed SWE-bench Verified")
+        if "gdpval" in set(only or []):
+            yield progress("Running GDPval agents in isolated Modal sandboxes")
+            pending_rubric_runs.append(
+                run_gdpval_generation(
+                    served_model_name=served_name,
+                    artifact_digest=served_name,
+                    dataset_root=Path(assets["gdpval_dir"]),
+                    dataset_dir=Path(assets["gdpval_dataset_dir"]),
+                    log_dir=Path("/tmp/inspect-logs/gdpval"),
+                )
+            )
+            benchmark_work["gdpval"].update(
+                completed=TASK_SAMPLE_SIZE // 2,
+                status="running",
+            )
+            yield progress("Generated GDPval work products; waiting for scoring")
+        if "harvey_lab" in set(only or []):
+            yield progress("Running Harvey LAB agents in isolated Modal sandboxes")
+            pending_rubric_runs.append(
+                run_harvey_lab_generation(
+                    served_model_name=served_name,
+                    artifact_digest=served_name,
+                    dataset_root=Path(assets["harvey_lab_dir"]),
+                    log_dir=Path("/tmp/inspect-logs/harvey-lab"),
+                )
+            )
+            benchmark_work["harvey_lab"].update(
+                completed=TASK_SAMPLE_SIZE // 2,
+                status="running",
+            )
+            yield progress("Generated Harvey LAB work products; waiting for scoring")
         for suite_id in suite_ids:
             generated[suite_id] = []
             rows = assets["suites"][suite_id]
@@ -637,64 +1030,84 @@ def _evaluate(
 
                 generated[suite_id].extend(asyncio.run(generate_batch()))
                 completed = len(batch)
-                completed_work += completed
+                safety_completed += completed
                 gate_work[suite_id] += completed
                 gate_status[suite_id] = "running"
-                yield progress(f"Generating {BY_ID[suite_id].display_name}")
+                yield progress(f"Generating {SAFETY_BY_ID[suite_id].display_name}")
 
-    with VLLMServer(Path(assets["guard_dir"]), "safety-judge", max_context=4096):
-        judge = OpenAIServerClient("safety-judge", seed=seed)
-
-        # Phase two for the suite registry. Same guard, same server, one
-        # startup -- the judge id lands on each result so a run is traceable to
-        # what graded it.
-        if pending:
-            yield progress("Scoring conditioned safety gates")
-            results.extend(
-                finalise_judged(
-                    pending,
-                    GuardJudge(
-                        judge,
-                        judge_id=f"{GUARD_REF}@{GUARD_REVISION[:12]}",
-                    ),
-                    suites_root=suites_root,
+    if pending_rubric_runs:
+        yield progress("Scoring generated work products with the pinned rubric judge")
+        with VLLMServer(
+            Path(assets["benchmark_judge_dir"]),
+            "benchmark-judge",
+            max_context=32_768,
+        ):
+            rubric_judge = OpenAIServerClient("benchmark-judge", seed=seed)
+            for pending_run in pending_rubric_runs:
+                rubric_result = asyncio.run(score_rubric_run(pending_run, rubric_judge))
+                results.append(rubric_result)
+                benchmark_work[rubric_result.suite_id].update(
+                    completed=rubric_result.n_items or TASK_SAMPLE_SIZE,
+                    status=rubric_result.status.value,
+                    score=rubric_result.score,
                 )
-            )
-        for suite_id in suite_ids:
-            outcomes: list[dict] = []
-            rows = generated[suite_id]
-            for offset in range(0, len(rows), batch_size):
-                batch = rows[offset : offset + batch_size]
+                yield progress(f"Completed {benchmark_work[rubric_result.suite_id]['display_name']}")
 
-                async def grade_batch() -> list[dict]:
-                    async def grade(row: dict) -> dict:
-                        raw = await judge.chat(
-                            [
-                                {"role": "user", "content": row["prompt"]},
-                                {"role": "assistant", "content": row["response"]},
-                            ],
-                            max_tokens=96,
-                            temperature=0.0,
-                        )
-                        return _parse_guard(raw)
+    if run_safety or pending:
+        with VLLMServer(Path(assets["guard_dir"]), "safety-judge", max_context=4096):
+            judge = OpenAIServerClient("safety-judge", seed=seed)
 
-                    return list(await asyncio.gather(*(grade(row) for row in batch)))
+            # Phase two for the suite registry. Same guard, same server, one
+            # startup -- the judge id lands on each result so a run is
+            # traceable to what graded it.
+            if pending:
+                yield progress("Scoring conditioned safety gates")
+                results.extend(
+                    finalise_judged(
+                        pending,
+                        GuardJudge(
+                            judge,
+                            judge_id=f"{GUARD_REF}@{GUARD_REVISION[:12]}",
+                        ),
+                        suites_root=suites_root,
+                    )
+                )
 
-                outcomes.extend(asyncio.run(grade_batch()))
-                completed = len(batch)
-                completed_work += completed
-                gate_work[suite_id] += completed
-                yield progress(f"Scoring {BY_ID[suite_id].display_name}")
+            for suite_id in suite_ids:
+                outcomes: list[dict] = []
+                rows = generated[suite_id]
+                for offset in range(0, len(rows), batch_size):
+                    batch = rows[offset : offset + batch_size]
 
-            result = harmful_result(
-                suite_id,
-                outcomes,
-                round(time.monotonic() - suite_started[suite_id], 2),
-            )
-            results.append(result)
-            gate_scores[suite_id] = result.score
-            gate_status[suite_id] = result.status.value
-            yield progress(f"Completed {BY_ID[suite_id].display_name}")
+                    async def grade_batch() -> list[dict]:
+                        async def grade(row: dict) -> dict:
+                            raw = await judge.chat(
+                                [
+                                    {"role": "user", "content": row["prompt"]},
+                                    {"role": "assistant", "content": row["response"]},
+                                ],
+                                max_tokens=96,
+                                temperature=0.0,
+                            )
+                            return _parse_guard(raw)
+
+                        return list(await asyncio.gather(*(grade(row) for row in batch)))
+
+                    outcomes.extend(asyncio.run(grade_batch()))
+                    completed = len(batch)
+                    safety_completed += completed
+                    gate_work[suite_id] += completed
+                    yield progress(f"Scoring {SAFETY_BY_ID[suite_id].display_name}")
+
+                result = harmful_result(
+                    suite_id,
+                    outcomes,
+                    round(time.monotonic() - suite_started[suite_id], 2),
+                )
+                results.append(result)
+                gate_scores[suite_id] = result.score
+                gate_status[suite_id] = result.status.value
+                yield progress(f"Completed {SAFETY_BY_ID[suite_id].display_name}")
 
     yield {
         "type": "result",
@@ -798,4 +1211,5 @@ __all__ = [
     "fetch_upload",
     "prefetch_public_safety_assets",
     "scan",
+    "smoke_agent_sandboxes",
 ]

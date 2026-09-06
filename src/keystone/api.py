@@ -22,19 +22,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from keystone.auth import Authenticator, Principal, audience_for
-from keystone.benchmarks import (
-    SelectionError,
-    creator_visible,
-    declined_ids,
-    menu,
-    normalise_selection,
-    quote,
-)
+
 from keystone.db import ArtifactRow, ListingRow, Store, UserRow
 from keystone.listing import (
     DEFAULT_POLICY,
@@ -51,12 +45,24 @@ from keystone.orders import (
     check_entitlement,
     settle,
 )
-from keystone.payments import DemoChainProvider, PaymentProvider
+from keystone.payments import DemoChainProvider, Money, PaymentProvider
+from keystone.public_benchmarks import (
+    BY_ID as PUBLIC_BENCHMARKS_BY_ID,
+    PublicBenchmarkSelectionError,
+    declined_ids as public_declined_ids,
+    menu as public_benchmark_menu,
+    normalise_selection as normalise_public_benchmarks,
+    quote as quote_public_benchmarks,
+)
 from keystone.providers.dual import DualPaymentProvider
+from keystone.public_safety import evaluation_line_item as safety_evaluation_line_item
 from keystone.schema import Audience, CertificationReport, FileEntry
 from keystone.safety_gates import summarize as summarize_safety_gates
 from keystone.storage import ArtifactStore, LocalStore, artifact_key, image_key
+from keystone.tags import catalogue as tag_catalogue
+from keystone.tags import normalise_domain_tags, normalise_size_tag
 from keystone.visibility import assert_no_leak, redact
+from keystone.zipstream import ZipEntry, safe_archive_name, stream_zip
 
 
 # A cover image is decoration, so the ceiling is set by what a page should
@@ -65,6 +71,7 @@ _HEX64 = re.compile("[0-9a-f]{64}")
 
 IMAGE_LIMIT_BYTES = 4 * 1024 * 1024
 DESCRIPTION_LIMIT = 4000
+_WEIGHT_EXTENSIONS = (".safetensors", ".bin", ".pt", ".pth", ".gguf", ".ckpt")
 
 # Sniffed from the bytes, never from the client's Content-Type. A caller that
 # mislabels a file should not be able to talk us into serving it back with a
@@ -84,6 +91,18 @@ def _image_url(row: ListingRow) -> str | None:
     proxy, which is the only host it is allowed to reach.
     """
     return f"/v1/images/{row.image_digest}" if row.image_digest else None
+
+
+def _artifact_weight_bytes(artifact: ArtifactRow) -> int:
+    """Bytes that drive inference cost, derived from the stored manifest."""
+    weight_bytes = sum(
+        int(entry.get("size_bytes", 0))
+        for entry in artifact.file_manifest
+        if str(entry.get("path", "")).lower().endswith(_WEIGHT_EXTENSIONS)
+    )
+    # Tiny test fixtures and legacy artifacts may not identify a weight file.
+    # Total bytes remains a conservative, server-owned fallback.
+    return weight_bytes or artifact.total_bytes
 
 
 def sniff_image(data: bytes) -> str | None:
@@ -159,9 +178,11 @@ def _view(
         # failure taxonomy belong in the seller workspace only.
         view.suite_results = [result for result in view.suite_results if not result.gate]
     assert_no_leak(view, audience)  # belt and braces
+    report_payload = view.model_dump(mode="json")
+    report_payload["rating"].pop("grade", None)
     payload = {
         "audience": audience.value,
-        "report": view.model_dump(mode="json"),
+        "report": report_payload,
     }
     if audience is Audience.CREATOR:
         payload["safety_gates"] = summarize_safety_gates(view)
@@ -173,6 +194,30 @@ def _row_or_404(d: Deps, s: Session, listing_id: str) -> ListingRow:
     if row is None:
         raise HTTPException(404, "no such listing")
     return row
+
+
+def _listing_tags(row: ListingRow) -> dict[str, object]:
+    return {
+        "domain_tags": normalise_domain_tags(row.domain_tags or []),
+        "size_tag": normalise_size_tag(row.size_tag),
+    }
+
+
+def _buyer_benchmark_scores(
+    report: CertificationReport | None, supported_ids: set[str]
+) -> dict[str, float]:
+    """Public, numeric capability scores suitable for catalogue filtering."""
+    if report is None:
+        return {}
+    return {
+        result.suite_id: result.score
+        for result in report.suite_results
+        if (
+            result.suite_id in supported_ids
+            and not result.declined
+            and result.score is not None
+        )
+    }
 
 
 def create_app(deps: Deps) -> FastAPI:
@@ -314,29 +359,47 @@ def create_app(deps: Deps) -> FastAPI:
             row.currency = body.currency
             row.description = body.description
             row.image_digest = body.image_digest
+            row.domain_tags = body.domain_tags
             s.commit()
         return {"listing_id": listing_id, "state": ListingState.DRAFT.value}
+
+    @app.get("/v1/tags")
+    def tags() -> dict:
+        """Finite listing facets accepted by create and update operations."""
+        return tag_catalogue()
 
     @app.get("/v1/listings")
     def browse(d: D) -> dict:
         """Public catalogue. Unpublished submissions never cross this boundary."""
+        supported_ids = set(PUBLIC_BENCHMARKS_BY_ID)
         with d.store.session() as s:
             rows = d.store.listings_in_state(s, ListingState.LISTED)
-            return {
-                "listings": [
+            listings = []
+            for row in rows:
+                report = d.store.latest_report(s, row.id)
+                listings.append(
                     {
-                        "listing_id": r.id,
-                        "title": r.title,
-                        "description": r.description,
-                        "image_url": _image_url(r),
-                        "artifact_digest": r.artifact_digest,
-                        "state": r.state,
-                        "price": str(r.price()),
-                        "price_minor": r.price_minor,
-                        "created_at": r.created_at.isoformat(),
+                        "listing_id": row.id,
+                        "title": row.title,
+                        "description": row.description,
+                        "image_url": _image_url(row),
+                        "artifact_digest": row.artifact_digest,
+                        "state": row.state,
+                        "price": str(row.price()),
+                        "price_minor": row.price_minor,
+                        "seller_id": row.creator_id,
+                        "source": (
+                            report.subject.source.model_dump(mode="json")
+                            if report is not None
+                            else None
+                        ),
+                        "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
+                        **_listing_tags(row),
+                        "created_at": row.created_at.isoformat(),
                     }
-                    for r in rows
-                ]
+                )
+            return {
+                "listings": listings
             }
 
     @app.get("/v1/seller/listings")
@@ -348,12 +411,10 @@ def create_app(deps: Deps) -> FastAPI:
             for row in d.store.listings_for_creator(s, me.user_id):
                 report = d.store.latest_report(s, row.id)
                 gate_summary = None
-                grade = None
                 if report is not None:
                     view = redact(report, Audience.CREATOR)
                     assert_no_leak(view, Audience.CREATOR)
                     gate_summary = summarize_safety_gates(view)
-                    grade = view.rating.grade
                 listings.append(
                     {
                         "listing_id": row.id,
@@ -364,9 +425,9 @@ def create_app(deps: Deps) -> FastAPI:
                         "state": row.state,
                         "price": str(row.price()),
                         "price_minor": row.price_minor,
+                        **_listing_tags(row),
                         "selected_benchmarks": list(row.selected_benchmarks or []),
                         "attempts": len(row.attempts),
-                        "grade": grade,
                         "safety_status": gate_summary["overall"] if gate_summary else "pending",
                         "verified": row.state in {
                             ListingState.CERTIFIED.value,
@@ -407,6 +468,8 @@ def create_app(deps: Deps) -> FastAPI:
                 row.description = body.description
             if body.image_digest is not None:
                 row.image_digest = body.image_digest
+            if body.domain_tags is not None:
+                row.domain_tags = body.domain_tags
             s.commit()
             return {
                 "listing_id": row.id,
@@ -415,6 +478,7 @@ def create_app(deps: Deps) -> FastAPI:
                 "image_url": _image_url(row),
                 "price": str(row.price()),
                 "price_minor": row.price_minor,
+                **_listing_tags(row),
                 "state": row.state,
             }
 
@@ -429,6 +493,19 @@ def create_app(deps: Deps) -> FastAPI:
                 # to their seller (and platform operators) until publication.
                 raise HTTPException(404, "no such listing")
             report = d.store.latest_report(s, listing_id)
+            supported_ids = set(PUBLIC_BENCHMARKS_BY_ID)
+            owned = principal is not None and principal.user_id == row.creator_id
+            entitled = False
+            if principal is not None:
+                order = d.store.entitling_order(s, principal.user_id, listing_id)
+                entitled = check_entitlement(
+                    buyer_id=principal.user_id,
+                    listing_id=listing_id,
+                    listing_state=row.state,
+                    listing_creator_id=row.creator_id,
+                    price=row.price(),
+                    order=order,
+                ).allowed
             payload = {
                 "listing_id": row.id,
                 "title": row.title,
@@ -438,6 +515,17 @@ def create_app(deps: Deps) -> FastAPI:
                 "artifact_digest": row.artifact_digest,
                 "price": str(row.price()),
                 "price_minor": row.price_minor,
+                "seller_id": row.creator_id,
+                "source": (
+                    report.subject.source.model_dump(mode="json")
+                    if report is not None
+                    else None
+                ),
+                "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
+                "selected_benchmarks": list(row.selected_benchmarks or []),
+                "is_owner": owned,
+                "entitled": entitled,
+                **_listing_tags(row),
                 "attempts": len(row.attempts),
                 "created_at": row.created_at.isoformat(),
                 "updated_at": row.updated_at.isoformat(),
@@ -473,53 +561,81 @@ def create_app(deps: Deps) -> FastAPI:
             s.commit()
             return {"listing_id": row.id, "state": row.state, "published": True}
 
+    @app.post("/v1/seller/listings/{listing_id}/deactivate")
+    def deactivate_listing(listing_id: str, d: D, principal: P) -> dict:
+        """Remove a live model from the marketplace without losing verification."""
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            if row.creator_id != me.user_id:
+                raise HTTPException(403, "not your listing")
+            try:
+                row.state = transition(
+                    ListingState(row.state), ListingState.CERTIFIED
+                ).value
+            except TransitionError as exc:
+                raise HTTPException(409, "only a published model can be unlisted") from exc
+            s.commit()
+            return {"listing_id": row.id, "state": row.state, "published": False}
+
     # ----------------------------------------------------------------------
     # publish: quote -> pay -> queue
     # ----------------------------------------------------------------------
 
     @app.get("/v1/benchmarks")
-    def benchmarks(d: D) -> dict:
+    def benchmarks(
+        d: D,
+        model_weight_bytes: int | None = Query(default=None, ge=0),
+    ) -> dict:
         """The menu a creator picks from.
 
-        Mandatory items are listed too, so the price shown is the price paid.
+        Prices are direct-cost estimates scaled to the selected checkpoint's
+        stored weight bytes. With no size, the menu shows the 7B BF16 baseline.
         """
-        from keystone.registry import SUITES_ROOT, discover
-
-        items = menu(discover(SUITES_ROOT))
         return {
-            "benchmarks": [i.as_dict() for i in items],
-            "mandatory_total": str(
-                quote(discover(SUITES_ROOT), [])
-            ),
+            "safety_evaluation": safety_evaluation_line_item(model_weight_bytes),
+            "benchmarks": public_benchmark_menu(model_weight_bytes),
+            "pricing_basis": {
+                "estimated": True,
+                "model_weight_bytes": model_weight_bytes,
+                "sample_size_per_benchmark": 100,
+                "sampling_strategy": "deterministic_random_without_replacement",
+            },
         }
 
     @app.post("/v1/listings/{listing_id}/publish")
     def publish(listing_id: str, body: PublishRequest, d: D, principal: P) -> dict:
         """Ask to publish. Returns a charge to settle, or the reason we refused.
 
-        The price is the sum of what will actually run: mandatory suites plus
-        whatever the creator selected. Rate limits are evaluated before a charge
-        is minted, so we never take money from someone we are about to reject on
-        cooldown.
+        The price is the sum of the optional public benchmarks the creator
+        selected. Safety gates remain separate and are never sold as optional
+        benchmark evidence. Rate limits are evaluated before a charge is minted,
+        so we never take money from someone we are about to reject on cooldown.
         """
-        from keystone.registry import SUITES_ROOT, discover
-
         me = require(principal)
         now = datetime.now(timezone.utc)
-        suites = discover(SUITES_ROOT)
 
         try:
-            running = normalise_selection(suites, body.benchmarks)
-        except SelectionError as exc:
+            running = normalise_public_benchmarks(body.benchmarks)
+        except PublicBenchmarkSelectionError as exc:
             raise HTTPException(400, str(exc)) from exc
-
-        price = quote(suites, body.benchmarks)
-        declined = declined_ids(suites, body.benchmarks)
+        declined = public_declined_ids(body.benchmarks)
 
         with d.store.session() as s:
             row = _row_or_404(d, s, listing_id)
             if row.creator_id != me.user_id:
                 raise HTTPException(403, "not your listing")
+
+            artifact = s.get(ArtifactRow, row.artifact_digest)
+            if artifact is None:
+                raise HTTPException(409, "listing artifact is missing")
+            model_weight_bytes = _artifact_weight_bytes(artifact)
+            capability_price = quote_public_benchmarks(body.benchmarks, model_weight_bytes)
+            safety_evaluation = safety_evaluation_line_item(model_weight_bytes)
+            price = Money(
+                capability_price.amount_minor + safety_evaluation["price_minor"],
+                capability_price.currency,
+            )
 
             listing = d.store.load_listing(s, listing_id)
             ok, reason = listing.can_attempt(now, d.policy)  # no charge yet
@@ -527,13 +643,18 @@ def create_app(deps: Deps) -> FastAPI:
                 raise HTTPException(409, reason)
 
             # The row keeps the full set -- the worker runs it. The response
-            # does not: see `creator_visible`.
+            # does not carry anything internal: the catalogue is public by
+            # construction and probe suites are never selectable.
             row.selected_benchmarks = running
             charge = d.payments.create_charge(
                 price,
                 listing_id,
                 metadata={
                     "creator_id": me.user_id,
+                    "estimated_model_weight_bytes": model_weight_bytes,
+                    "benchmark_sample_size": 100,
+                    "benchmark_sampling": "deterministic_random_without_replacement",
+                    "safety_evaluation_price_minor": safety_evaluation["price_minor"],
                     **({"rail": body.rail} if body.rail else {}),
                 },
             )
@@ -543,7 +664,8 @@ def create_app(deps: Deps) -> FastAPI:
         return {
             "charge_id": charge.charge_id,
             "amount": str(charge.amount),
-            "running": creator_visible(suites, running),
+            "safety_evaluation": safety_evaluation,
+            "running": running,
             "declined": declined,
             "chain": charge.chain,
             "address": charge.address,
@@ -760,6 +882,52 @@ def create_app(deps: Deps) -> FastAPI:
                 ],
             }
 
+    @app.get("/v1/listings/{listing_id}/download.zip")
+    def download_zip(listing_id: str, d: D, principal: P) -> StreamingResponse:
+        """Stream every entitled artifact file as one ZIP64 archive."""
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            order = d.store.entitling_order(s, me.user_id, listing_id)
+            verdict = check_entitlement(
+                buyer_id=me.user_id,
+                listing_id=listing_id,
+                listing_state=row.state,
+                listing_creator_id=row.creator_id,
+                price=row.price(),
+                order=order,
+            )
+            if not verdict.allowed:
+                raise HTTPException(
+                    402 if verdict.payment_required else 403, verdict.reason
+                )
+            art = s.get(ArtifactRow, row.artifact_digest)
+            if art is None:
+                raise HTTPException(404, "artifact missing")
+            try:
+                entries = [
+                    ZipEntry(
+                        key=artifact_key(row.artifact_digest, file.path),
+                        archive_name=safe_archive_name(file.path),
+                    )
+                    for file in art.files()
+                ]
+            except ValueError as exc:
+                raise HTTPException(500, "artifact contains an unsafe file path") from exc
+            title = re.sub(r"[^A-Za-z0-9._-]+", "-", row.title or row.id).strip("-")
+            filename = f"{title or row.id}.zip"
+            digest = row.artifact_digest
+
+        return StreamingResponse(
+            stream_zip(d.artifacts, entries),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "private, no-store",
+                "X-Artifact-SHA256": digest,
+            },
+        )
+
     # ----------------------------------------------------------------------
     # admin
     # ----------------------------------------------------------------------
@@ -943,7 +1111,12 @@ class CreateListing(BaseModel):
     # Minor units. Zero is a real price -- a free model still gets certified.
     price_minor: int = Field(default=0, ge=0)
     currency: str = "USDC"
+    domain_tags: list[str] = Field(default_factory=list, max_length=10)
 
+    @field_validator("domain_tags")
+    @classmethod
+    def validate_domain_tags(cls, value: list[str]) -> list[str]:
+        return normalise_domain_tags(value)
 
 class UpdateListing(BaseModel):
     """Every field optional: a reprice should not require restating the title."""
@@ -953,7 +1126,12 @@ class UpdateListing(BaseModel):
     title: str | None = None
     description: str | None = Field(default=None, max_length=DESCRIPTION_LIMIT)
     image_digest: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
+    domain_tags: list[str] | None = Field(default=None, max_length=10)
 
+    @field_validator("domain_tags")
+    @classmethod
+    def validate_domain_tags(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else normalise_domain_tags(value)
 
 class ConfirmPayment(BaseModel):
     charge_id: str
@@ -971,6 +1149,5 @@ class PurchaseRequest(BaseModel):
 
 class PublishRequest(BaseModel):
     rail: str | None = None
-    # Optional capability benchmarks. Mandatory suites are added server-side,
-    # so omitting them here does not skip them.
+    # Every public capability benchmark is optional. Safety gates are separate.
     benchmarks: list[str] = []

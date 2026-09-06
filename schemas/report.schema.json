@@ -698,6 +698,20 @@
           "description": "e.g. A10G, A100-40GB:2",
           "title": "Resource Class"
         },
+        "parameter_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of parameters derived from checkpoint tensor shapes.",
+          "title": "Parameter Count"
+        },
         "head_dim": {
           "anyOf": [
             {

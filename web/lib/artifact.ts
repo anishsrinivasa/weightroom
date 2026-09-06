@@ -35,3 +35,55 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
+
+const MAX_SAFETENSORS_HEADER_BYTES = 100 * 1024 * 1024;
+
+export function safetensorsTensorSizes(data: ArrayBuffer): Map<string, number> {
+  if (data.byteLength < 8) throw new Error("SafeTensors file is missing its header");
+
+  const headerSize = Number(new DataView(data, 0, 8).getBigUint64(0, true));
+  if (
+    !Number.isSafeInteger(headerSize)
+    || headerSize <= 0
+    || headerSize > MAX_SAFETENSORS_HEADER_BYTES
+    || headerSize > data.byteLength - 8
+  ) {
+    throw new Error("SafeTensors header size is invalid");
+  }
+
+  const decoded: unknown = JSON.parse(
+    new TextDecoder().decode(new Uint8Array(data, 8, headerSize)),
+  );
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
+    throw new Error("SafeTensors header is invalid");
+  }
+
+  const tensors = new Map<string, number>();
+  for (const [name, value] of Object.entries(decoded)) {
+    if (name === "__metadata__") continue;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`SafeTensors tensor ${name} is invalid`);
+    }
+    const shape = (value as { shape?: unknown }).shape;
+    if (
+      !Array.isArray(shape)
+      || !shape.every((dimension) => Number.isInteger(dimension) && Number(dimension) >= 0)
+    ) {
+      throw new Error(`SafeTensors tensor ${name} has an invalid shape`);
+    }
+    const count = shape.reduce<number>((product, dimension) => product * Number(dimension), 1);
+    if (!Number.isSafeInteger(count)) {
+      throw new Error(`SafeTensors tensor ${name} is too large to count safely`);
+    }
+    tensors.set(name, count);
+  }
+  return tensors;
+}
+
+export function formatParameterCount(count: number): string {
+  if (count >= 1_000_000_000_000) return `${(count / 1_000_000_000_000).toFixed(2)}T`;
+  if (count >= 1_000_000_000) return `${(count / 1_000_000_000).toFixed(2)}B`;
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(2)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(2)}K`;
+  return count.toLocaleString("en-US");
+}

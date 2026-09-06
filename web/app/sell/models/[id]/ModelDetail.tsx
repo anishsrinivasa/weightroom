@@ -7,7 +7,11 @@ import { z } from "zod";
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
 import { GatePill, StatusPill, stateLabel } from "@/components/StatusPill";
 import { clientUploadUrl, keystoneRequest } from "@/lib/api";
-import { type ListingDetail, listingDetailSchema } from "@/lib/contracts";
+import {
+  benchmarksSchema,
+  type ListingDetail,
+  listingDetailSchema,
+} from "@/lib/contracts";
 import { formatBytes } from "@/lib/artifact";
 import {
   EVALUATION_POLL_INTERVAL_MS,
@@ -26,8 +30,15 @@ const activationSchema = z.object({
   published: z.literal(true),
 });
 
+const deactivationSchema = z.object({
+  listing_id: z.string(),
+  state: z.literal("certified"),
+  published: z.literal(false),
+});
+
 export function ModelDetail({ id }: { id: string }) {
   const [model, setModel] = useState<ListingDetail | null>(null);
+  const [benchmarkNames, setBenchmarkNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -54,6 +65,22 @@ export function ModelDetail({ id }: { id: string }) {
   useEffect(() => {
     queueMicrotask(() => void load());
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void keystoneRequest("/v1/benchmarks", benchmarksSchema)
+      .then((data) => {
+        if (!cancelled) {
+          setBenchmarkNames(Object.fromEntries(
+            data.benchmarks.map((benchmark) => [benchmark.suite_id, benchmark.display_name]),
+          ));
+        }
+      })
+      // A missing catalogue should not hide the persisted selection; the suite
+      // id remains a usable fallback label.
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   const activeEvaluation = model ? evaluationStates.has(model.state) : false;
 
@@ -83,15 +110,43 @@ export function ModelDetail({ id }: { id: string }) {
     }
   }
 
+  async function unlist() {
+    setPublishing(true);
+    setError(null);
+    try {
+      await keystoneRequest(
+        `/v1/seller/listings/${encodeURIComponent(id)}/deactivate`,
+        deactivationSchema,
+        { method: "POST" },
+      );
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unlisting failed");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   if (loading) return <LoadingBlock label="Loading the private model record…" />;
   if (error && !model) return <ErrorPanel message={error} retry={() => void load()} />;
   if (!model) return null;
 
   const verified = model.state === "certified" || model.state === "listed";
   const rejected = model.state === "rejected";
+  const evaluationFailed = rejected
+    && model.evaluation_progress?.stage === "Evaluation failed";
   const progress = evaluationProgress(model.state);
   const report = model.report;
-  const benchmarks = report?.suite_results.filter((result) => !result.gate) || [];
+  const reportedBenchmarks = report?.suite_results.filter((result) => !result.gate) || [];
+  const reportedBenchmarksById = new Map(
+    reportedBenchmarks.map((result) => [result.suite_id, result]),
+  );
+  // Older completed records predate persisted benchmark selections. Preserve
+  // their non-declined results while using the explicit selection for all new
+  // evaluations, including the period before a report exists.
+  const selectedBenchmarkIds = model.selected_benchmarks.length
+    ? model.selected_benchmarks
+    : reportedBenchmarks.filter((result) => !result.declined).map((result) => result.suite_id);
   const license = report?.subject.license;
   const licenseLabel = typeof license?.spdx === "string"
     ? license.spdx
@@ -106,16 +161,20 @@ export function ModelDetail({ id }: { id: string }) {
       { gate_id: "jailbreakbench", display_name: "JailbreakBench harmful-request resistance", status: "pending", completed: 0, total: 200, score: null },
     ],
   } : undefined);
-  const visibleGates = model.safety_gates?.gates ?? progressRecord?.gates.map((gate) => ({
-    ...gate,
-    blocking: true,
-    evidence: gate.total
-      ? `${Math.min(gate.completed, gate.total)} of ${gate.total} evaluation steps completed.`
-      : "Waiting for the evaluation worker.",
-    n_items: null,
-  })) ?? [];
+  const visibleGates = model.safety_gates?.gates ?? progressRecord?.gates
+    .filter((gate) => gate.kind !== "benchmark")
+    .map((gate) => ({
+      ...gate,
+      blocking: true,
+      evidence: gate.total
+        ? `${Math.min(gate.completed, gate.total)} of ${gate.total} evaluation steps completed.`
+        : "Waiting for the evaluation worker.",
+      n_items: null,
+    })) ?? [];
   const gateOverall = model.safety_gates?.overall
-    ?? (visibleGates.some((gate) => gate.status === "fail") ? "fail" : "pending");
+    ?? (visibleGates.some((gate) => gate.status === "fail")
+      ? "fail"
+      : visibleGates.some((gate) => gate.status === "error") ? "error" : "pending");
 
   // A listing with no cover falls back to the house mark rather than an empty
   // frame, so the card reads the same either way.
@@ -123,14 +182,18 @@ export function ModelDetail({ id }: { id: string }) {
 
   return (
     <>
-      <Link className="back-link" href="/models">← Back to models</Link>
+      <Link className="back-link" href="/sell/models">← Back to models</Link>
       <section className="detail-header">
         <div className="detail-identity">
           <h1>{model.title || "Untitled model"}</h1>
           <p className="digest mono">{model.artifact_digest}</p>
           <div className="inline-meta">
-            <StatusPill state={model.state} />
+            <StatusPill state={model.state} label={evaluationFailed ? "Evaluation failed" : undefined} />
             <span>{formatUsdc(model.price_minor)}</span>
+          </div>
+          <div className="tag-list" aria-label="Model tags">
+            {model.domain_tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}
+            {model.size_tag ? <span className="tag" key={model.size_tag}>{model.size_tag}</span> : null}
           </div>
           {model.description ? <p className="model-description">{model.description}</p> : null}
         </div>
@@ -143,16 +206,17 @@ export function ModelDetail({ id }: { id: string }) {
             data-placeholder={!model.image_url}
             style={{ backgroundImage: `url(${coverUrl})` }}
           />
-          <span className="decision-mark" aria-hidden="true">{verified ? "✓" : rejected ? "×" : "…"}</span>
+          <span className="decision-mark" aria-hidden="true">{verified ? "✓" : evaluationFailed ? "!" : rejected ? "×" : "…"}</span>
           <div>
-            <h2>{verified ? "Verified" : rejected ? "Not verified" : progress?.heading || stateLabel(model.state)}</h2>
+            <h2>{verified ? "Verified" : evaluationFailed ? "Evaluation failed" : rejected ? "Not verified" : progress?.heading || stateLabel(model.state)}</h2>
             <p>{verified
               ? model.state === "listed" ? "Published and visible in the marketplace." : "All mandatory gates passed. Ready to publish."
+              : evaluationFailed ? "A processing error stopped the evaluation. No certification decision was made."
               : rejected ? rejectionDetail(model.safety_gates?.overall)
               : progress?.detail || "This submission is not currently being evaluated."}</p>
             {progress ? (
-              <p className="evaluation-refresh" aria-live="polite">
-                {refreshing ? "Checking for an update…" : `Last update ${formatDateTime(progressRecord?.updated_at ?? model.updated_at)} · refreshes automatically`}
+              <p className="evaluation-refresh" aria-live="polite" aria-busy={refreshing}>
+                {`Last update ${formatDateTime(progressRecord?.updated_at ?? model.updated_at)} · refreshes automatically`}
               </p>
             ) : null}
             {activeEvaluation && progressRecord ? (
@@ -166,6 +230,10 @@ export function ModelDetail({ id }: { id: string }) {
             <button className="button primary full-width" type="button" disabled={publishing} onClick={() => void publish()}>
               {publishing ? "Publishing…" : "Publish to marketplace"}
             </button>
+          ) : model.state === "listed" ? (
+            <button className="button primary full-width" type="button" disabled={publishing} onClick={() => void unlist()}>
+              {publishing ? "Unlisting…" : "Unlist"}
+            </button>
           ) : null}
         </aside>
       </section>
@@ -177,7 +245,7 @@ export function ModelDetail({ id }: { id: string }) {
           {visibleGates.length ? (
             <section className="content-block" aria-labelledby="safety-title">
               <div className="block-heading">
-                <div><p className="private-label">Seller only</p><h2 id="safety-title">Safety gates</h2></div>
+                <h2 id="safety-title">Safety gates</h2>
                 <GatePill status={gateOverall} />
               </div>
               <ul className="gate-list">
@@ -187,7 +255,7 @@ export function ModelDetail({ id }: { id: string }) {
                   return (
                     <li key={gate.gate_id} className="gate-row">
                       <span className={`gate-symbol${waiting ? " loading" : ""}`} aria-hidden="true">
-                        {gate.status === "pass" ? "✓" : gate.status === "fail" ? "×" : ""}
+                        {gate.status === "pass" ? "✓" : gate.status === "fail" ? "×" : gate.status === "error" ? "!" : ""}
                       </span>
                       <span>
                         <strong>{gate.display_name}</strong>
@@ -214,7 +282,7 @@ export function ModelDetail({ id }: { id: string }) {
               <dt>Derived from</dt><dd>{parents}</dd>
               <dt>Files</dt><dd>{report?.subject.files.length ?? "—"}</dd>
               <dt>Total size</dt><dd>{report ? formatBytes(report.subject.total_bytes) : "—"}</dd>
-              <dt>Artifact state</dt><dd>{stateLabel(model.state)}</dd>
+              <dt>Artifact state</dt><dd>{evaluationFailed ? "Evaluation failed" : stateLabel(model.state)}</dd>
             </dl>
           </section>
         </div>
@@ -222,35 +290,45 @@ export function ModelDetail({ id }: { id: string }) {
         <div>
           <section className="content-block" aria-labelledby="benchmarks-title">
             <div className="block-heading"><h2 id="benchmarks-title">Selected benchmark results</h2></div>
-            {benchmarks.length ? benchmarks.map((result) => {
-              const score = result.score == null ? null : Math.round(result.score * 100);
-              const value = result.declined ? "Not selected" : score == null ? result.score_band || result.status : `${score}%`;
+            {selectedBenchmarkIds.length ? selectedBenchmarkIds.map((suiteId) => {
+              const result = reportedBenchmarksById.get(suiteId);
+              const live = progressRecord?.gates.find(
+                (item) => item.kind === "benchmark" && item.gate_id === suiteId,
+              );
+              const score = result?.score == null ? null : Math.round(result.score * 100);
+              const status = result && !result.declined
+                ? result.status
+                : evaluationFailed ? "error" : live?.status || "pending";
+              const livePercent = live?.total
+                ? Math.round(100 * Math.min(live.completed, live.total) / live.total)
+                : 0;
+              const value = score == null
+                ? result?.score_band || status
+                : `${score}%`;
               return (
-                <div className="benchmark-row" key={result.suite_id}>
-                  <div><span className={result.declined ? "muted-text" : undefined}>{result.display_name || result.suite_id}</span><strong>{value}</strong></div>
-                  <div className="score-track" aria-hidden="true"><span style={{ width: result.declined || score == null ? 0 : `${score}%` }} /></div>
+                <div className="benchmark-row" key={suiteId}>
+                  <div>
+                    <span>{result?.display_name || benchmarkNames[suiteId] || suiteId}</span>
+                    {score == null && !result?.score_band
+                      ? <span className="gate-result">
+                          {activeEvaluation && live?.total
+                            ? <strong>{live.completed} / {live.total}</strong>
+                            : null}
+                          <GatePill status={status} />
+                        </span>
+                      : <strong>{value}</strong>}
+                  </div>
+                  <div
+                    className="score-track"
+                    aria-label={activeEvaluation && live
+                      ? `${live.display_name}: ${live.completed} of ${live.total} tasks complete`
+                      : undefined}
+                  ><span style={{ width: score == null ? `${livePercent}%` : `${score}%` }} /></div>
                 </div>
               );
             }) : <div className="empty-cell">No public capability benchmark was selected.</div>}
           </section>
 
-          <section className="content-block" aria-labelledby="certification-title">
-            <div className="block-heading"><h2 id="certification-title">Certification</h2></div>
-            <dl className="metadata-list">
-              <dt>Safety</dt>
-              <dd>{report?.rating.certified ? "Certified" : "Not certified"}</dd>
-              <dt>Capability</dt>
-              <dd>
-                {!report?.rating.grade || report.rating.grade === "unrated"
-                  ? "Not measured"
-                  : report.rating.grade}
-              </dd>
-              <dt>Methodology</dt><dd>{report?.rating.methodology_version || "—"}</dd>
-              <dt>Environment</dt><dd>{report ? report.environment.sandboxed ? "Sandboxed" : "Not sandboxed" : "—"}</dd>
-              <dt>Signed by</dt><dd className="mono">{report?.signature?.key_id || "Pending"}</dd>
-              <dt>Attempts</dt><dd>{model.attempts}</dd>
-            </dl>
-          </section>
         </div>
       </div>
     </>

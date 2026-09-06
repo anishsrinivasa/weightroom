@@ -330,7 +330,13 @@ def test_internal_suites_are_absent_from_the_creator_menu() -> None:
     offered = {i.suite_id for i in menu(suites)}
     assert PROBE_ID not in offered
     assert ELICIT_ID not in offered
-    assert declined_ids(suites, []) == ["stub_reasoning"]
+    # An equality here would break every time a public benchmark is added. The
+    # claim under test is narrower: a probe is never on the menu, so it can be
+    # neither selected nor declined -- a creator cannot learn it exists.
+    declined = declined_ids(suites, [])
+    assert PROBE_ID not in declined
+    assert ELICIT_ID not in declined
+    assert "stub_reasoning" in declined
 
     # Absent from the menu, still run.
     assert PROBE_ID in normalise_selection(suites, [])

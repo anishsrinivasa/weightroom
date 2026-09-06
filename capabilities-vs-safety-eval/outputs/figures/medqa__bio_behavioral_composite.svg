@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="540" viewBox="0 0 820 540" role="img" aria-labelledby="title desc">
+<title id="title">MedQA four-option accuracy versus Biochemical HarmBench attack-failure composite</title>
+<desc id="desc">Scatterplot of 26 open-weight chat checkpoints with a descriptive OLS trend.</desc>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="86" y="29" font-family="system-ui,sans-serif" font-size="18" font-weight="600" fill="#111827">MedQA four-option accuracy vs. Biochemical HarmBench attack-failure composite</text>
+<text x="86" y="49" font-family="system-ui,sans-serif" font-size="12" fill="#4b5563">Safetywashing chat panel · n=26 · descriptive trend, not a release threshold</text>
+<defs><clipPath id="medqa__bio_behavioral_composite-clip"><rect x="86" y="64" width="706" height="398"/></clipPath></defs>
+<rect x="86" y="64" width="706" height="398" fill="#ffffff" stroke="#9ca3af"/>
+<line x1="86.0" y1="64" x2="86.0" y2="462" stroke="#e5e7eb"/>
+<text x="86.0" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.23</text>
+<line x1="86" y1="462.0" x2="792" y2="462.0" stroke="#e5e7eb"/>
+<text x="76" y="466.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">4.82</text>
+<line x1="227.2" y1="64" x2="227.2" y2="462" stroke="#e5e7eb"/>
+<text x="227.2" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.34</text>
+<line x1="86" y1="382.4" x2="792" y2="382.4" stroke="#e5e7eb"/>
+<text x="76" y="386.4" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">23.97</text>
+<line x1="368.4" y1="64" x2="368.4" y2="462" stroke="#e5e7eb"/>
+<text x="368.4" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.46</text>
+<line x1="86" y1="302.8" x2="792" y2="302.8" stroke="#e5e7eb"/>
+<text x="76" y="306.8" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">43.12</text>
+<line x1="509.6" y1="64" x2="509.6" y2="462" stroke="#e5e7eb"/>
+<text x="509.6" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.57</text>
+<line x1="86" y1="223.2" x2="792" y2="223.2" stroke="#e5e7eb"/>
+<text x="76" y="227.2" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">62.27</text>
+<line x1="650.8" y1="64" x2="650.8" y2="462" stroke="#e5e7eb"/>
+<text x="650.8" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.69</text>
+<line x1="86" y1="143.6" x2="792" y2="143.6" stroke="#e5e7eb"/>
+<text x="76" y="147.6" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">81.42</text>
+<line x1="792.0" y1="64" x2="792.0" y2="462" stroke="#e5e7eb"/>
+<text x="792.0" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">0.80</text>
+<line x1="86" y1="64.0" x2="792" y2="64.0" stroke="#e5e7eb"/>
+<text x="76" y="68.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">100.56</text>
+<line x1="86.0" y1="245.4" x2="792.0" y2="318.2" stroke="#111827" stroke-width="2" stroke-dasharray="7 5" clip-path="url(#medqa__bio_behavioral_composite-clip)"/>
+<circle cx="346.0" cy="169.1" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Llama-2-13b-chat-hf: x=0.440, y=75.276</title></circle>
+<circle cx="417.7" cy="194.0" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Llama-2-70b-chat-hf: x=0.498, y=69.280</title></circle>
+<circle cx="290.7" cy="169.2" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Llama-2-7b-chat-hf: x=0.395, y=75.261</title></circle>
+<circle cx="743.3" cy="98.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Meta-Llama-3-70B-Instruct: x=0.762, y=92.175</title></circle>
+<circle cx="546.6" cy="94.0" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Meta-Llama-3-8B-Instruct: x=0.603, y=93.336</title></circle>
+<circle cx="428.3" cy="399.7" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Mistral-7B-Instruct-v0.2: x=0.507, y=19.803</title></circle>
+<circle cx="653.2" cy="399.7" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Mixtral-8x22B-Instruct-v0.1: x=0.689, y=19.803</title></circle>
+<circle cx="556.3" cy="379.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Mixtral-8x7B-Instruct-v0.1: x=0.610, y=24.637</title></circle>
+<circle cx="153.1" cy="145.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-0.5B-Chat: x=0.284, y=80.851</title></circle>
+<circle cx="248.1" cy="434.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-1.8B-Chat: x=0.361, y=11.426</title></circle>
+<circle cx="635.7" cy="223.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-110B-Chat: x=0.675, y=62.093</title></circle>
+<circle cx="468.1" cy="344.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-14B-Chat: x=0.539, y=33.072</title></circle>
+<circle cx="581.5" cy="357.1" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-32B-Chat: x=0.631, y=30.067</title></circle>
+<circle cx="316.9" cy="316.7" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-4B-Chat: x=0.416, y=39.765</title></circle>
+<circle cx="609.6" cy="325.0" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-72B-Chat: x=0.654, y=37.790</title></circle>
+<circle cx="364.4" cy="369.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Qwen1.5-7B-Chat: x=0.455, y=26.974</title></circle>
+<circle cx="578.6" cy="326.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Yi-34B-Chat: x=0.628, y=37.384</title></circle>
+<circle cx="400.2" cy="336.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>Yi-6B-Chat: x=0.484, y=34.988</title></circle>
+<circle cx="647.4" cy="421.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>dbrx-instruct: x=0.684, y=14.474</title></circle>
+<circle cx="566.0" cy="316.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>deepseek-llm-67b-chat: x=0.618, y=39.721</title></circle>
+<circle cx="322.7" cy="344.4" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>deepseek-llm-7b-chat: x=0.421, y=33.116</title></circle>
+<circle cx="504.9" cy="351.7" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>falcon-180B-chat: x=0.569, y=31.359</title></circle>
+<circle cx="313.0" cy="223.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>falcon-40b-instruct: x=0.413, y=62.166</title></circle>
+<circle cx="134.7" cy="298.9" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>falcon-7b-instruct: x=0.269, y=44.062</title></circle>
+<circle cx="160.9" cy="186.6" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>gemma-1.1-2b-it: x=0.290, y=71.080</title></circle>
+<circle cx="367.3" cy="91.4" r="4.5" fill="#2563eb" fill-opacity="0.75" stroke="#ffffff"><title>gemma-1.1-7b-it: x=0.457, y=93.961</title></circle>
+<text x="439.0" y="516" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#111827">MedQA four-option accuracy (higher = more capable)</text>
+<text x="20" y="263.0" text-anchor="middle" transform="rotate(-90 20 263.0)" font-family="system-ui,sans-serif" font-size="12" fill="#111827">Biochemical HarmBench attack-failure composite (higher = safer)</text>
+</svg>
