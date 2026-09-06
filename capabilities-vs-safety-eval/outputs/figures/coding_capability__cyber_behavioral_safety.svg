@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="540" viewBox="0 0 820 540" role="img" aria-labelledby="title desc">
+<title id="title">EvalPlus coding capability versus cyber behavioral safety</title>
+<desc id="desc">Eight exact open-weight chat checkpoints with a descriptive ordinary least squares trend.</desc>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="86" y="29" font-family="system-ui,sans-serif" font-size="18" font-weight="600" fill="#111827">Coding capability vs. cyber behavioral safety</text>
+<text x="86" y="49" font-family="system-ui,sans-serif" font-size="12" fill="#4b5563">Exact cross-source overlap · n=8 · exploratory only; dashed line is not a release threshold</text>
+<defs><clipPath id="coding-cyber-clip"><rect x="86" y="64" width="706" height="398"/></clipPath></defs>
+<rect x="86" y="64" width="706" height="398" fill="#ffffff" stroke="#9ca3af"/>
+<line x1="86.0" y1="64" x2="86.0" y2="462" stroke="#e5e7eb"/>
+<text x="86.0" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">16</text>
+<line x1="86" y1="462.0" x2="792" y2="462.0" stroke="#e5e7eb"/>
+<text x="76" y="466.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">35</text>
+<line x1="227.2" y1="64" x2="227.2" y2="462" stroke="#e5e7eb"/>
+<text x="227.2" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">28</text>
+<line x1="86" y1="382.4" x2="792" y2="382.4" stroke="#e5e7eb"/>
+<text x="76" y="386.4" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">44</text>
+<line x1="368.4" y1="64" x2="368.4" y2="462" stroke="#e5e7eb"/>
+<text x="368.4" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">40</text>
+<line x1="86" y1="302.8" x2="792" y2="302.8" stroke="#e5e7eb"/>
+<text x="76" y="306.8" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">52</text>
+<line x1="509.6" y1="64" x2="509.6" y2="462" stroke="#e5e7eb"/>
+<text x="509.6" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">51</text>
+<line x1="86" y1="223.2" x2="792" y2="223.2" stroke="#e5e7eb"/>
+<text x="76" y="227.2" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">61</text>
+<line x1="650.8" y1="64" x2="650.8" y2="462" stroke="#e5e7eb"/>
+<text x="650.8" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">63</text>
+<line x1="86" y1="143.6" x2="792" y2="143.6" stroke="#e5e7eb"/>
+<text x="76" y="147.6" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">70</text>
+<line x1="792.0" y1="64" x2="792.0" y2="462" stroke="#e5e7eb"/>
+<text x="792.0" y="484" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#374151">74</text>
+<line x1="86" y1="64.0" x2="792" y2="64.0" stroke="#e5e7eb"/>
+<text x="76" y="68.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="11" fill="#374151">78</text>
+<line x1="86.0" y1="217.6" x2="792.0" y2="297.3" stroke="#111827" stroke-width="2" stroke-dasharray="7 5" clip-path="url(#coding-cyber-clip)"/>
+<circle cx="743.3" cy="171.6" r="5" fill="#2563eb" stroke="#ffffff"><title>Meta-Llama-3-70B-Instruct: coding=70.5, safety=66.6</title></circle>
+<text x="736.3" y="164.6" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#374151">Meta-Llama-3-70B</text>
+<circle cx="563.8" cy="110.2" r="5" fill="#2563eb" stroke="#ffffff"><title>Meta-Llama-3-8B-Instruct: coding=55.8, safety=73.3</title></circle>
+<text x="570.8" y="103.2" text-anchor="start" font-family="system-ui,sans-serif" font-size="10" fill="#374151">Meta-Llama-3-8B</text>
+<circle cx="329.4" cy="389.8" r="5" fill="#dc2626" stroke="#ffffff"><title>Mistral-7B-Instruct-v0.2: coding=36.5, safety=43.0</title></circle>
+<text x="336.4" y="382.8" text-anchor="start" font-family="system-ui,sans-serif" font-size="10" fill="#374151">Mistral-7B-v0.2</text>
+<circle cx="714.7" cy="415.8" r="5" fill="#dc2626" stroke="#ffffff"><title>Mixtral-8x22B-Instruct-v0.1: coding=68.2, safety=40.2</title></circle>
+<text x="707.7" y="408.8" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#374151">Mixtral-8x22B-v0.1</text>
+<circle cx="428.7" cy="380.4" r="5" fill="#dc2626" stroke="#ffffff"><title>Mixtral-8x7B-Instruct-v0.1: coding=44.7, safety=44.0</title></circle>
+<text x="435.7" y="373.4" text-anchor="start" font-family="system-ui,sans-serif" font-size="10" fill="#374151">Mixtral-8x7B-v0.1</text>
+<circle cx="619.8" cy="341.3" r="5" fill="#7c3aed" stroke="#ffffff"><title>Qwen1.5-72B-Chat: coding=60.4, safety=48.3</title></circle>
+<text x="612.8" y="334.3" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#374151">Qwen1.5-72B</text>
+<circle cx="134.7" cy="157.0" r="5" fill="#059669" stroke="#ffffff"><title>gemma-1.1-2b-it: coding=20.5, safety=68.2</title></circle>
+<text x="141.7" y="150.0" text-anchor="start" font-family="system-ui,sans-serif" font-size="10" fill="#374151">gemma-1.1-2b-it</text>
+<circle cx="374.5" cy="138.5" r="5" fill="#059669" stroke="#ffffff"><title>gemma-1.1-7b-it: coding=40.2, safety=70.2</title></circle>
+<text x="381.5" y="131.5" text-anchor="start" font-family="system-ui,sans-serif" font-size="10" fill="#374151">gemma-1.1-7b-it</text>
+<text x="439.0" y="516" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#111827">EvalPlus mean of HumanEval+ and MBPP+ pass@1 (%)</text>
+<text x="20" y="263.0" text-anchor="middle" transform="rotate(-90 20 263.0)" font-family="system-ui,sans-serif" font-size="12" fill="#111827">Cyber behavioral-safety composite (%)</text>
+</svg>
