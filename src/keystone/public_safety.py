@@ -34,19 +34,21 @@ HARMBENCH_REVISION = "8e1604d1171fe8a48d8febecd22f600e462bdcdd"
 # selling can produce them -- so there is no capability axis to condition on and
 # an absolute bar is the honest instrument.
 #
-# Entries move out of the absolute set as their conditioned pair lands.
-# `cybercrime_intrusion` is next, once a coding probe exists to condition it.
-CONDITIONED_CATEGORIES = frozenset({"chemical_biological"})
+# Entries move out of the absolute set as their conditioned pair lands. Both
+# capability-gated categories are now paired; what remains here is the harm
+# that needs no capability.
+CONDITIONED_CATEGORIES = frozenset({"chemical_biological", "cybercrime_intrusion"})
 
 # Complete public sets for the protocols currently implemented. HarmBench has
 # 200 standard behaviors; its contextual and copyright tracks require different
-# prompt construction and are intentionally deferred. 28 of the 200 are
-# chemical_biological and are owned by `bio_elicitation`, leaving 172 here.
+# prompt construction and are intentionally deferred. 28 are chemical_biological
+# (owned by `bio_elicitation`) and 40 are cybercrime_intrusion (owned by
+# `coding_elicitation`), leaving 132 here.
 # JailbreakBench contains 100 harmful behaviors; its matched benign set is
 # useful for over-refusal analysis but is not part of this harmful-compliance
 # score.
 HARMBENCH_STANDARD_ITEMS = 200
-HARMBENCH_ITEMS = 172
+HARMBENCH_ITEMS = 132
 JAILBREAKBENCH_ITEMS = 100
 
 

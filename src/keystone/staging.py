@@ -66,6 +66,19 @@ HARMBENCH_BIO_UPSTREAM = 28
 HARMBENCH_BIO_ITEMS = 28
 HARMBENCH_BIO_DIGEST = "1c80f74efd33e3097a27b657a83db2493e0d1263d64cb3429b0c9c0ff0ece6ac"
 
+HARMBENCH_CODING_CATEGORY = "cybercrime_intrusion"
+HARMBENCH_CODING_UPSTREAM = 40
+HARMBENCH_CODING_DIGEST = "ba0e64d1b342b32f2d880d0477b626d63ffb55955257941399b02f1cddf84c78"
+
+SWEBENCH_UPSTREAM = 500
+SWEBENCH_DIGEST = "80adb05aa656993581710315ca93fb6823a4ee04599f23ae09a554fffded20f3"
+# Diffs and issue text are long; four full patches plus a problem statement
+# would not fit a sensible prompt. Truncated to the point where the fix is
+# still identifiable -- enough to tell the candidates apart, not enough to
+# blow the context window.
+_PATCH_CHARS = 900
+_STATEMENT_CHARS = 1400
+
 _VIEWER = "https://datasets-server.huggingface.co/rows"
 _PAGE = 100
 
@@ -161,22 +174,132 @@ def fetch_harmbench_bio() -> list[dict]:
     return _cached(f"harmbench-{HARMBENCH_BIO_CATEGORY}", _download_harmbench_bio)
 
 
-def _download_harmbench_bio() -> list[dict]:
+def _harmbench_slice(category: str) -> list[dict]:
+    """One semantic category of HarmBench's standard behaviours.
+
+    A selection, not a rewrite: the prompts are exactly the published ones.
+    Framing variants are produced later by `generation.expand`.
+    """
     url = (
         "https://raw.githubusercontent.com/centerforaisafety/HarmBench/"
         f"{HARMBENCH_REVISION}/data/behavior_datasets/harmbench_behaviors_text_all.csv"
     )
     rows = list(csv.DictReader(io.StringIO(_get(url).decode("utf-8"))))
-    behaviours = [
+    return [
         {"prompt": row["Behavior"], "category": row["SemanticCategory"]}
         for row in rows
         if row["FunctionalCategory"] == "standard"
-        and row["SemanticCategory"] == HARMBENCH_BIO_CATEGORY
+        and row["SemanticCategory"] == category
     ]
+
+
+def _download_harmbench_bio() -> list[dict]:
+    behaviours = _harmbench_slice(HARMBENCH_BIO_CATEGORY)
     if len(behaviours) != HARMBENCH_BIO_UPSTREAM:
         raise RuntimeError(
             f"HarmBench/{HARMBENCH_BIO_CATEGORY}: expected "
             f"{HARMBENCH_BIO_UPSTREAM} behaviours, got {len(behaviours)}."
+        )
+    return behaviours
+
+
+def _download_swebench() -> list[dict]:
+    """SWE-bench Verified: real issues with the gold patch that closed them."""
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        url = (
+            f"{_VIEWER}?dataset=princeton-nlp%2FSWE-bench_Verified&config=default"
+            f"&split=test&offset={offset}&length={_PAGE}"
+        )
+        page = json.loads(_get(url))
+        batch = page.get("rows", [])
+        if not batch:
+            break
+        for entry in batch:
+            row = entry["row"]
+            rows.append({
+                "instance_id": row["instance_id"],
+                "repo": row["repo"],
+                "problem_statement": row["problem_statement"],
+                "patch": row["patch"],
+                "difficulty": row.get("difficulty") or "unknown",
+            })
+        offset += len(batch)
+        if offset >= page.get("num_rows_total", offset):
+            break
+    if len(rows) != SWEBENCH_UPSTREAM:
+        raise RuntimeError(
+            f"SWE-bench Verified: expected {SWEBENCH_UPSTREAM} instances, got {len(rows)}"
+        )
+    return rows
+
+
+def fetch_swebench() -> list[dict]:
+    return _cached("swebench-verified", _download_swebench)
+
+
+def _clip(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    return text if len(text) <= limit else text[:limit].rstrip() + "\n... (truncated)"
+
+
+def swebench_questions(rows: list[dict]) -> list[dict]:
+    """Turn instances into four-way questions: which diff closed this issue?
+
+    Distractors are gold patches from *other instances in the same repository*,
+    so they are real changes to the same codebase in the same style rather than
+    obvious decoys. A distractor drawn from an unrelated project would be
+    identifiable from its import paths alone, and the item would measure
+    nothing.
+
+    Correctness is inherited from the gold patch. Nothing here asserts what the
+    right answer is, which is what makes the item safe to set a threshold from.
+    """
+    by_repo: dict[str, list[dict]] = {}
+    for row in rows:
+        by_repo.setdefault(row["repo"], []).append(row)
+
+    items: list[dict] = []
+    for row in rows:
+        siblings = [r for r in by_repo[row["repo"]] if r["instance_id"] != row["instance_id"]]
+        if len(siblings) < 3:
+            # Too few same-repo patches to build honest distractors. Dropped
+            # rather than padded from elsewhere.
+            continue
+        picked = sorted(
+            siblings, key=lambda r: _hash_key(r["instance_id"], row["instance_id"])
+        )[:3]
+        options = [row["patch"], *(p["patch"] for p in picked)]
+        order = sorted(range(4), key=lambda i: _hash_key(options[i], row["instance_id"]))
+        shuffled = [_clip(options[i], _PATCH_CHARS) for i in order]
+        items.append({
+            "question": (
+                f"Repository: {row['repo']}\n\nIssue:\n"
+                f"{_clip(row['problem_statement'], _STATEMENT_CHARS)}"
+            ),
+            "choices": shuffled,
+            "answer": order.index(0),
+            "difficulty": row["difficulty"],
+            "instance_id": row["instance_id"],
+        })
+    return items
+
+
+def _hash_key(*parts: str) -> str:
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def fetch_harmbench_coding() -> list[dict]:
+    return _cached(f"harmbench-{HARMBENCH_CODING_CATEGORY}", _download_harmbench_coding)
+
+
+def _download_harmbench_coding() -> list[dict]:
+    behaviours = _harmbench_slice(HARMBENCH_CODING_CATEGORY)
+    if len(behaviours) != HARMBENCH_CODING_UPSTREAM:
+        raise RuntimeError(
+            f"HarmBench/{HARMBENCH_CODING_CATEGORY}: expected "
+            f"{HARMBENCH_CODING_UPSTREAM} behaviours, got {len(behaviours)}"
         )
     return behaviours
 
@@ -199,8 +322,10 @@ def _check(name: str, items: list[dict], expected_n: int, expected_digest: str) 
 
 def variant_pool_size(suite_id: str, pool: list[dict]) -> int:
     """How many distinct items this source can ever produce."""
-    if suite_id == "bio_elicitation":
+    if suite_id.endswith("_elicitation"):
         return len(expand(pool, ELICITATION_TRANSFORMS, variants=FRAMING_COUNT))
+    if suite_id == "coding_probe":
+        return len(swebench_questions(pool))
     return len(pool)
 
 
@@ -228,6 +353,17 @@ def build_probe_set(pool: list[dict], rotation: int) -> list[dict]:
     return expand(drawn, PROBE_TRANSFORMS, variants=1)
 
 
+def build_coding_probe_set(pool: list[dict], rotation: int) -> list[dict]:
+    """Questions first, then rotate. Order matters.
+
+    Building every question up front and drawing from that gives a pool of ~500
+    rather than the 100 a pre-rotation draw would leave, so consecutive
+    rotations share almost nothing. Rotating first would have capped the pool
+    at the draw size and forced reuse for no reason.
+    """
+    return rotate(swebench_questions(pool), SET_SIZE, rotation)
+
+
 def build_elicitation_set(pool: list[dict], rotation: int) -> list[dict]:
     """Expand, because the pool is smaller than the target.
 
@@ -247,6 +383,20 @@ _SETS = (
         fetch_harmbench_bio,
         build_elicitation_set,
         HARMBENCH_BIO_DIGEST,
+    ),
+    (
+        "coding_probe",
+        "SWE-bench Verified",
+        fetch_swebench,
+        build_coding_probe_set,
+        SWEBENCH_DIGEST,
+    ),
+    (
+        "coding_elicitation",
+        f"HarmBench/{HARMBENCH_CODING_CATEGORY}",
+        fetch_harmbench_coding,
+        build_elicitation_set,
+        HARMBENCH_CODING_DIGEST,
     ),
 )
 

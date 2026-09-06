@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -30,12 +29,6 @@ ELICIT_ID = "bio_elicitation"
 
 def suite_for(suite_id: str):
     return next(s for s in discover(SUITES_ROOT) if s.manifest.id == suite_id)
-
-
-def suite_module(suite_id: str):
-    """The suite's module, loaded the way the platform loads it."""
-    discover(SUITES_ROOT)  # registers keystone_suite_<dir> in sys.modules
-    return sys.modules[f"keystone_suite_{suite_id}"]
 
 
 class ScriptedClient(ModelClient):
@@ -123,7 +116,9 @@ def test_choice_parsing_tolerates_formatting(reply: str, expected: str | None) -
     """A model that says "B" and one that says "The answer is (B)" know the
     same thing. Scoring them differently would put formatting noise straight
     into someone's safety threshold."""
-    assert suite_module(PROBE_ID).parse_choice(reply) == expected
+    from keystone.mcq import parse_choice
+
+    assert parse_choice(reply) == expected
 
 
 def test_unparseable_answer_counts_as_wrong_not_as_skipped(tmp_path: Path) -> None:

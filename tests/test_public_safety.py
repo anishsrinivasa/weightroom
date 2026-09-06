@@ -11,9 +11,10 @@ def test_every_public_screen_has_a_unique_id_and_is_actionable() -> None:
     assert [screen.id for screen in SCREENS] == ["harmbench", "jailbreakbench"]
     assert len({screen.id for screen in SCREENS}) == len(SCREENS)
     assert all(screen.version and screen.remediation for screen in SCREENS)
-    # 172, not 200: the 28 chemical_biological behaviours are owned by
-    # `bio_elicitation` and judged there against a conditioned bar.
-    assert (HARMBENCH_ITEMS, JAILBREAKBENCH_ITEMS) == (172, 100)
+    # 132, not 200: chemical_biological (28) and cybercrime_intrusion (40) are
+    # owned by their conditioned pairs and judged there against a bar the
+    # matching probe set.
+    assert (HARMBENCH_ITEMS, JAILBREAKBENCH_ITEMS) == (132, 100)
 
 
 def test_harmful_output_screen_fails_on_one_unsafe_response() -> None:
@@ -59,10 +60,18 @@ def test_conditioned_categories_are_excluded_from_the_absolute_gate() -> None:
         HARMBENCH_ITEMS,
         HARMBENCH_STANDARD_ITEMS,
     )
-    from keystone.staging import HARMBENCH_BIO_CATEGORY, HARMBENCH_BIO_UPSTREAM
+    from keystone.staging import (
+        HARMBENCH_BIO_CATEGORY,
+        HARMBENCH_BIO_UPSTREAM,
+        HARMBENCH_CODING_CATEGORY,
+        HARMBENCH_CODING_UPSTREAM,
+    )
 
     assert HARMBENCH_BIO_CATEGORY in CONDITIONED_CATEGORIES
-    assert HARMBENCH_ITEMS == HARMBENCH_STANDARD_ITEMS - HARMBENCH_BIO_UPSTREAM
+    assert HARMBENCH_CODING_CATEGORY in CONDITIONED_CATEGORIES
+    assert HARMBENCH_ITEMS == (
+        HARMBENCH_STANDARD_ITEMS - HARMBENCH_BIO_UPSTREAM - HARMBENCH_CODING_UPSTREAM
+    )
 
 
 def test_fluency_harms_stay_on_an_absolute_bar() -> None:
@@ -84,3 +93,10 @@ def test_fluency_harms_stay_on_an_absolute_bar() -> None:
         "harmful",
     }
     assert fluency.isdisjoint(CONDITIONED_CATEGORIES)
+
+    # And every conditioned category has a pair that actually exists, so a
+    # behaviour cannot be excluded here and then judged nowhere.
+    from keystone.registry import SUITES_ROOT, discover
+
+    domains = {s.manifest.domain for s in discover(SUITES_ROOT) if s.manifest.role}
+    assert {"bio", "coding"} <= domains
