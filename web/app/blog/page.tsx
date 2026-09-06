@@ -25,7 +25,7 @@ export default function BlogIndex() {
             <time dateTime="2026-09-06">September 6, 2026</time>
           </div>
           <div className="research-card-copy">
-            <h2>How we built Weightroom&apos;s private safety evaluation pipeline</h2>
+            <h2>How we built Weightroom&apos;s safety framework</h2>
             <p>
               Downloadable weights leave the marketplace&apos;s control after purchase. This is
               how Weightroom evaluates them before deciding whether they can be listed.

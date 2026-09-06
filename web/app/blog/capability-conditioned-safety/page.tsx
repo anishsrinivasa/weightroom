@@ -3,7 +3,7 @@ import Link from "next/link";
 import katex from "katex";
 
 export const metadata: Metadata = {
-  title: "How we built Weightroom's private safety evaluation pipeline",
+  title: "How we built Weightroom's safety framework",
   description:
     "The datasets, generation pipeline, and statistical gate Weightroom uses to evaluate downloadable language models.",
 };
@@ -67,17 +67,7 @@ export default function CapabilityConditionedSafetyPost() {
     <article className="research-article">
       <header className="article-hero">
         <Link className="back-link" href="/blog">← Research</Link>
-        <div className="article-kicker">
-          <span>Evaluation systems</span>
-          <time dateTime="2026-09-06">September 6, 2026</time>
-        </div>
-        <h1>How we built Weightroom&apos;s private safety evaluation pipeline</h1>
-        <p className="article-dek">
-          Once model weights are downloaded, Weightroom cannot control how they are run.
-          The decision available to us is whether to list them. This is the private data
-          pipeline and safety test behind that decision.
-        </p>
-
+        <h1>How we built Weightroom&apos;s safety framework</h1>
         <div className="article-hero-visual" aria-label="Why Weightroom evaluates a model before listing it">
           <div>
             <span className="visual-label">Marketplace constraint</span>
