@@ -316,9 +316,6 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .entitlement-note { margin-bottom: 14px; border-left: 2px solid var(--ink); padding-left: 11px; font-weight: 620; }
 .checkout-fineprint { margin-top: 18px; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .digest-value { overflow-wrap: anywhere; }
-.download-panel { margin-top: 54px; }
-.download-panel .block-heading { border-bottom: 1px solid var(--ink); }
-.download-panel .block-heading > span { color: var(--muted); font-size: 12px; }
 
 @media (max-width: 780px) {
   .shell { width: min(100% - 36px, var(--max-width)); }

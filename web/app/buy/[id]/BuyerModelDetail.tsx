@@ -9,19 +9,16 @@ import {
   benchmarksSchema,
   chargeSchema,
   demoPaymentSchema,
-  downloadManifestSchema,
   listingDetailSchema,
   orderConfirmedSchema,
   purchaseSchema,
   tagCatalogueSchema,
   type Benchmark,
   type Charge,
-  type DownloadManifest,
   type ListingDetail,
   type Purchase,
   type TagCatalogue,
 } from "@/lib/contracts";
-import { formatBytes } from "@/lib/artifact";
 import { formatDate, formatUsdc } from "@/lib/display";
 
 const DEFAULT_COVER = "/logo.png";
@@ -33,7 +30,6 @@ export function BuyerModelDetail({ id }: { id: string }) {
   const [tags, setTags] = useState<TagCatalogue | null>(null);
   const [purchase, setPurchase] = useState<Purchase | null>(null);
   const [charge, setCharge] = useState<Charge | null>(null);
-  const [manifest, setManifest] = useState<DownloadManifest | null>(null);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
@@ -162,18 +158,6 @@ export function BuyerModelDetail({ id }: { id: string }) {
     window.setTimeout(() => setCopied(false), 1_500);
   }
 
-  async function loadDownloads() {
-    try {
-      setManifest(await keystoneRequest(
-        `/v1/listings/${encodeURIComponent(id)}/download`,
-        downloadManifestSchema,
-      ));
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not prepare the download");
-    }
-  }
-
   if (loading && !model) return <LoadingBlock label="Loading model details…" />;
   if (error && !model) return <ErrorPanel message={error} retry={() => void load()} />;
   if (!model) return null;
@@ -237,7 +221,7 @@ export function BuyerModelDetail({ id }: { id: string }) {
           {canDownload ? (
             <>
               <p className="entitlement-note">{model.is_owner ? "This is your listing." : model.price_minor === 0 ? "This model is free." : "Purchase confirmed."}</p>
-              <button className="button primary full-width" type="button" onClick={() => void loadDownloads()}>{manifest ? "Refresh download links" : "Prepare downloads"}</button>
+              <a className="button primary full-width" href={`/api/keystone/v1/listings/${encodeURIComponent(id)}/download.zip`} download>Download ZIP</a>
               {model.is_owner ? <Link className="button full-width" href={`/sell/models/${model.listing_id}`}>View seller record</Link> : null}
             </>
           ) : purchase && charge ? (
@@ -257,14 +241,6 @@ export function BuyerModelDetail({ id }: { id: string }) {
         </aside>
       </div>
 
-      {manifest ? (
-        <section className="download-panel" aria-labelledby="downloads-title">
-          <div className="block-heading"><div><p className="private-label">Entitled account</p><h2 id="downloads-title">Download files</h2></div><span>{manifest.files.length} files</span></div>
-          <div className="table-scroll"><table><thead><tr><th>File</th><th>Size</th><th>SHA-256</th><th><span className="sr-only">Download</span></th></tr></thead><tbody>
-            {manifest.files.map((file) => <tr key={file.path}><td>{file.path}</td><td>{formatBytes(file.size_bytes)}</td><td className="mono">{file.sha256}</td><td><a className="arrow-link" href={clientUploadUrl(file.url)} aria-label={`Download ${file.path}`}>↓</a></td></tr>)}
-          </tbody></table></div>
-        </section>
-      ) : null}
     </>
   );
 }

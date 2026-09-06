@@ -279,18 +279,6 @@ export const orderConfirmedSchema = z.object({
   entitled: z.literal(true),
 });
 
-export const downloadManifestSchema = z.object({
-  digest: z.string(),
-  files: z.array(z.object({
-    path: z.string(),
-    size_bytes: z.number().int().nonnegative(),
-    sha256: z.string(),
-    url: z.string(),
-  })),
-});
-
-export type DownloadManifest = z.infer<typeof downloadManifestSchema>;
-
 export const confirmedSchema = z.object({
   listing_id: z.string(),
   state: listingStateSchema,

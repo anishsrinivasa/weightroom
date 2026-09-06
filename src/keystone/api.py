@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -60,6 +61,7 @@ from keystone.storage import ArtifactStore, LocalStore, artifact_key, image_key
 from keystone.tags import catalogue as tag_catalogue
 from keystone.tags import normalise_domain_tags, normalise_size_tag
 from keystone.visibility import assert_no_leak, redact
+from keystone.zipstream import ZipEntry, safe_archive_name, stream_zip
 
 
 # A cover image is decoration, so the ceiling is set by what a page should
@@ -875,6 +877,52 @@ def create_app(deps: Deps) -> FastAPI:
                     for f in art.files()
                 ],
             }
+
+    @app.get("/v1/listings/{listing_id}/download.zip")
+    def download_zip(listing_id: str, d: D, principal: P) -> StreamingResponse:
+        """Stream every entitled artifact file as one ZIP64 archive."""
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            order = d.store.entitling_order(s, me.user_id, listing_id)
+            verdict = check_entitlement(
+                buyer_id=me.user_id,
+                listing_id=listing_id,
+                listing_state=row.state,
+                listing_creator_id=row.creator_id,
+                price=row.price(),
+                order=order,
+            )
+            if not verdict.allowed:
+                raise HTTPException(
+                    402 if verdict.payment_required else 403, verdict.reason
+                )
+            art = s.get(ArtifactRow, row.artifact_digest)
+            if art is None:
+                raise HTTPException(404, "artifact missing")
+            try:
+                entries = [
+                    ZipEntry(
+                        key=artifact_key(row.artifact_digest, file.path),
+                        archive_name=safe_archive_name(file.path),
+                    )
+                    for file in art.files()
+                ]
+            except ValueError as exc:
+                raise HTTPException(500, "artifact contains an unsafe file path") from exc
+            title = re.sub(r"[^A-Za-z0-9._-]+", "-", row.title or row.id).strip("-")
+            filename = f"{title or row.id}.zip"
+            digest = row.artifact_digest
+
+        return StreamingResponse(
+            stream_zip(d.artifacts, entries),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "private, no-store",
+                "X-Artifact-SHA256": digest,
+            },
+        )
 
     # ----------------------------------------------------------------------
     # admin

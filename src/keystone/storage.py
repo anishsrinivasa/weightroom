@@ -16,6 +16,7 @@ import abc
 import hashlib
 import os
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 from keystone.schema import FileEntry
@@ -59,6 +60,10 @@ class ArtifactStore(abc.ABC):
 
     @abc.abstractmethod
     def delete(self, key: str) -> None: ...
+
+    @abc.abstractmethod
+    def iter_bytes(self, key: str, chunk_size: int = _CHUNK) -> Iterator[bytes]:
+        """Read an object incrementally without materializing it on API disk."""
 
     @abc.abstractmethod
     def presign_get(self, key: str, ttl_s: int = 3600) -> str:
@@ -144,6 +149,14 @@ class LocalStore(ArtifactStore):
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
 
+    def iter_bytes(self, key: str, chunk_size: int = _CHUNK) -> Iterator[bytes]:
+        source = self._path(key)
+        if not source.is_file():
+            raise FileNotFoundError(key)
+        with source.open("rb") as fh:
+            while chunk := fh.read(chunk_size):
+                yield chunk
+
     def presign_get(self, key: str, ttl_s: int = 3600) -> str:
         return self._path(key).as_uri()
 
@@ -196,6 +209,15 @@ class S3Store(ArtifactStore):
 
     def delete(self, key: str) -> None:
         self._s3.delete_object(Bucket=self.bucket, Key=key)
+
+    def iter_bytes(self, key: str, chunk_size: int = _CHUNK) -> Iterator[bytes]:
+        body = self._s3.get_object(Bucket=self.bucket, Key=key)["Body"]
+        try:
+            for chunk in body.iter_chunks(chunk_size=chunk_size):
+                if chunk:
+                    yield chunk
+        finally:
+            body.close()
 
     def presign_get(self, key: str, ttl_s: int = 3600) -> str:
         return self._s3.generate_presigned_url(
