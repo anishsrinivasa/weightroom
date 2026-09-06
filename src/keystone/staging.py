@@ -79,9 +79,9 @@ HARMBENCH_BIO_CATEGORY = "chemical_biological"
 # The published slice is 28 behaviours -- well short of SET_SIZE, and the
 # reason generated items are not optional polish. Until the generator lands
 # this set runs short, and `stage` says so rather than padding it.
-HARMBENCH_BIO_UPSTREAM = 56
-HARMBENCH_BIO_ITEMS = 56
-HARMBENCH_BIO_DIGEST = "c27cb051cc45a8d9ea49420bbf1afabfb8c14b0978dd6e558bcbba5c7dcd5c63"
+HARMBENCH_BIO_UPSTREAM = 28
+HARMBENCH_BIO_ITEMS = 28
+HARMBENCH_BIO_DIGEST = "0cd4fd32d1da2c7332c3464b749f4a9f56c9904c51751d10a7cc4f8d61e684b4"
 
 # Further seed corpora, fetched from source and pinned the same way. Seeds are
 # the binding constraint on precision: an expanded set of N items built from K
@@ -120,8 +120,8 @@ _BIO_PATTERN = (
 _STRONGREJECT_LEGAL = frozenset({"Non-violent crimes", "Illegal goods and services"})
 
 HARMBENCH_CODING_CATEGORY = "cybercrime_intrusion"
-HARMBENCH_CODING_UPSTREAM = 183
-HARMBENCH_CODING_DIGEST = "1915b2ee53c77d79970ad4fffa8392f871f951bf6bf7eefc1e1ca95c899154e9"
+HARMBENCH_CODING_UPSTREAM = 156
+HARMBENCH_CODING_DIGEST = "732960114aef3e5ca052d78e73ad559162c9219e4fba17a97d6d08af55a158df"
 
 # LegalBench, three tasks that are genuinely binary. Harvey's BigLaw Bench is
 # largely proprietary, so it cannot be a probe we run ourselves.
@@ -139,8 +139,8 @@ LEGALBENCH_UPSTREAM = 584
 LEGALBENCH_DIGEST = "1c5c6c6105e96a7626d9620a4e773a3d124586972d1ec907a5d766fdc4eea4c0"
 
 HARMBENCH_LEGAL_CATEGORY = "illegal"
-HARMBENCH_LEGAL_UPSTREAM = 174
-HARMBENCH_LEGAL_DIGEST = "a500ccc271a355dba05607fae4e175e90b651feaf5fc06da8cc8f92087d173e5"
+HARMBENCH_LEGAL_UPSTREAM = 167
+HARMBENCH_LEGAL_DIGEST = "b7b845d50515df53e821d852262cf25490d907a201cc05484e97080ee36eb488"
 
 # The general comparator. Fluency harms -- harassment, misinformation, and the
 # rest -- pooled from every source, because a domain gap is only meaningful
@@ -155,8 +155,8 @@ HARMBENCH_LEGAL_DIGEST = "a500ccc271a355dba05607fae4e175e90b651feaf5fc06da8cc8f9
 GENERAL_CATEGORIES = frozenset(
     {"harassment_bullying", "harmful", "misinformation_disinformation"}
 )
-GENERAL_UPSTREAM = 416
-GENERAL_DIGEST = "218c6c5037b514f5dd8fdf92f3c2a54620d32fbf553568622b802316a22f8eb4"
+GENERAL_UPSTREAM = 378
+GENERAL_DIGEST = "ae64213654f20d1dad5b9f983d84a5215529e67d346d65c8176285d71ee1bbc9"
 
 JBB_URL = (
     "https://datasets-server.huggingface.co/rows?dataset=JailbreakBench%2F"
@@ -302,12 +302,14 @@ def _harmbench_slice(category: str) -> list[dict]:
         if track == "standard":
             out.append({"prompt": row["Behavior"], "category": category,
                         "source": "harmbench/standard"})
-        elif track == "contextual" and row.get("ContextString"):
-            out.append({
-                "prompt": row["ContextString"].strip() + chr(10) * 2 + row["Behavior"],
-                "category": category,
-                "source": "harmbench/contextual",
-            })
+        # The contextual track is deliberately excluded. Those behaviours hand
+        # the model a hazardous excerpt and ask it to extend one, which is a
+        # far stronger elicitation than a bare request -- and bio's slice is
+        # half of them while the comparator's is under a tenth. A gap measured
+        # across that difference is mostly about prompt mix.
+        #
+        # Restoring them needs the comparator to carry the same share, which
+        # the corpora cannot currently supply.
     return out
 
 

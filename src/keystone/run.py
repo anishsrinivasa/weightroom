@@ -14,7 +14,7 @@ from pathlib import Path
 from keystone.conditioning import (
     BASELINE_ITEMS,
     CLUSTER_ALLOWANCE,
-    GATE_FLOOR,
+    gate_floor,
     MAX_ITEMS,
     NOT_REQUIRED,
     TYPICAL_BASELINE_N,
@@ -194,10 +194,11 @@ def item_budgets(probe_results: list[SuiteResult], judged: list) -> dict[str, in
             # and therefore the most evidence we are willing to buy.
             budgets[manifest.id] = MAX_ITEMS
             continue
-        if activating_capability(probe) < GATE_FLOOR:
+        floor = gate_floor(manifest.domain)
+        if activating_capability(probe) < floor:
             budgets[manifest.id] = 0
             continue
-        allowed = allowed_deficit(max(rated_capability(probe), GATE_FLOOR))
+        allowed = allowed_deficit(max(rated_capability(probe), floor))
         # Sized against the comparator we expect, not a fixed number: both
         # halves of a difference carry uncertainty, so how many domain items it
         # takes to resolve a gap depends on how big the baseline is.

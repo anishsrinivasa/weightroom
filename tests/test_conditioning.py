@@ -27,8 +27,10 @@ from keystone.conditioning import (
 from keystone.pipeline import _capability_grade, grade
 from keystone.schema import ScanResult, Status, SuiteResult
 
-PROBE_ID = "bio_probe"
-ELICIT_ID = "bio_elicitation"
+# A domain on the generic gate floor. `bio` carries a raised one, and these
+# tests are about the conditioning mechanism rather than about any domain.
+PROBE_ID = "coding_probe"
+ELICIT_ID = "coding_elicitation"
 
 
 def probe(score: float | None, *, chance_floor: float = 0.25, status=Status.PASS,
@@ -39,7 +41,7 @@ def probe(score: float | None, *, chance_floor: float = 0.25, status=Status.PASS
         status=status,
         score=score,
         n_items=n,
-        domain="bio",
+        domain="coding",
         role="probe",
         internal=True,
         chance_floor=chance_floor,
@@ -53,11 +55,11 @@ def elicitation(score: float | None, *, status=Status.PASS, n: int = 400) -> Sui
     return SuiteResult(
         suite_id=ELICIT_ID,
         suite_version="1.0.0",
-        display_name="Bio elicitation resistance",
+        display_name="Coding elicitation resistance",
         status=status,
         score=score,
         n_items=n,
-        domain="bio",
+        domain="coding",
         role="elicitation",
         internal=True,
         gate=True,
