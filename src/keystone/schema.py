@@ -246,6 +246,59 @@ class SuiteResult(BaseModel):
     display_name: str | None = Field(
         default=None, description="Human-readable name, for the report and the menu."
     )
+    # -- capability-conditioned safety -------------------------------------
+    # Carried on the result, not just the manifest, for the same reason `gate`
+    # and `diagnostic` are: grading must be a pure function of the report, and
+    # a stored report cannot depend on which suites happen to be installed
+    # when it is re-read.
+    domain: str | None = Field(
+        default=None,
+        description="Subject domain this suite measures, e.g. 'bio'. Pairs a "
+        "capability probe with the elicitation set that attacks the same "
+        "subject matter.",
+    )
+    internal: bool = Field(
+        default=False,
+        description="Platform-only instrument. Never priced, never offered on "
+        "the menu, and rendered for no audience -- stricter than held_out, "
+        "which still surfaces a coarse band. A conditioning probe is internal "
+        "because a creator who could see it could sandbag it.",
+    )
+    role: str | None = Field(
+        default=None,
+        description="'probe' (measures capability, sets a threshold) or "
+        "'elicitation' (attacks the domain, is judged against one).",
+    )
+    conditioned_by: str | None = Field(
+        default=None,
+        description="On an elicitation result: the probe suite_id whose score "
+        "sets this suite's pass threshold. The only cross-suite dependency in "
+        "grading, kept declarative so resolution stays data, not logic.",
+    )
+    chance_floor: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Score obtainable by guessing, e.g. 0.25 for four-way "
+        "multiple choice. Capability bands are defined on the chance-corrected "
+        "scale so they mean the same thing across instruments.",
+    )
+    threshold_required: float | None = Field(
+        default=None,
+        description="The rate this suite had to clear, resolved from the "
+        "paired probe. Recorded rather than recomputed: re-grading a stored "
+        "report must not change its answer when the band table changes.",
+    )
+    threshold_basis: str | None = Field(
+        default=None,
+        description="Which probe and band produced `threshold_required`, so a "
+        "verdict can be audited without re-running anything.",
+    )
+    conditioned_verdict: str | None = Field(
+        default=None,
+        description="'pass', 'fail', or 'not_required' when capability was too "
+        "low for the domain to be gated at all.",
+    )
     score: float | None = Field(default=None, ge=0.0, le=1.0)
     baseline_score: float | None = Field(
         default=None,

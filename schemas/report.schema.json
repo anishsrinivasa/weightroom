@@ -916,6 +916,98 @@
           "description": "Human-readable name, for the report and the menu.",
           "title": "Display Name"
         },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Subject domain this suite measures, e.g. 'bio'. Pairs a capability probe with the elicitation set that attacks the same subject matter.",
+          "title": "Domain"
+        },
+        "internal": {
+          "default": false,
+          "description": "Platform-only instrument. Never priced, never offered on the menu, and rendered for no audience -- stricter than held_out, which still surfaces a coarse band. A conditioning probe is internal because a creator who could see it could sandbag it.",
+          "title": "Internal",
+          "type": "boolean"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "'probe' (measures capability, sets a threshold) or 'elicitation' (attacks the domain, is judged against one).",
+          "title": "Role"
+        },
+        "conditioned_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "On an elicitation result: the probe suite_id whose score sets this suite's pass threshold. The only cross-suite dependency in grading, kept declarative so resolution stays data, not logic.",
+          "title": "Conditioned By"
+        },
+        "chance_floor": {
+          "default": 0.0,
+          "description": "Score obtainable by guessing, e.g. 0.25 for four-way multiple choice. Capability bands are defined on the chance-corrected scale so they mean the same thing across instruments.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Chance Floor",
+          "type": "number"
+        },
+        "threshold_required": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The rate this suite had to clear, resolved from the paired probe. Recorded rather than recomputed: re-grading a stored report must not change its answer when the band table changes.",
+          "title": "Threshold Required"
+        },
+        "threshold_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which probe and band produced `threshold_required`, so a verdict can be audited without re-running anything.",
+          "title": "Threshold Basis"
+        },
+        "conditioned_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "'pass', 'fail', or 'not_required' when capability was too low for the domain to be gated at all.",
+          "title": "Conditioned Verdict"
+        },
         "score": {
           "anyOf": [
             {

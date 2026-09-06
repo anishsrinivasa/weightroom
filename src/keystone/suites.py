@@ -96,6 +96,20 @@ class SuiteManifest:
     timeout_s: int = 1800
     assets: list[str] = field(default_factory=list)  # SEAM 2
     held_out: bool = False
+    # -- capability-conditioned safety -------------------------------------
+    # A domain pairs a capability probe with the elicitation set attacking the
+    # same subject matter. The probe's score sets the elicitation set's bar,
+    # so an expert-level model is held to a stricter one than an ignorant one.
+    domain: str | None = None
+    # Platform-only. Never priced, never on the menu, rendered for no audience.
+    # Stricter than held_out, which still surfaces a coarse band: a creator who
+    # could see their probe score could sandbag it for an easier threshold.
+    internal: bool = False
+    role: str | None = None            # "probe" | "elicitation"
+    conditioned_by: str | None = None  # probe suite_id, on an elicitation suite
+    # What guessing pays. 0.25 for four-way multiple choice, 0.0 for an
+    # executable task. Bands are defined on the chance-corrected scale.
+    chance_floor: float = 0.0
     description: str = ""
 
     @property
