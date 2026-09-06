@@ -13,8 +13,8 @@ web/coverage/
 web/.env.local
 web/*.tsbuildinfo
 
-# Fetched, not committed: 6 MB of weights would sit in git history forever.
-# Run `keystone sample-model` to install it.
+# Fetched and staged locally, never committed. Run `keystone sample-model` to
+# install the default checkpoint used by "Reload sample model".
 web/public/sample-model/
 
 # Local payment config; the address is public but the file is per-machine.

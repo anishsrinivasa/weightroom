@@ -15,6 +15,7 @@ import {
   imageStoredSchema,
   listingCreatedSchema,
   quoteSchema,
+  sampleModelManifestSchema,
   tagCatalogueSchema,
   type Benchmark,
   type Charge,
@@ -91,14 +92,15 @@ export function SubmitWizard() {
   }, [picked]);
 
   useEffect(() => {
-    // No flag gates this. Whether the sample exists is the gate: it is absent
-    // in a deployed build, and the fetch simply fails there.
-    void loadSampleFiles().catch(() => {
-      // Not an error worth interrupting for -- the picker still works, and the
-      // button reports the reason if pressed deliberately.
-    });
-    // Runs once: choosing real files replaces this selection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // No flag gates this. The prepared manifest is absent in deployed builds.
+    // Probe only the small manifest here; never fetch model weights on mount.
+    void fetch("/sample-model/files.json", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const parsed = sampleModelManifestSchema.safeParse(await response.json());
+        setSampleAvailable(parsed.success);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -236,24 +238,22 @@ export function SubmitWizard() {
     void takeFiles(event.dataTransfer.files);
   }
 
-  // A real checkpoint rather than synthesised bytes: tiny-random Llama, ~6 MB,
-  // with a genuine config, tokenizer and safetensors. Synthetic files would
-  // exercise the hashing but skip everything downstream that reads the model
-  // -- architecture detection, chat template, lineage, the scanners.
+  // The installer has already hashed and staged this real checkpoint in the
+  // local artifact store. Loading the small manifest here avoids routing a
+  // multi-gigabyte model through browser memory merely to select it.
   async function loadSampleFiles() {
     const manifest = await fetch("/sample-model/files.json", { cache: "no-store" });
     if (!manifest.ok) throw new Error("Sample model is not installed.");
-    const { files } = (await manifest.json()) as { files: string[] };
+    const parsed = sampleModelManifestSchema.safeParse(await manifest.json());
+    if (!parsed.success) throw new Error("Sample model manifest is invalid. Run `keystone sample-model` again.");
+    const sample = parsed.data;
     setSampleAvailable(true);
-
-    const loaded = await Promise.all(
-      files.map(async (path) => {
-        const response = await fetch(`/sample-model/${path}`, { cache: "no-store" });
-        if (!response.ok) throw new Error(`Sample model file missing: ${path}`);
-        return new File([await response.blob()], path);
-      }),
-    );
-    await takeFiles(loaded);
+    setError(null);
+    setHashing(false);
+    setPicked(sample.files);
+    setDigest(sample.digest);
+    setParameterCount(sample.parameter_count);
+    setParameterCountKnown(sample.parameter_count !== null);
   }
 
   function toggleBenchmark(id: string) {
@@ -314,7 +314,9 @@ export function SubmitWizard() {
 
         for (const [path, url] of Object.entries(declaration.upload_urls)) {
           const selectedFile = picked.find((file) => file.path === path);
-          if (!selectedFile) throw new Error(`Upload manifest lost ${path}`);
+          if (!selectedFile?.blob) {
+            throw new Error("Sample model is not staged in the local artifact store. Run `keystone sample-model` again.");
+          }
           const upload = await fetch(clientUploadUrl(url), {
             method: "PUT",
             body: selectedFile.blob,

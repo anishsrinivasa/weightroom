@@ -685,30 +685,37 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
 @app.command("sample-model")
 def sample_model(
     repo: str = typer.Option(
-        "HuggingFaceTB/SmolLM2-135M-Instruct",
-        help="Any small HuggingFace repo that a serving stack can actually run.",
+        "GraySwanAI/Llama-3-8B-Instruct-RR",
+        help="Hugging Face repo to prepare as the local submission sample.",
     ),
     dest: Path = typer.Option(
         Path("web/public/sample-model"), help="Served by the web app from /sample-model."
     ),
+    store: Path = typer.Option(
+        Path(".keystone-store"),
+        help="Local artifact store used by the development API.",
+    ),
 ) -> None:
-    """Install a tiny real model for the submit flow to upload.
+    """Prepare a real model for the local submit flow.
 
-    A real checkpoint rather than synthesised bytes: genuine config, tokenizer
-    and safetensors, so the demo exercises architecture detection, chat-template
-    resolution, lineage and the scanners -- not just hashing.
+    The browser reads only the generated manifest. The checkpoint itself is
+    copied into the local artifact store so multi-gigabyte shards never pass
+    through browser memory or the Next.js proxy.
 
-    Deliberately not a `tiny-random-*` fixture. Those are a few megabytes and
-    load fine in transformers, but their attention heads are four wide and no
-    serving kernel will touch them, so certification dies on the GPU.
-
-    Not committed. Six megabytes of weights would live in git history forever.
+    The fetched checkpoint and generated manifest are local development data
+    and are deliberately not committed.
     """
     import json as _json
     import shutil
 
     from huggingface_hub import snapshot_download
 
+    from keystone.ingest import hash_tree, manifest_digest
+    from keystone.profile import parameter_count
+    from keystone.storage import LocalStore
+
+    if dest.exists():
+        shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
     console.print(f"fetching [bold]{repo}[/] -> {dest}")
     snapshot_download(
@@ -718,23 +725,36 @@ def sample_model(
     )
     shutil.rmtree(dest / ".cache", ignore_errors=True)
 
-    files = sorted(
-        p.relative_to(dest).as_posix()
-        for p in dest.rglob("*")
-        if p.is_file() and p.name != "files.json"
-    )
-    # The browser cannot list a directory, so it reads this manifest first.
+    files = hash_tree(dest)
+    digest = manifest_digest(files)
+    total = sum(entry.size_bytes for entry in files)
+    params = parameter_count(dest)
+
+    # Pre-stage the bytes in the same content-addressed store used by the local
+    # API. The browser will declare and finalize this manifest as usual, but the
+    # declaration returns no upload URLs because every object already exists.
+    written = LocalStore(store).upload_tree(dest, files, digest)
+
     (dest / "files.json").write_text(
-        _json.dumps({"name": repo.split("/")[-1], "source": repo, "files": files}, indent=2)
+        _json.dumps(
+            {
+                "name": repo.split("/")[-1],
+                "source": repo,
+                "digest": digest,
+                "parameter_count": params,
+                "files": [entry.model_dump(mode="json") for entry in files],
+            },
+            indent=2,
+        )
         + "\n",
         encoding="utf-8",
     )
-    total = sum((dest / f).stat().st_size for f in files)
-    for f in files:
-        console.print(f"  {f:<28} {(dest / f).stat().st_size:>10,} B")
-    console.print(f"\n[bold]{len(files)}[/] files, {total / 1024 / 1024:.2f} MB")
-    if total > 64 * 1024 * 1024:
-        console.print("[yellow]warning[/] over the 64 MB browser upload limit")
+    for entry in files:
+        console.print(f"  {entry.path:<36} {entry.size_bytes:>14,} B")
+    console.print(
+        f"\n[bold]{len(files)}[/] files, {total / 1024 / 1024:.2f} MB; "
+        f"{written / 1024 / 1024:.2f} MB staged in {store}"
+    )
 
 
 @app.command("checkout-probe")

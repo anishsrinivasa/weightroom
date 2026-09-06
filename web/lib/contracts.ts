@@ -312,4 +312,16 @@ export type FileManifestEntry = {
   sha256: string;
 };
 
-export type SelectedFile = FileManifestEntry & { blob: File };
+export const sampleModelManifestSchema = z.object({
+  name: z.string(),
+  source: z.string(),
+  digest: z.string().regex(/^[0-9a-f]{64}$/),
+  parameter_count: z.number().int().nonnegative().nullable(),
+  files: z.array(z.object({
+    path: z.string(),
+    size_bytes: z.number().int().positive(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  })),
+});
+
+export type SelectedFile = FileManifestEntry & { blob?: File };
