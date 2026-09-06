@@ -110,6 +110,8 @@ export function ModelDetail({ id }: { id: string }) {
 
   const verified = model.state === "certified" || model.state === "listed";
   const rejected = model.state === "rejected";
+  const evaluationFailed = rejected
+    && model.evaluation_progress?.stage === "Evaluation failed";
   const progress = evaluationProgress(model.state);
   const report = model.report;
   const reportedBenchmarks = report?.suite_results.filter((result) => !result.gate) || [];
@@ -145,7 +147,9 @@ export function ModelDetail({ id }: { id: string }) {
     n_items: null,
   })) ?? [];
   const gateOverall = model.safety_gates?.overall
-    ?? (visibleGates.some((gate) => gate.status === "fail") ? "fail" : "pending");
+    ?? (visibleGates.some((gate) => gate.status === "fail")
+      ? "fail"
+      : visibleGates.some((gate) => gate.status === "error") ? "error" : "pending");
 
   // A listing with no cover falls back to the house mark rather than an empty
   // frame, so the card reads the same either way.
@@ -159,7 +163,7 @@ export function ModelDetail({ id }: { id: string }) {
           <h1>{model.title || "Untitled model"}</h1>
           <p className="digest mono">{model.artifact_digest}</p>
           <div className="inline-meta">
-            <StatusPill state={model.state} />
+            <StatusPill state={model.state} label={evaluationFailed ? "Evaluation failed" : undefined} />
             <span>{formatUsdc(model.price_minor)}</span>
           </div>
           <div className="tag-list" aria-label="Model tags">
@@ -179,9 +183,10 @@ export function ModelDetail({ id }: { id: string }) {
           />
           <span className="decision-mark" aria-hidden="true">{verified ? "✓" : rejected ? "×" : "…"}</span>
           <div>
-            <h2>{verified ? "Verified" : rejected ? "Not verified" : progress?.heading || stateLabel(model.state)}</h2>
+            <h2>{verified ? "Verified" : evaluationFailed ? "Evaluation failed" : rejected ? "Not verified" : progress?.heading || stateLabel(model.state)}</h2>
             <p>{verified
               ? model.state === "listed" ? "Published and visible in the marketplace." : "All mandatory gates passed. Ready to publish."
+              : evaluationFailed ? "A processing error stopped the evaluation. No certification decision was made."
               : rejected ? rejectionDetail(model.safety_gates?.overall)
               : progress?.detail || "This submission is not currently being evaluated."}</p>
             {progress ? (
@@ -221,7 +226,7 @@ export function ModelDetail({ id }: { id: string }) {
                   return (
                     <li key={gate.gate_id} className="gate-row">
                       <span className={`gate-symbol${waiting ? " loading" : ""}`} aria-hidden="true">
-                        {gate.status === "pass" ? "✓" : gate.status === "fail" ? "×" : ""}
+                        {gate.status === "pass" ? "✓" : gate.status === "fail" ? "×" : gate.status === "error" ? "!" : ""}
                       </span>
                       <span>
                         <strong>{gate.display_name}</strong>
@@ -259,7 +264,9 @@ export function ModelDetail({ id }: { id: string }) {
             {selectedBenchmarkIds.length ? selectedBenchmarkIds.map((suiteId) => {
               const result = reportedBenchmarksById.get(suiteId);
               const score = result?.score == null ? null : Math.round(result.score * 100);
-              const status = result && !result.declined ? result.status : "pending";
+              const status = result && !result.declined
+                ? result.status
+                : evaluationFailed ? "error" : "pending";
               const value = score == null
                 ? result?.score_band || status
                 : `${score}%`;
@@ -281,7 +288,7 @@ export function ModelDetail({ id }: { id: string }) {
             <div className="block-heading"><h2 id="certification-title">Certification</h2></div>
             <dl className="metadata-list">
               <dt>Safety</dt>
-              <dd>{report?.rating.certified ? "Certified" : "Not certified"}</dd>
+              <dd>{evaluationFailed ? "Evaluation incomplete" : report?.rating.certified ? "Certified" : "Not certified"}</dd>
               <dt>Capability</dt>
               <dd>
                 {!report?.rating.grade || report.rating.grade === "unrated"

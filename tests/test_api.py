@@ -581,6 +581,10 @@ def test_worker_rejects_when_serving_fails(client: TestClient, deps: Deps) -> No
     outcome = Outcome(DIGEST, failure=FailureKind.SERVE_FAIL, detail="vLLM exited")
     results = process_pending(deps.store, certify=lambda d, only=None: outcome)
     assert results == [(listing_id, ListingState.REJECTED)]
+    with deps.store.session() as session:
+        progress = deps.store.get_evaluation_progress(session, listing_id)
+        assert progress.stage == "Evaluation failed"
+        assert all(gate["status"] == "error" for gate in progress.gates)
 
 
 def test_worker_claims_job_before_running_certification(

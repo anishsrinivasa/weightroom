@@ -70,8 +70,13 @@ class FailureKind(str, Enum):
 
 def classify(exc: BaseException) -> FailureKind:
     text = f"{type(exc).__name__}: {exc}".lower()
-    if "out of memory" in text or "oom" in text or "kv cache" in text:
+    # vLLM reports its normal KV-cache capacity in every startup log. Since the
+    # evaluator appends that log tail to unrelated exceptions, matching the
+    # words "kv cache" alone turns virtually every benchmark failure into OOM.
+    if "out of memory" in text or "cuda oom" in text:
         return FailureKind.OOM
+    if "offlinemodeisenabled" in text or "couldn't reach" in text:
+        return FailureKind.SUITE_ERROR
     if "timeout" in text or "timed out" in text:
         return FailureKind.TIMEOUT
     if "vllm exited" in text or "engine core" in text or "did not become ready" in text:

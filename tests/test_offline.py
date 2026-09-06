@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from keystone.pipeline import grade as _grade
+from keystone.pipeline import FailureKind, classify, grade as _grade
 from keystone.ingest import build_subject, hash_tree, manifest_digest
 from keystone.profile import build_profile, detect_modality, parameter_count, pick_resource_class
 from keystone.registry import discover, select
@@ -35,6 +35,25 @@ from keystone.tags import model_size_tag
 # --------------------------------------------------------------------------
 # fixtures
 # --------------------------------------------------------------------------
+
+
+def test_failure_classifier_does_not_treat_normal_kv_cache_log_as_oom() -> None:
+    error = RuntimeError(
+        "benchmark dataset unavailable\n--- vllm log tail ---\n"
+        "GPU KV cache size: 104,800 tokens"
+    )
+    assert classify(error) is FailureKind.UNKNOWN
+
+
+def test_failure_classifier_recognises_offline_dataset_infrastructure_error() -> None:
+    error = ConnectionError(
+        "Couldn't reach 'example/dataset' on the Hub (OfflineModeIsEnabled)"
+    )
+    assert classify(error) is FailureKind.SUITE_ERROR
+
+
+def test_failure_classifier_recognises_real_oom() -> None:
+    assert classify(RuntimeError("CUDA out of memory")) is FailureKind.OOM
 
 @pytest.fixture
 def text_model(tmp_path: Path) -> Path:

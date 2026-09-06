@@ -257,6 +257,7 @@ def process_pending(
         outcome = _require_selected_benchmark_results(outcome, selected)
         state = record_outcome(store, listing_id, outcome, policy=policy, signer=signer)
         final_gates = live_gates
+        terminal_stage = "Evaluation complete"
         if outcome.report is not None:
             final_gates = [
                 {
@@ -270,10 +271,19 @@ def process_pending(
                 for result in outcome.report.suite_results
                 if result.gate
             ]
+        elif outcome.failure is not None:
+            # A pipeline/infrastructure failure is not evidence that a model
+            # failed a safety gate. Mark the unfinished gates as errors and
+            # preserve an accurate terminal state for the seller UI.
+            final_gates = [
+                {**gate, "status": "error"}
+                for gate in live_gates
+            ]
+            terminal_stage = "Evaluation failed"
         persist_progress(
             {
                 "percent": 100,
-                "stage": "Evaluation complete",
+                "stage": terminal_stage,
                 "gates": final_gates,
             }
         )
