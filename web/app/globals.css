@@ -378,7 +378,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .contribution-grid > div { min-height: 190px; padding: 21px; }
 .contribution-grid > div:nth-child(odd) { border-right: 1px solid var(--line); }
 .contribution-grid > div:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
-.contribution-grid span, .pipeline-steps > li > span, .invariant-card > span { display: block; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.contribution-grid span, .pipeline-steps > li > span { display: block; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .contribution-grid strong { display: block; margin-top: 33px; font-size: 16px; line-height: 1.35; }
 .contribution-grid p { margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 
@@ -406,19 +406,11 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .curve-figure .curve-annotation { fill: var(--ink); font-size: 10px; }
 .curve-figure > p { border-top: 1px solid var(--line); padding: 15px 18px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 
-.phase-diagram span, .visibility-grid span { display: block; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.visibility-grid span { display: block; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .pipeline-steps { margin: 36px 0; border-top: 1px solid var(--ink); padding: 0; list-style: none; }
 .pipeline-steps > li { display: grid; grid-template-columns: 45px 1fr; gap: 14px; border-bottom: 1px solid var(--line); padding: 19px 0; }
 .pipeline-steps strong { display: block; font-size: 15px; line-height: 1.35; }
 .pipeline-steps p { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.55; }
-.invariant-card { display: grid; grid-template-columns: repeat(2, 1fr); margin: 35px 0 42px; border: 1px solid var(--ink); }
-.invariant-card > span { grid-column: 1 / -1; padding: 15px 18px; border-bottom: 1px solid var(--ink); }
-.invariant-card > div { min-height: 115px; padding: 18px; }
-.invariant-card > div:nth-of-type(odd) { border-right: 1px solid var(--line); }
-.invariant-card > div:nth-of-type(-n + 2) { border-bottom: 1px solid var(--line); }
-.invariant-card strong, .invariant-card small { display: block; }
-.invariant-card strong { margin-top: 20px; font-size: 15px; }
-.invariant-card small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .formula-card { margin: 31px 0; border: 1px solid var(--ink); padding: 25px; }
 .latex-equation { overflow-x: auto; overflow-y: hidden; padding-block: 2px; color: var(--ink); font-size: clamp(16px, 2vw, 21px); }
 .latex-equation .katex-display { margin: 0; text-align: left; }
@@ -426,11 +418,8 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .formula-card small { display: block; max-width: 590px; margin-top: 14px; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .formula-card.compact { border-color: var(--line); background: var(--wash); }
 
-.phase-diagram { display: grid; grid-template-columns: 1fr 52px 1fr; align-items: stretch; margin: 34px 0; border-block: 1px solid var(--ink); }
-.phase-diagram > div:not(.phase-divider) { min-height: 155px; padding: 21px 0; }
-.phase-diagram strong, .visibility-grid strong { display: block; margin-top: 31px; font-size: 17px; line-height: 1.3; }
-.phase-diagram small, .visibility-grid small { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; line-height: 1.45; }
-.phase-divider { display: grid; place-items: center; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; text-transform: uppercase; }
+.visibility-grid strong { display: block; margin-top: 31px; font-size: 17px; line-height: 1.3; }
+.visibility-grid small { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .visibility-grid { display: grid; grid-template-columns: repeat(3, 1fr); margin: 33px 0; border-block: 1px solid var(--ink); }
 .visibility-grid > div { min-height: 145px; padding: 19px 15px; }
 .visibility-grid > div + div { border-left: 1px solid var(--line); }
@@ -513,19 +502,15 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .article-note { margin-top: 27px; }
   .article-body { font-size: 15px; }
   .article-opening { font-size: 19px; }
-  .contribution-grid, .invariant-card { grid-template-columns: 1fr; }
+  .contribution-grid { grid-template-columns: 1fr; }
   .contribution-grid > div { min-height: 155px; border-right: 0 !important; border-bottom: 1px solid var(--line); }
   .contribution-grid > div:last-child { border-bottom: 0; }
-  .invariant-card > div { min-height: 100px; border-right: 0 !important; border-bottom: 1px solid var(--line); }
-  .invariant-card > div:last-child { border-bottom: 0; }
   .eval-flow { grid-template-columns: 1fr; gap: 0; }
   .flow-node { min-height: 125px; }
   .flow-arrow { height: 32px; transform: rotate(90deg); }
   .visibility-grid { grid-template-columns: 1fr; }
   .visibility-grid > div { min-height: 120px; }
   .visibility-grid > div + div { border-top: 1px solid var(--line); border-left: 0; }
-  .phase-diagram { grid-template-columns: 1fr; }
-  .phase-divider { min-height: 32px; border-block: 1px solid var(--line); }
   .curve-figure svg { min-width: 570px; }
   .curve-figure { overflow-x: auto; }
 }

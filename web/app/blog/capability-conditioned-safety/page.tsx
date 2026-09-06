@@ -358,14 +358,6 @@ export default function CapabilityConditionedSafetyPost() {
               <li><span>05</span><div><strong>Deduplicate, rotate, and pin</strong><p>Fingerprints computed from item content select reproducible subsets. A dataset-wide fingerprint verifies that the staged corpus has not changed.</p></div></li>
             </ol>
 
-            <div className="invariant-card">
-              <span>What every generated item retains</span>
-              <div><strong>Ground truth</strong><small>Inherited, not newly claimed</small></div>
-              <div><strong>Lineage</strong><small>Seed and behavior fingerprints</small></div>
-              <div><strong>Provenance</strong><small>Revision and license metadata</small></div>
-              <div><strong>Integrity</strong><small>Dataset fingerprint before evaluation</small></div>
-            </div>
-
             <h3>Rotation overlap</h3>
             <p>
               Our first biology pool contained 28 behaviors in five framings: 140 items.
@@ -457,11 +449,6 @@ export default function CapabilityConditionedSafetyPost() {
               subset that happened to parse. A separate judge also prevents the submitted
               model from grading its own answers.
             </p>
-            <div className="phase-diagram">
-              <div><span>Phase 1</span><strong>Candidate model</strong><small>Generate responses; keep transcripts in memory</small></div>
-              <div className="phase-divider" aria-hidden="true">then</div>
-              <div><span>Phase 2</span><strong>Independent judge</strong><small>Score assistance after the candidate is torn down</small></div>
-            </div>
             <p>
               The two phases share an accelerator rather than co-residing on it. Every result
               records the judge model and revision used for the result. This improves the
