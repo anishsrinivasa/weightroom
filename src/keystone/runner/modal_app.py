@@ -480,10 +480,9 @@ def prefetch_public_safety_assets() -> dict:
             "pinned SWE-bench Verified changed: "
             f"expected {SWE_BENCH_VERIFIED_ITEMS}, got {len(swe_bench_verified)}"
         )
-    swe_bench_dataset_file = (
-        root / f"swe-bench-verified@{SWE_BENCH_VERIFIED_REVISION}.jsonl"
-    )
-    swe_bench_verified.to_json(swe_bench_dataset_file)
+    swe_bench_dataset_dir = root / f"swe-bench-verified@{SWE_BENCH_VERIFIED_REVISION}"
+    swe_bench_dataset_dir.mkdir(exist_ok=True)
+    swe_bench_verified.to_parquet(swe_bench_dataset_dir / "train.parquet")
 
     gdpval_rows = load_dataset(
         "openai/gdpval",
@@ -494,8 +493,9 @@ def prefetch_public_safety_assets() -> dict:
         raise RuntimeError(
             f"pinned GDPval changed: expected {GDPVAL_ITEMS}, got {len(gdpval_rows)}"
         )
-    gdpval_dataset_file = root / f"gdpval@{GDPVAL_REVISION}.jsonl"
-    gdpval_rows.to_json(gdpval_dataset_file)
+    gdpval_dataset_dir = root / f"gdpval-dataset@{GDPVAL_REVISION}"
+    gdpval_dataset_dir.mkdir(exist_ok=True)
+    gdpval_rows.to_parquet(gdpval_dataset_dir / "train.parquet")
     gdpval_dir = root / f"gdpval@{GDPVAL_REVISION}"
     if not gdpval_dir.exists():
         snapshot_download(
@@ -555,9 +555,9 @@ def prefetch_public_safety_assets() -> dict:
         "guard_dir": str(guard_dir),
         "benchmark_judge_dir": str(benchmark_judge_dir),
         "gdpval_dir": str(gdpval_dir),
-        "gdpval_dataset_file": str(gdpval_dataset_file),
+        "gdpval_dataset_dir": str(gdpval_dataset_dir),
         "harvey_lab_dir": str(harvey_dir),
-        "swe_bench_dataset_file": str(swe_bench_dataset_file),
+        "swe_bench_dataset_dir": str(swe_bench_dataset_dir),
         "suites": {
             "harmbench": harmbench,
             "jailbreakbench": jailbreakbench,
@@ -599,7 +599,7 @@ def smoke_agent_sandboxes() -> dict[str, str]:
     assets = json.loads(Path(PUBLIC_SAFETY_ASSETS).read_text(encoding="utf-8"))
     return smoke(
         harvey_root=Path(assets["harvey_lab_dir"]),
-        swe_dataset_file=Path(assets["swe_bench_dataset_file"]),
+        swe_dataset_dir=Path(assets["swe_bench_dataset_dir"]),
     )
 
 
@@ -808,7 +808,7 @@ def _evaluate(
                 run_swe_bench_verified(
                     served_model_name=served_name,
                     artifact_digest=served_name,
-                    dataset_file=Path(assets["swe_bench_dataset_file"]),
+                    dataset_dir=Path(assets["swe_bench_dataset_dir"]),
                     log_dir=Path("/tmp/inspect-logs/swe-bench-verified"),
                 )
             )
@@ -822,7 +822,7 @@ def _evaluate(
                     served_model_name=served_name,
                     artifact_digest=served_name,
                     dataset_root=Path(assets["gdpval_dir"]),
-                    dataset_file=Path(assets["gdpval_dataset_file"]),
+                    dataset_dir=Path(assets["gdpval_dataset_dir"]),
                     log_dir=Path("/tmp/inspect-logs/gdpval"),
                 )
             )

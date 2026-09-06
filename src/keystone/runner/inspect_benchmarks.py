@@ -118,7 +118,7 @@ def run_swe_bench_verified(
     *,
     served_model_name: str,
     artifact_digest: str,
-    dataset_file: Path,
+    dataset_dir: Path,
     log_dir: Path,
     max_samples: int = TASK_SAMPLE_SIZE,
 ) -> SuiteResult:
@@ -136,14 +136,13 @@ def run_swe_bench_verified(
     started = time.monotonic()
     benchmark = BY_ID["swe_bench_verified"]
     task = swe_bench(
-        dataset=str(dataset_file),
+        dataset=str(dataset_dir),
         split="train",
         sandbox_type="modal",
         allow_internet=False,
-        # A local JSONL snapshot was produced from this pinned revision during
-        # prefetch. Passing a revision here forces Inspect to revalidate with
-        # the Hub, which is deliberately unavailable during evaluation.
-        revision=None,
+        # The path is local, while the immutable upstream commit remains in
+        # Inspect's task metadata as the reproducibility identifier.
+        revision=SWE_BENCH_VERIFIED_REVISION,
         # inspect-evals 0.19.0 still emits the legacy
         # ``x-inspect_modal_sandbox`` extension. inspect-sandboxes 0.5.0 uses
         # ``x-modal`` and also understands Docker's network_mode, so supply the
@@ -252,7 +251,7 @@ def _inspect_model_args(served_model_name: str) -> dict[str, Any]:
 
 
 def smoke_agent_sandboxes(
-    *, harvey_root: Path, swe_dataset_file: Path
+    *, harvey_root: Path, swe_dataset_dir: Path
 ) -> dict[str, str]:
     """Build and execute every agent-benchmark sandbox without a model."""
     import inspect_sandboxes.modal  # noqa: F401
@@ -301,11 +300,11 @@ def smoke_agent_sandboxes(
     # paid run. This catches both dataset-cache regressions and sandbox-image
     # regressions before a seller is charged.
     swe_task = swe_bench(
-        dataset=str(swe_dataset_file),
+        dataset=str(swe_dataset_dir),
         split="train",
         sandbox_type="modal",
         allow_internet=False,
-        revision=None,
+        revision=SWE_BENCH_VERIFIED_REVISION,
         sandbox_config=_swe_modal_sandbox_spec,
     )
     swe_sample = next(iter(swe_task.dataset))
@@ -341,7 +340,7 @@ def run_gdpval_generation(
     served_model_name: str,
     artifact_digest: str,
     dataset_root: Path,
-    dataset_file: Path,
+    dataset_dir: Path,
     log_dir: Path,
     max_samples: int = TASK_SAMPLE_SIZE,
 ) -> PendingRubricRun:
@@ -356,12 +355,12 @@ def run_gdpval_generation(
     started = time.monotonic()
     benchmark = BY_ID["gdpval"]
     # The maintained adapter hardcodes the Hub repository. Redirect its loader
-    # to the pinned local JSONL snapshot before constructing the task so the
+    # to the pinned local Parquet snapshot before constructing the task so the
     # trusted controller can remain offline with respect to dataset sources.
     gdpval_util = importlib.import_module("inspect_evals.gdpval.util")
     gdpval_task_module = importlib.import_module("inspect_evals.gdpval.gdpval")
-    gdpval_util.HF_DATASET_PATH = str(dataset_file)
-    gdpval_util.GDPVAL_DATASET_REVISION = None
+    gdpval_util.HF_DATASET_PATH = str(dataset_dir)
+    gdpval_util.GDPVAL_DATASET_REVISION = GDPVAL_REVISION
     task = gdpval_task_module.gdpval(upload_to_hf=False)
     available_ids = [str(sample.id) for sample in task.dataset]
     chosen = sample_task_ids(
@@ -371,7 +370,7 @@ def run_gdpval_generation(
     )[:max_samples]
 
     raw_rows = load_dataset(
-        str(dataset_file),
+        str(dataset_dir),
         split="train",
     )
     raw_by_id = {str(row["task_id"]): dict(row) for row in raw_rows}
