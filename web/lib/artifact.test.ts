@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { formatBytes, manifestDigest, sha256Hex } from "@/lib/artifact";
+import {
+  formatBytes,
+  formatParameterCount,
+  manifestDigest,
+  safetensorsTensorSizes,
+  sha256Hex,
+} from "@/lib/artifact";
 
 describe("artifact identity", () => {
   it("computes the standard SHA-256 vector", async () => {
@@ -52,5 +58,35 @@ describe("formatBytes", () => {
   it("uses readable binary units", () => {
     expect(formatBytes(1024)).toBe("1.0 KB");
     expect(formatBytes(1024 ** 3)).toBe("1.00 GB");
+  });
+});
+
+describe("SafeTensors parameter detection", () => {
+  function checkpoint(header: object): ArrayBuffer {
+    const encoded = new TextEncoder().encode(JSON.stringify(header));
+    const bytes = new Uint8Array(8 + encoded.length);
+    new DataView(bytes.buffer).setBigUint64(0, BigInt(encoded.length), true);
+    bytes.set(encoded, 8);
+    return bytes.buffer;
+  }
+
+  it("counts tensor shapes without loading tensor data", () => {
+    const tensors = safetensorsTensorSizes(checkpoint({
+      __metadata__: { format: "pt" },
+      "model.embed_tokens.weight": { dtype: "F16", shape: [32, 8], data_offsets: [0, 512] },
+      "model.layers.0.weight": { dtype: "F16", shape: [8, 8], data_offsets: [512, 640] },
+    }));
+
+    expect([...tensors.values()].reduce((total, size) => total + size, 0)).toBe(320);
+  });
+
+  it("rejects malformed headers instead of guessing", () => {
+    expect(() => safetensorsTensorSizes(new ArrayBuffer(7))).toThrow(/header/i);
+    expect(() => safetensorsTensorSizes(checkpoint({ weight: { shape: [4, -1] } }))).toThrow(/shape/i);
+  });
+
+  it("formats model-scale counts", () => {
+    expect(formatParameterCount(134_515_008)).toBe("134.52M");
+    expect(formatParameterCount(7_242_000_000)).toBe("7.24B");
   });
 });

@@ -23,8 +23,10 @@ import {
 import {
   BROWSER_FILE_LIMIT,
   formatBytes,
+  formatParameterCount,
   manifestDigest,
   normalizedRelativePath,
+  safetensorsTensorSizes,
   sha256Hex,
 } from "@/lib/artifact";
 import { formatUsdc } from "@/lib/display";
@@ -56,6 +58,8 @@ export function SubmitWizard() {
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [picked, setPicked] = useState<SelectedFile[]>([]);
   const [digest, setDigest] = useState<string | null>(null);
+  const [parameterCount, setParameterCount] = useState<number | null>(null);
+  const [parameterCountKnown, setParameterCountKnown] = useState(false);
   const [hashing, setHashing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
@@ -176,18 +180,38 @@ export function SubmitWizard() {
     setHashing(true);
     setPicked([]);
     setDigest(null);
+    setParameterCount(null);
+    setParameterCountKnown(false);
     try {
       const entries: SelectedFile[] = [];
+      const tensorSizes = new Map<string, number>();
+      let safetensorsFound = false;
+      let safetensorsValid = true;
       for (const file of files) {
+        const data = await file.arrayBuffer();
         entries.push({
           path: normalizedRelativePath(file),
           size_bytes: file.size,
-          sha256: await sha256Hex(await file.arrayBuffer()),
+          sha256: await sha256Hex(data),
           blob: file,
         });
+        if (file.name.toLowerCase().endsWith(".safetensors")) {
+          safetensorsFound = true;
+          try {
+            for (const [name, size] of safetensorsTensorSizes(data)) {
+              if (!tensorSizes.has(name)) tensorSizes.set(name, size);
+            }
+          } catch {
+            safetensorsValid = false;
+          }
+        }
       }
       setPicked(entries);
       setDigest(await manifestDigest(entries));
+      if (safetensorsFound && safetensorsValid && tensorSizes.size) {
+        setParameterCount([...tensorSizes.values()].reduce((total, size) => total + size, 0));
+        setParameterCountKnown(true);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not hash the selected files");
     } finally {
@@ -451,8 +475,14 @@ export function SubmitWizard() {
           </fieldset>
           <div className="derived-field">
             <span className="field-label">Model size</span>
-            <strong>Detected automatically after upload</strong>
-            <p className="field-hint">Weightroom reads tensor shapes from the checkpoint; sellers cannot self-report this facet.</p>
+            <strong>{parameterCountKnown && parameterCount != null
+              ? `${formatParameterCount(parameterCount)} parameters`
+              : picked.length && !hashing
+                ? "Parameter count unavailable locally"
+                : "Detected automatically after upload"}</strong>
+            <p className="field-hint">{parameterCountKnown && parameterCount != null
+              ? `${parameterCount.toLocaleString("en-US")} parameters detected from SafeTensors tensor shapes.`
+              : "Weightroom reads tensor shapes from SafeTensors checkpoints; other formats are inspected by the evaluation worker."}</p>
           </div>
           <div
             className={`drop-zone ${dragging ? "dragging" : ""}`}
