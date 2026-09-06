@@ -294,6 +294,12 @@ class SuiteResult(BaseModel):
         description="Which probe and band produced `threshold_required`, so a "
         "verdict can be audited without re-running anything.",
     )
+    utility: bool = Field(
+        default=False,
+        description="A benign-utility control: how much ordinary work the "
+        "model still does. Any refusal bar can be satisfied by refusing "
+        "everything, so this is the floor that closes that path.",
+    )
     judge_id: str | None = Field(
         default=None,
         description="Which grader produced this result, when one was involved. "

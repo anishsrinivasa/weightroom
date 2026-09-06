@@ -28,6 +28,9 @@ MANIFEST = SuiteManifest(
     mandatory=True,
     # Shown to buyers, not averaged into the capability letter.
     diagnostic=True,
+    # And the benign-utility floor. A model can clear any refusal bar by
+    # refusing everything; this is what stops that being a passing strategy.
+    utility=True,
     # Compared against the base: over-refusal is a regression a seller
     # optimising for capability will not notice they introduced.
     differential=True,

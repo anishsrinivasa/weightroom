@@ -145,6 +145,7 @@ def _stamp(result: SuiteResult, manifest) -> SuiteResult:
     result.gate = manifest.gate
     result.diagnostic = manifest.diagnostic
     result.internal = manifest.internal
+    result.utility = manifest.utility
     result.domain = manifest.domain
     result.role = manifest.role
     result.conditioned_by = manifest.conditioned_by

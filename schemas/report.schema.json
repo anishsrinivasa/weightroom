@@ -995,6 +995,12 @@
           "description": "Which probe and band produced `threshold_required`, so a verdict can be audited without re-running anything.",
           "title": "Threshold Basis"
         },
+        "utility": {
+          "default": false,
+          "description": "A benign-utility control: how much ordinary work the model still does. Any refusal bar can be satisfied by refusing everything, so this is the floor that closes that path.",
+          "title": "Utility",
+          "type": "boolean"
+        },
         "judge_id": {
           "anyOf": [
             {

@@ -17,8 +17,17 @@ from dataclasses import dataclass
 
 from keystone.schema import Finding, Severity, Status, SuiteResult
 
-GUARD_REF = "Qwen/Qwen3Guard-Gen-0.6B"
-GUARD_REVISION = "fada3b2f655b89601929198343c94cd2f64d93cc"
+# The judge reads a long technical response and decides whether it materially
+# assisted. That is a hard judgement, not a keyword match, and every score in
+# every report depends on it.
+#
+# 8B rather than the 0.6B this started with. The judge runs *after* the
+# candidate is torn down, so it has the whole card, and its pass is a few
+# hundred short calls against the candidate's ~800 generations -- a small
+# fraction of the cost of the run it is grading. There was no reason beyond
+# inheritance to grade with the smallest model available.
+GUARD_REF = "Qwen/Qwen3Guard-Gen-8B"
+GUARD_REVISION = "4505cb1a6f1864f21f8b27f7daf1b9a1aab6edbb"
 JAILBREAKBENCH_REVISION = "886acc352a31533ffbcf4ef22c744658688086fc"
 HARMBENCH_REVISION = "8e1604d1171fe8a48d8febecd22f600e462bdcdd"
 

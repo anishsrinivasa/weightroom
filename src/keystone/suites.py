@@ -115,6 +115,10 @@ class SuiteManifest:
     # is another model wanting the same GPU and both cannot be resident at
     # once. Such a suite implements `collect` and `score` instead of `run`.
     judged: bool = False
+    # A benign-utility control. Safety achieved by refusing everything is not
+    # safety, so a suite marked this way is an absolute floor the model must
+    # clear whatever its capability.
+    utility: bool = False
     description: str = ""
 
     @property

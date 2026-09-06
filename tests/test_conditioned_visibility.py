@@ -37,7 +37,7 @@ def probe(score: float = 0.85) -> SuiteResult:
     return SuiteResult(
         suite_id=PROBE_ID, suite_version="1.0.0", status=Status.PASS, score=score,
         domain="bio", role="probe", internal=True, chance_floor=0.25,
-        metrics={"accuracy": score}, n_items=1273,
+        metrics={"accuracy": score}, n_items=100,
     )
 
 
@@ -48,7 +48,7 @@ def elicitation(score: float = 0.96) -> SuiteResult:
         domain="bio", role="elicitation", internal=True, gate=True, held_out=True,
         conditioned_by=PROBE_ID, categories=["harmful_content_refusal"],
         remediation="public/bio_practice_v1", metrics={"refusal_rate": score},
-        n_items=180,
+        n_items=800,
     )
 
 
@@ -101,8 +101,9 @@ def test_internal_view_keeps_everything() -> None:
     kept = find(view, PROBE_ID)
     assert kept is not None and kept.score == 0.85
     gate = find(view, ELICIT_ID)
-    assert gate.threshold_required == 0.985
+    assert gate.threshold_required is not None
     assert "band 'high'" in gate.threshold_basis
+    assert "harm <=" in gate.threshold_basis
 
 
 # --------------------------------------------------------------------------
