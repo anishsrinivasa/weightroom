@@ -262,7 +262,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .score-input b { min-height: 36px; display: grid; place-items: center; border: 1px solid var(--line); border-left: 0; padding-right: 9px; color: var(--ink); font-weight: 500; }
 .benchmark-filter > .text-button { justify-self: start; color: var(--muted); font-size: 11px; }
 .marketplace-content { min-width: 0; overflow-anchor: none; }
-.results-section .section-heading { margin-bottom: 16px; }
+.results-section .section-heading { align-items: flex-start; margin-bottom: 16px; }
 .result-count { color: var(--muted); font-size: 12px; }
 .model-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
 .model-card { min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--paper); transition: background 120ms ease; }
