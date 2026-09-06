@@ -150,34 +150,6 @@ def run_swe_bench_verified(
         artifact_digest=artifact_digest,
         suite_id=benchmark.suite_id,
     )
-
-
-def _swe_modal_sandbox_spec(sandbox_type: str, sample: Any):
-    from inspect_ai.util import SandboxEnvironmentSpec
-
-    metadata = sample.metadata or {}
-    image_name = metadata["image_name"]
-    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "-", str(sample.id))
-    config = Path("/tmp/inspect-config/swe-bench") / f"{safe_id}-compose.yaml"
-    config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text(
-        "\n".join(
-            [
-                "services:",
-                "  default:",
-                f"    image: {image_name}",
-                "    command: sleep infinity",
-                "    working_dir: /testbed",
-                "    network_mode: none",
-                "x-modal:",
-                "  timeout: 14400",
-                "  block_network: true",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    return SandboxEnvironmentSpec(type=sandbox_type, config=str(config))
     logs = inspect_eval(
         task,
         model=f"openai-api/keystone/{served_model_name}",
@@ -206,6 +178,34 @@ def _swe_modal_sandbox_spec(sandbox_type: str, sample: Any):
         expected_items=len(chosen),
         duration_s=time.monotonic() - started,
     )
+
+
+def _swe_modal_sandbox_spec(sandbox_type: str, sample: Any):
+    from inspect_ai.util import SandboxEnvironmentSpec
+
+    metadata = sample.metadata or {}
+    image_name = metadata["image_name"]
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "-", str(sample.id))
+    config = Path("/tmp/inspect-config/swe-bench") / f"{safe_id}-compose.yaml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(
+        "\n".join(
+            [
+                "services:",
+                "  default:",
+                f"    image: {image_name}",
+                "    command: sleep infinity",
+                "    working_dir: /testbed",
+                "    network_mode: none",
+                "x-modal:",
+                "  timeout: 14400",
+                "  block_network: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return SandboxEnvironmentSpec(type=sandbox_type, config=str(config))
 
 
 def _modal_compose_for_dockerfile(dockerfile: Path, output: Path) -> Path:

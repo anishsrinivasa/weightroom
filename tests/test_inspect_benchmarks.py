@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import sys
 import time
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 from keystone.runner.inspect_benchmarks import (
     PendingRubricRun,
     _json_object,
     _swe_modal_sandbox_spec,
     result_from_inspect_logs,
+    run_swe_bench_verified,
     score_rubric_run,
 )
 from keystone.schema import Status
@@ -89,6 +91,53 @@ def test_swe_modal_spec_uses_current_networkless_extension(tmp_path, monkeypatch
     assert "network_mode: none" in content
     assert "block_network: true" in content
     assert is_compose_yaml(spec.config)
+
+
+def test_swe_adapter_invokes_inspect_and_returns_result(tmp_path, monkeypatch) -> None:
+    import inspect_ai
+    import inspect_evals.swe_bench as swe_module
+    import keystone.runner.inspect_benchmarks as adapter
+
+    task = SimpleNamespace(
+        dataset=[
+            SimpleNamespace(id="task-1"),
+            SimpleNamespace(id="task-2"),
+        ]
+    )
+    captured = {}
+    sandbox_package = ModuleType("inspect_sandboxes")
+    sandbox_package.__path__ = []
+    monkeypatch.setitem(sys.modules, "inspect_sandboxes", sandbox_package)
+    monkeypatch.setitem(
+        sys.modules, "inspect_sandboxes.modal", ModuleType("inspect_sandboxes.modal")
+    )
+
+    monkeypatch.setattr(swe_module, "swe_bench", lambda **kwargs: task)
+    monkeypatch.setattr(
+        adapter,
+        "sample_task_ids",
+        lambda available_ids, **kwargs: list(available_ids),
+    )
+
+    def fake_eval(actual_task, **kwargs):
+        captured["task"] = actual_task
+        captured["kwargs"] = kwargs
+        return [SimpleNamespace(samples=[_sample(1), _sample(0)])]
+
+    monkeypatch.setattr(inspect_ai, "eval", fake_eval)
+
+    result = run_swe_bench_verified(
+        served_model_name="uploaded-model",
+        artifact_digest="a" * 64,
+        log_dir=tmp_path,
+        max_samples=2,
+    )
+
+    assert captured["task"] is task
+    assert captured["kwargs"]["sample_id"] == ["task-1", "task-2"]
+    assert captured["kwargs"]["sandbox_cleanup"] is True
+    assert result.status is Status.PASS
+    assert result.score == 0.5
 
 
 def test_rubric_proxy_scores_all_items(tmp_path) -> None:
