@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING
 
 from keystone.db import Store
 from keystone.listing import Attempt, AttemptPolicy, DEFAULT_POLICY, Listing, ListingState
-from keystone.pipeline import Outcome
-from keystone.schema import CertificationReport, Status
+from keystone.pipeline import FailureKind, Outcome
+from keystone.schema import CertificationReport, Status, SuiteResult
 from keystone.tags import model_size_tag
 
 if TYPE_CHECKING:
@@ -101,6 +101,59 @@ def record_outcome(
         return listing.state
 
 
+def _require_selected_benchmark_results(
+    outcome: Outcome, selected: list[str]
+) -> Outcome:
+    """Fail closed if the harness omitted a benchmark the seller paid for.
+
+    The public benchmark catalogue and the executable suite registry are
+    intentionally separate.  Until an official adapter exists for every
+    catalogue entry, that separation must never turn a missing run into a
+    successful certificate.
+    """
+    if outcome.report is None or not selected:
+        return outcome
+
+    report = outcome.report.model_copy(deep=True)
+    by_id = {result.suite_id: result for result in report.suite_results}
+    missing = [benchmark_id for benchmark_id in selected if benchmark_id not in by_id]
+    incomplete = [
+        benchmark_id
+        for benchmark_id in selected
+        if benchmark_id in by_id
+        and (
+            by_id[benchmark_id].declined
+            or by_id[benchmark_id].status in {Status.ERROR, Status.SKIPPED}
+        )
+    ]
+    if not missing and not incomplete:
+        return outcome
+
+    for benchmark_id in missing:
+        report.suite_results.append(
+            SuiteResult(
+                suite_id=benchmark_id,
+                suite_version="unavailable",
+                status=Status.ERROR,
+                display_name=benchmark_id,
+                diagnostic=True,
+            )
+        )
+
+    invalid = sorted(set(missing + incomplete))
+    detail = "selected benchmark did not complete: " + ", ".join(invalid)
+    report.status = Status.ERROR
+    report.rating.certified = False
+    report.rating.rationale = detail
+    return Outcome(
+        outcome.ref,
+        report=report,
+        failure=FailureKind.SUITE_ERROR,
+        detail=detail,
+        wall_s=outcome.wall_s,
+    )
+
+
 def process_pending(
     store: Store,
     *,
@@ -116,7 +169,7 @@ def process_pending(
 
     `certify` is injectable so this is testable without Modal or a GPU.
     """
-    from keystone.pipeline import FailureKind, Outcome, certify_uploaded
+    from keystone.pipeline import certify_uploaded
 
     if certify is None and artifacts is None:
         raise ValueError("an artifact store is required for uploaded-model certification")
@@ -200,6 +253,7 @@ def process_pending(
                 failure=FailureKind.UNKNOWN,
                 detail=repr(exc)[:400],
             )
+        outcome = _require_selected_benchmark_results(outcome, selected)
         state = record_outcome(store, listing_id, outcome, policy=policy, signer=signer)
         final_gates = live_gates
         if outcome.report is not None:

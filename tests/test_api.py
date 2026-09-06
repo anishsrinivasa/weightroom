@@ -117,7 +117,14 @@ def _report(grade="B", held_out_score=0.88, report_id=None) -> CertificationRepo
                 n_items=200,
                 categories=["harmful_content_refusal"],
                 remediation="public/harm_practice_v1",
-            )
+            ),
+            SuiteResult(
+                suite_id="mmlu_pro",
+                suite_version="1",
+                status=Status.PASS,
+                score=0.72,
+                n_items=100,
+            ),
         ],
         cost=Cost(gpu_seconds=81.0, usd_estimate=0.0248),
         rating=Rating(grade=grade, certified=grade not in ("F", "unrated"), as_tested_at=NOW),
@@ -311,7 +318,9 @@ def test_safety_gate_is_seller_only(client: TestClient, deps: Deps) -> None:
     assert creator["report"]["suite_results"][0]["categories"] == ["harmful_content_refusal"]
     assert "safety_gates" in creator
     assert "safety_gates" not in buyer
-    assert buyer["report"]["suite_results"] == []
+    assert [result["suite_id"] for result in buyer["report"]["suite_results"]] == [
+        "mmlu_pro"
+    ]
 
 
 def test_seller_workspace_is_scoped_to_authenticated_creator(
@@ -518,6 +527,30 @@ def test_worker_rejects_a_failing_model(client: TestClient, deps: Deps) -> None:
     listing_id = _queue(client, deps)
     results = process_pending(deps.store, certify=lambda d, only=None: Outcome(d, report=_report("F")))
     assert results == [(listing_id, ListingState.REJECTED)]
+
+
+def test_worker_rejects_when_selected_benchmark_is_missing(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _queue(client, deps)
+    report = _report("B")
+    report.suite_results = [
+        result for result in report.suite_results if result.suite_id != "mmlu_pro"
+    ]
+
+    results = process_pending(
+        deps.store,
+        certify=lambda digest, only=None: Outcome(digest, report=report),
+    )
+
+    assert results == [(listing_id, ListingState.REJECTED)]
+    with deps.store.session() as session:
+        stored = deps.store.latest_report(session, listing_id)
+        assert stored.rating.certified is False
+        assert any(
+            result.suite_id == "mmlu_pro" and result.status is Status.ERROR
+            for result in stored.suite_results
+        )
 
 
 def test_worker_rejects_when_serving_fails(client: TestClient, deps: Deps) -> None:
