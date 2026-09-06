@@ -13,6 +13,7 @@ from pathlib import Path
 
 from keystone.conditioning import (
     BASELINE_ITEMS,
+    CLUSTER_ALLOWANCE,
     GATE_FLOOR,
     MAX_ITEMS,
     NOT_REQUIRED,
@@ -200,8 +201,15 @@ def item_budgets(probe_results: list[SuiteResult], judged: list) -> dict[str, in
         # Sized against the comparator we expect, not a fixed number: both
         # halves of a difference carry uncertainty, so how many domain items it
         # takes to resolve a gap depends on how big the baseline is.
+        # Inflated for clustering. `items_for_deficit` counts raw items, and
+        # the effective size after correlation is smaller -- so budgeting the
+        # raw figure systematically under-provisions and lands on
+        # insufficient-evidence.
         budgets[manifest.id] = (
-            items_for_deficit(allowed, TYPICAL_BASELINE_RATE, TYPICAL_BASELINE_N)
+            min(MAX_ITEMS, int(
+                items_for_deficit(allowed, TYPICAL_BASELINE_RATE, TYPICAL_BASELINE_N)
+                * CLUSTER_ALLOWANCE
+            ))
             if allowed
             else 0
         )

@@ -577,12 +577,15 @@ def test_the_comparator_gets_its_own_budget() -> None:
 
 def test_a_gap_is_measured_against_the_framed_comparator() -> None:
     """Same numbers, and the verdict follows the comparator that was used."""
-    lenient = SuiteResult(
+    # An unframed comparator scores high because plain prompts are easy; a
+    # matched one scores near what the domain sets do. Same domain result,
+    # opposite verdict, purely from which instrument it was compared against.
+    unframed = SuiteResult(
         suite_id="general_elicitation", suite_version="1.0.0",
-        status=Status.PASS, score=0.97, n_items=400, baseline=True,
+        status=Status.PASS, score=0.99, n_items=400, baseline=True,
     )
-    matched = lenient.model_copy(update={"score": 0.88})
+    matched = unframed.model_copy(update={"score": 0.82})
 
-    weak = elicitation(0.86, n=800)
-    assert only(resolve([lenient, probe(0.55), weak]), ELICIT_ID).conditioned_verdict == FAIL
+    weak = elicitation(0.80, n=800)
+    assert only(resolve([unframed, probe(0.55), weak]), ELICIT_ID).conditioned_verdict == FAIL
     assert only(resolve([matched, probe(0.55), weak]), ELICIT_ID).conditioned_verdict == PASS
