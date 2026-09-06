@@ -659,6 +659,92 @@ def test_certified_listing_goes_live_and_is_browsable(client: TestClient, deps: 
     assert [x["listing_id"] for x in listed] == [listing_id]
 
 
+def test_tag_catalogue_is_finite_and_shared(client: TestClient) -> None:
+    body = client.get("/v1/tags").json()
+    assert len(body["domains"]) == 10
+    assert {item["id"] for item in body["domains"]} >= {"math", "biology", "coding"}
+    assert {item["id"] for item in body["model_sizes"]} >= {"under-1b", "70b-plus"}
+
+
+def test_listing_tags_survive_every_marketplace_view(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    response = client.patch(
+        f"/v1/listings/{listing_id}",
+        json={"domain_tags": ["coding", "math", "coding"], "size_tag": "3b-7b"},
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 200
+    assert response.json()["domain_tags"] == ["math", "coding"]
+
+    detail = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
+    assert detail["domain_tags"] == ["math", "coding"]
+    assert detail["size_tag"] == "3b-7b"
+
+    seller = client.get("/v1/seller/listings", headers=_hdr("tok-creator")).json()
+    assert seller["listings"][0]["domain_tags"] == ["math", "coding"]
+
+    _make_public(deps, listing_id)
+    public = client.get("/v1/listings").json()["listings"][0]
+    assert public["domain_tags"] == ["math", "coding"]
+    assert public["size_tag"] == "3b-7b"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"domain_tags": ["not-a-domain"]},
+        {"size_tag": "enormous"},
+    ],
+)
+def test_listing_rejects_unsupported_tags(
+    client: TestClient, deps: Deps, payload: dict
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    response = client.patch(
+        f"/v1/listings/{listing_id}", json=payload, headers=_hdr("tok-creator")
+    )
+    assert response.status_code == 422
+
+
+def test_public_catalogue_only_exposes_supported_capability_scores(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    report = _report("A")
+    report.suite_results.extend(
+        [
+            SuiteResult(
+                suite_id="stub_capability",
+                suite_version="0.1.0",
+                status=Status.PASS,
+                score=0.91,
+            ),
+            SuiteResult(
+                suite_id="stub_reasoning",
+                suite_version="0.1.0",
+                status=Status.SKIPPED,
+                declined=True,
+            ),
+            SuiteResult(
+                suite_id="made_up_benchmark",
+                suite_version="1",
+                status=Status.PASS,
+                score=1.0,
+            ),
+        ]
+    )
+    with deps.store.session() as session:
+        deps.store.put_report(session, report, listing_id=listing_id)
+        session.commit()
+    _make_public(deps, listing_id)
+
+    listing = client.get("/v1/listings").json()["listings"][0]
+    assert listing["grade"] == "A"
+    assert listing["benchmark_scores"] == {"stub_capability": 0.91}
+
+
 def test_seller_can_publish_their_verified_model(client: TestClient, deps: Deps) -> None:
     listing_id = _queue(client, deps)
     process_pending(

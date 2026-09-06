@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from keystone.auth import Authenticator, Principal, audience_for
@@ -49,6 +49,8 @@ from keystone.providers.dual import DualPaymentProvider
 from keystone.schema import Audience, CertificationReport, FileEntry
 from keystone.safety_gates import summarize as summarize_safety_gates
 from keystone.storage import ArtifactStore, LocalStore, artifact_key, image_key
+from keystone.tags import catalogue as tag_catalogue
+from keystone.tags import normalise_domain_tags, normalise_size_tag
 from keystone.visibility import assert_no_leak, redact
 
 
@@ -166,6 +168,30 @@ def _row_or_404(d: Deps, s: Session, listing_id: str) -> ListingRow:
     if row is None:
         raise HTTPException(404, "no such listing")
     return row
+
+
+def _listing_tags(row: ListingRow) -> dict[str, object]:
+    return {
+        "domain_tags": normalise_domain_tags(row.domain_tags or []),
+        "size_tag": normalise_size_tag(row.size_tag),
+    }
+
+
+def _buyer_benchmark_scores(
+    report: CertificationReport | None, supported_ids: set[str]
+) -> dict[str, float]:
+    """Public, numeric capability scores suitable for catalogue filtering."""
+    if report is None:
+        return {}
+    return {
+        result.suite_id: result.score
+        for result in report.suite_results
+        if (
+            result.suite_id in supported_ids
+            and not result.declined
+            and result.score is not None
+        )
+    }
 
 
 def create_app(deps: Deps) -> FastAPI:
@@ -307,29 +333,52 @@ def create_app(deps: Deps) -> FastAPI:
             row.currency = body.currency
             row.description = body.description
             row.image_digest = body.image_digest
+            row.domain_tags = body.domain_tags
+            row.size_tag = body.size_tag
             s.commit()
         return {"listing_id": listing_id, "state": ListingState.DRAFT.value}
+
+    @app.get("/v1/tags")
+    def tags() -> dict:
+        """Finite listing facets accepted by create and update operations."""
+        return tag_catalogue()
 
     @app.get("/v1/listings")
     def browse(d: D) -> dict:
         """Public catalogue. Unpublished submissions never cross this boundary."""
+        from keystone.registry import SUITES_ROOT, discover
+
+        supported_ids = {
+            suite.manifest.id
+            for suite in discover(SUITES_ROOT)
+            if not suite.manifest.gate
+            and not suite.manifest.diagnostic
+            and not suite.manifest.held_out
+        }
         with d.store.session() as s:
             rows = d.store.listings_in_state(s, ListingState.LISTED)
-            return {
-                "listings": [
+            listings = []
+            for row in rows:
+                report = d.store.latest_report(s, row.id)
+                listings.append(
                     {
-                        "listing_id": r.id,
-                        "title": r.title,
-                        "description": r.description,
-                        "image_url": _image_url(r),
-                        "artifact_digest": r.artifact_digest,
-                        "state": r.state,
-                        "price": str(r.price()),
-                        "price_minor": r.price_minor,
-                        "created_at": r.created_at.isoformat(),
+                        "listing_id": row.id,
+                        "title": row.title,
+                        "description": row.description,
+                        "image_url": _image_url(row),
+                        "artifact_digest": row.artifact_digest,
+                        "state": row.state,
+                        "price": str(row.price()),
+                        "price_minor": row.price_minor,
+                        "seller_id": row.creator_id,
+                        "grade": report.rating.grade if report else None,
+                        "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
+                        **_listing_tags(row),
+                        "created_at": row.created_at.isoformat(),
                     }
-                    for r in rows
-                ]
+                )
+            return {
+                "listings": listings
             }
 
     @app.get("/v1/seller/listings")
@@ -357,6 +406,7 @@ def create_app(deps: Deps) -> FastAPI:
                         "state": row.state,
                         "price": str(row.price()),
                         "price_minor": row.price_minor,
+                        **_listing_tags(row),
                         "selected_benchmarks": list(row.selected_benchmarks or []),
                         "attempts": len(row.attempts),
                         "grade": grade,
@@ -400,6 +450,10 @@ def create_app(deps: Deps) -> FastAPI:
                 row.description = body.description
             if body.image_digest is not None:
                 row.image_digest = body.image_digest
+            if body.domain_tags is not None:
+                row.domain_tags = body.domain_tags
+            if body.size_tag is not None:
+                row.size_tag = body.size_tag
             s.commit()
             return {
                 "listing_id": row.id,
@@ -408,6 +462,7 @@ def create_app(deps: Deps) -> FastAPI:
                 "image_url": _image_url(row),
                 "price": str(row.price()),
                 "price_minor": row.price_minor,
+                **_listing_tags(row),
                 "state": row.state,
             }
 
@@ -422,6 +477,27 @@ def create_app(deps: Deps) -> FastAPI:
                 # to their seller (and platform operators) until publication.
                 raise HTTPException(404, "no such listing")
             report = d.store.latest_report(s, listing_id)
+            from keystone.registry import SUITES_ROOT, discover
+
+            supported_ids = {
+                suite.manifest.id
+                for suite in discover(SUITES_ROOT)
+                if not suite.manifest.gate
+                and not suite.manifest.diagnostic
+                and not suite.manifest.held_out
+            }
+            owned = principal is not None and principal.user_id == row.creator_id
+            entitled = False
+            if principal is not None:
+                order = d.store.entitling_order(s, principal.user_id, listing_id)
+                entitled = check_entitlement(
+                    buyer_id=principal.user_id,
+                    listing_id=listing_id,
+                    listing_state=row.state,
+                    listing_creator_id=row.creator_id,
+                    price=row.price(),
+                    order=order,
+                ).allowed
             payload = {
                 "listing_id": row.id,
                 "title": row.title,
@@ -431,6 +507,12 @@ def create_app(deps: Deps) -> FastAPI:
                 "artifact_digest": row.artifact_digest,
                 "price": str(row.price()),
                 "price_minor": row.price_minor,
+                "seller_id": row.creator_id,
+                "grade": report.rating.grade if report else None,
+                "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
+                "is_owner": owned,
+                "entitled": entitled,
+                **_listing_tags(row),
                 "attempts": len(row.attempts),
                 "created_at": row.created_at.isoformat(),
                 "updated_at": row.updated_at.isoformat(),
@@ -934,6 +1016,18 @@ class CreateListing(BaseModel):
     # Minor units. Zero is a real price -- a free model still gets certified.
     price_minor: int = Field(default=0, ge=0)
     currency: str = "USDC"
+    domain_tags: list[str] = Field(default_factory=list, max_length=10)
+    size_tag: str | None = None
+
+    @field_validator("domain_tags")
+    @classmethod
+    def validate_domain_tags(cls, value: list[str]) -> list[str]:
+        return normalise_domain_tags(value)
+
+    @field_validator("size_tag")
+    @classmethod
+    def validate_size_tag(cls, value: str | None) -> str | None:
+        return normalise_size_tag(value)
 
 
 class UpdateListing(BaseModel):
@@ -944,6 +1038,18 @@ class UpdateListing(BaseModel):
     title: str | None = None
     description: str | None = Field(default=None, max_length=DESCRIPTION_LIMIT)
     image_digest: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
+    domain_tags: list[str] | None = Field(default=None, max_length=10)
+    size_tag: str | None = None
+
+    @field_validator("domain_tags")
+    @classmethod
+    def validate_domain_tags(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else normalise_domain_tags(value)
+
+    @field_validator("size_tag")
+    @classmethod
+    def validate_size_tag(cls, value: str | None) -> str | None:
+        return normalise_size_tag(value)
 
 
 class ConfirmPayment(BaseModel):

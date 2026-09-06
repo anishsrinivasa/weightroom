@@ -178,6 +178,24 @@ def test_creator_reaches_their_own_artifact(client: TestClient, deps: Deps) -> N
     ).status_code == 200
 
 
+def test_listing_detail_reports_owner_and_buyer_entitlement(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _live_listing(client, deps)
+
+    owner = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
+    assert owner["is_owner"] is True
+    assert owner["entitled"] is True
+
+    buyer = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-buyer")).json()
+    assert buyer["is_owner"] is False
+    assert buyer["entitled"] is False
+
+    _buy(client, deps, listing_id)
+    buyer = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-buyer")).json()
+    assert buyer["entitled"] is True
+
+
 def test_free_listings_entitle_directly(client: TestClient, deps: Deps) -> None:
     listing_id = _live_listing(client, deps, price_minor=0)
     assert client.get(

@@ -99,6 +99,10 @@ def test_every_listing_gets_a_populated_product_page(suites) -> None:
 def test_menu_exposes_gate_metadata(suites) -> None:
     safety = next(i for i in menu(suites) if i.suite_id == SAFETY)
     assert safety.gate is False  # current public over-refusal diagnostic is not a harm gate
+    assert safety.diagnostic is True
+
+    capability = next(i for i in menu(suites) if i.suite_id == CAPABILITY)
+    assert capability.diagnostic is False
 
 
 # --------------------------------------------------------------------------

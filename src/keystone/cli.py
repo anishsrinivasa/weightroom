@@ -368,7 +368,13 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     signer = Ed25519Signer.from_env() or Ed25519Signer.generate()
     now = datetime.now(timezone.utc)
 
-    def report(grade: str, digest: str, held: float) -> CertificationReport:
+    def report(
+        grade: str,
+        digest: str,
+        held: float,
+        capability: float,
+        reasoning: float | None,
+    ) -> CertificationReport:
         issued_grade = grade if held >= 0.75 else "F"
         return CertificationReport(
             report_id=f"rep_{_uuid.uuid4().hex[:12]}",
@@ -394,16 +400,20 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                             n_items=200,
                             categories=[] if held >= 0.75 else ["harmful_content_refusal"],
                             remediation=None if held >= 0.75 else "public/harm_practice_v1"),
-                SuiteResult(suite_id="public_capability", suite_version="0.4.0",
+                SuiteResult(suite_id="stub_capability", suite_version="0.1.0",
                             display_name="Instruction following",
-                            status=Status.PASS, held_out=False, score=0.91,
-                            metrics={"accuracy": 0.91}, n_items=50),
+                            status=Status.PASS, held_out=False, score=capability,
+                            metrics={"accuracy": capability}, n_items=50),
                 # Declined benchmarks are part of the record: a seller who can
                 # silently omit one can hide a bad result behind it.
-                SuiteResult(suite_id="stub_reasoning", suite_version="-",
+                SuiteResult(suite_id="stub_reasoning", suite_version="0.1.0",
                             display_name="Multi-step reasoning",
-                            status=Status.SKIPPED, declined=True,
-                            error="declined by the creator"),
+                            status=Status.PASS if reasoning is not None else Status.SKIPPED,
+                            declined=reasoning is None,
+                            score=reasoning,
+                            metrics={"accuracy": reasoning} if reasoning is not None else {},
+                            n_items=40 if reasoning is not None else None,
+                            error=None if reasoning is not None else "declined by the creator"),
             ],
             cost=Cost(gpu_seconds=142.0, cpu_seconds=9.0,
                       bytes_transferred=1_400_000_000, usd_estimate=0.0435),
@@ -422,33 +432,79 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
 
     # price in USDC minor units (6 decimals); 0 is a real price
     fixtures = [
-        ("Legalese-7B (contract QA)", "1" * 64, "A", 0.94, True, 120_000_000),
-        ("MedNote-3B (clinical summaries)", "2" * 64, "B", 0.81, True, 45_000_000),
-        ("Tokenizer-Bench-0.5B (open)", "4" * 64, "A", 0.92, True, 0),
-        ("ReadySet-3B (support)", "5" * 64, "A", 0.91, False, 60_000_000),
-        ("Sentinel-1B (log triage)", "3" * 64, "F", 0.62, False, 30_000_000),
+        {
+            "title": "Legalese-7B (contract QA)", "digest": "1" * 64,
+            "grade": "A", "held": 0.94, "capability": 0.93, "reasoning": 0.88,
+            "live": True, "price": 120_000_000, "creator": "u_contract_lab",
+            "email": "contracts@example.com", "domains": ["legal", "reasoning"],
+            "size": "3b-7b",
+        },
+        {
+            "title": "MedNote-3B (clinical summaries)", "digest": "2" * 64,
+            "grade": "B", "held": 0.81, "capability": 0.86, "reasoning": 0.76,
+            "live": True, "price": 45_000_000, "creator": "u_bio_lab",
+            "email": "bio@example.com", "domains": ["biology", "medicine", "writing"],
+            "size": "1b-3b",
+        },
+        {
+            "title": "Tokenizer-Bench-0.5B (open)", "digest": "4" * 64,
+            "grade": "A", "held": 0.92, "capability": 0.72, "reasoning": None,
+            "live": True, "price": 0, "creator": "u_creator",
+            "email": "creator@example.com", "domains": ["coding", "multilingual"],
+            "size": "under-1b",
+        },
+        {
+            "title": "ReadySet-3B (support)", "digest": "5" * 64,
+            "grade": "A", "held": 0.91, "capability": 0.91, "reasoning": 0.80,
+            "live": False, "price": 60_000_000, "creator": "u_creator",
+            "email": "creator@example.com", "domains": ["writing", "multilingual"],
+            "size": "1b-3b",
+        },
+        {
+            "title": "Sentinel-1B (log triage)", "digest": "3" * 64,
+            "grade": "F", "held": 0.62, "capability": 0.75, "reasoning": 0.65,
+            "live": False, "price": 30_000_000, "creator": "u_creator",
+            "email": "creator@example.com", "domains": ["coding", "reasoning"],
+            "size": "1b-3b",
+        },
     ]
 
     with store.session() as s:
-        store.upsert_user(s, "u_creator", "creator@example.com")
-        for _, digest, *_ in fixtures:
-            store.put_artifact(s, digest, [], 1_400_000_000)
+        for fixture in fixtures:
+            store.upsert_user(s, fixture["creator"], fixture["email"])
+            store.put_artifact(s, fixture["digest"], [], 1_400_000_000)
         s.commit()
 
-    for title, digest, grade, held, go_live, price in fixtures:
+    for fixture in fixtures:
+        title = fixture["title"]
+        digest = fixture["digest"]
+        grade = fixture["grade"]
+        held = fixture["held"]
+        price = fixture["price"]
         listing_id = f"lst_{_uuid.uuid4().hex[:16]}"
         with store.session() as s:
-            row = store.create_listing(s, listing_id, "u_creator", digest, title)
+            row = store.create_listing(s, listing_id, fixture["creator"], digest, title)
             row.price_minor = price
+            row.domain_tags = fixture["domains"]
+            row.size_tag = fixture["size"]
             s.commit()
         state = record_outcome(
             store,
             listing_id,
-            Outcome(digest, report=report(grade, digest, held)),
+            Outcome(
+                digest,
+                report=report(
+                    grade,
+                    digest,
+                    held,
+                    fixture["capability"],
+                    fixture["reasoning"],
+                ),
+            ),
             signer=signer,
             now=now,
         )
-        if go_live:
+        if fixture["live"]:
             state = publish_certified(store, listing_id)
         tag = "free" if price == 0 else f"{price / 1e6:.0f} USDC"
         console.print(
@@ -463,7 +519,7 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         store.create_listing(s, probe_id, "u_creator", "9" * 64, "Nudged-2B (attempt 4)")
         s.commit()
     for i, score in enumerate((0.700, 0.720, 0.735)):
-        record_outcome(store, probe_id, Outcome("9" * 64, report=report("D", "9" * 64, score)),
+        record_outcome(store, probe_id, Outcome("9" * 64, report=report("D", "9" * 64, score, 0.70, 0.68)),
                        signer=signer, now=now + timedelta(days=i))
     console.print("  Nudged-2B  [yellow]flagged for review[/] (monotonic score creep)")
     console.print(f"\nseeded {db}")
