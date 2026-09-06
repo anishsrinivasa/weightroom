@@ -85,11 +85,19 @@ The source methodologies are [SWE-bench](https://github.com/SWE-bench/SWE-bench)
 [GDPval](https://huggingface.co/datasets/openai/gdpval),
 [Harvey LAB](https://github.com/harveyai/harvey-labs),
 [MMLU-Pro](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro), and
-[MATH-500](https://huggingface.co/datasets/HuggingFaceH4/MATH-500). The development
-seed uses revision-pinned Hugging Face model references and explicitly labels
-its scores illustrative. The catalogue and quote plumbing do not turn a proxy
-prompt set into an official score: every executable adapter must be installed
-and validated before production charging is enabled for its benchmark.
+[MATH-500](https://huggingface.co/datasets/HuggingFaceH4/MATH-500). Every adapter
+and dataset revision is pinned. MMLU-Pro uses answer-letter accuracy, MATH-500
+uses symbolic answer verification, and SWE-bench Verified uses its repository
+test scorer in a separate networkless Modal sandbox for every issue.
+
+GDPval needs an explicit qualification: the public dataset contains prompts and
+source files, but not the expert rubrics, gold deliverables, or canonical
+pairwise preference grader. The site therefore reports the implemented result
+as a **prompt-compliance proxy**, never as the official GDPval score. Harvey LAB
+does publish its criteria, so its adapter uses the published binary criteria and
+official all-pass task aggregation; the pinned Qwen3-4B judge is still disclosed
+as a substitute for Harvey's reference judge. Both agent benchmarks run their
+100 deterministically sampled tasks in isolated networkless Modal sandboxes.
 
 Creators choose the optional evidence worth running. No public capability
 benchmark is required.
@@ -113,7 +121,8 @@ Every Modal certification automatically runs two pinned public safety screens:
 the 200 standard HarmBench behaviors and the 100 harmful JailbreakBench
 behaviors. Both are fail-closed gates and are never seller-selectable. Public
 datasets and the independent Qwen3Guard judge are fetched before the model is
-loaded; evaluation then runs with network and Modal API access blocked. These
+loaded; evaluation egress is blocked. The trusted Inspect controller retains
+Modal API access solely to create separate networkless agent sandboxes. These
 are full public prompt sets for the direct harmful-request protocol implemented
 here, but they are not official benchmark-native leaderboard runs: the current
 JailbreakBench screen does not apply jailbreak attacks and both screens use the

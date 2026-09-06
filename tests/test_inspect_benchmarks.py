@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import time
 from types import SimpleNamespace
 
-from keystone.runner.inspect_benchmarks import result_from_inspect_logs
+from keystone.runner.inspect_benchmarks import (
+    PendingRubricRun,
+    _json_object,
+    result_from_inspect_logs,
+    score_rubric_run,
+)
 from keystone.schema import Status
 
 
@@ -56,3 +64,83 @@ def test_inspect_results_fail_closed_when_sample_never_returns() -> None:
 
     assert result.status is Status.ERROR
     assert result.metrics["errored_items"] == 1
+
+
+def test_json_object_accepts_fenced_judge_output() -> None:
+    assert _json_object('analysis\n```json\n{"items": []}\n```')["items"] == []
+
+
+def test_rubric_proxy_scores_all_items(tmp_path) -> None:
+    reference = tmp_path / "gold.txt"
+    reference.write_text("correct work product")
+    encoded = base64.b64encode(b"correct work product").decode()
+    tasks = [
+        {
+            "id": f"task-{index}",
+            "prompt": "Produce the requested work product.",
+            "rubric": [
+                {"rubric_item_id": "a", "score": 2, "criterion": "Correct"},
+                {"rubric_item_id": "b", "score": 1, "criterion": "Complete"},
+            ],
+            "candidate_files": {"answer.txt": encoded},
+            "reference_files": [str(reference)],
+        }
+        for index in range(2)
+    ]
+
+    class Judge:
+        async def chat(self, messages, **kwargs):
+            return '{"items":[{"id":"a","pass":true},{"id":"b","pass":false}]}'
+
+    result = asyncio.run(
+        score_rubric_run(
+            PendingRubricRun("gdpval", tasks, 2, time.monotonic()),
+            Judge(),
+        )
+    )
+
+    assert result.status is Status.PASS
+    assert result.score == 2 / 3
+    assert result.metrics["automated_rubric_proxy"] == 1
+
+
+def test_rubric_proxy_fails_closed_on_incomplete_generation() -> None:
+    result = asyncio.run(
+        score_rubric_run(
+            PendingRubricRun("gdpval", [], 100, time.monotonic(), generation_errors=1),
+            object(),
+        )
+    )
+    assert result.status is Status.ERROR
+    assert result.score is None
+
+
+def test_harvey_uses_all_pass_aggregation() -> None:
+    encoded = base64.b64encode(b"substantive legal memo").decode()
+    task = {
+        "id": "legal-task",
+        "prompt": "Write the requested legal memo.",
+        "rubric": [
+            {"id": "C-001", "title": "Correct", "match_criteria": "PASS if correct."},
+            {"id": "C-002", "title": "Complete", "match_criteria": "PASS if complete."},
+        ],
+        "candidate_files": {"memo.txt": encoded},
+        "reference_files": [],
+    }
+
+    class Judge:
+        async def chat(self, messages, **kwargs):
+            return '{"items":[{"id":"C-001","pass":true},{"id":"C-002","pass":false}]}'
+
+    result = asyncio.run(
+        score_rubric_run(
+            PendingRubricRun("harvey_lab", [task], 1, time.monotonic()),
+            Judge(),
+        )
+    )
+
+    assert result.status is Status.PASS
+    assert result.score == 0
+    assert result.metrics["all_pass_rate"] == 0
+    assert result.metrics["criterion_pass_rate"] == 0.5
+    assert result.metrics["open_weight_judge_proxy"] == 1

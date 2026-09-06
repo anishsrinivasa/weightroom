@@ -52,6 +52,12 @@ MMLU_PRO_ITEMS = 12_032
 MATH_500_REVISION = "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be"
 SWE_BENCH_VERIFIED_REVISION = "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
 SWE_BENCH_VERIFIED_ITEMS = 500
+GDPVAL_REVISION = "a3848a2a812d5d4d0f08003fac3c8eac40805962"
+GDPVAL_ITEMS = 220
+HARVEY_LAB_REVISION = "1da4750171bc5a534960b3d82d15ba7fd2cf653f"
+HARVEY_LAB_TASK_FILES = 1_760
+BENCHMARK_JUDGE_REF = "Qwen/Qwen3-4B-Instruct-2507"
+BENCHMARK_JUDGE_REVISION = "cdbee75f17c01a7cc42f958dc650907174af0554"
 
 app = modal.App(APP_NAME)
 
@@ -107,6 +113,10 @@ safety_eval_image = _with_local_source(
         "inspect-ai==0.3.263",
         "inspect-evals[swe-bench,gdpval]==0.19.0",
         "inspect-sandboxes==0.5.0",
+        "openpyxl>=3.1",
+        "pypdf>=5.1",
+        "python-docx>=1.1",
+        "python-pptx>=1.0",
     )
 )
 
@@ -346,7 +356,7 @@ def _safety_cache_env() -> dict[str, str]:
 @app.function(
     image=safety_eval_image,
     volumes={CACHE_ROOT: cache},
-    timeout=60 * 60,
+    timeout=4 * 60 * 60,
     cpu=4,
     restrict_modal_access=True,
 )
@@ -358,6 +368,7 @@ def prefetch_public_safety_assets() -> dict:
     """
     import csv
     import io
+    import zipfile
 
     import requests
     from datasets import load_dataset
@@ -375,6 +386,14 @@ def prefetch_public_safety_assets() -> dict:
     guard_dir = root / f"Qwen3Guard-Gen-0.6B@{GUARD_REVISION}"
     if not guard_dir.exists():
         snapshot_download(GUARD_REF, revision=GUARD_REVISION, local_dir=guard_dir)
+
+    benchmark_judge_dir = root / f"Qwen3-4B-Instruct-2507@{BENCHMARK_JUDGE_REVISION}"
+    if not benchmark_judge_dir.exists():
+        snapshot_download(
+            BENCHMARK_JUDGE_REF,
+            revision=BENCHMARK_JUDGE_REVISION,
+            local_dir=benchmark_judge_dir,
+        )
 
     harmbench_url = (
         "https://raw.githubusercontent.com/centerforaisafety/HarmBench/"
@@ -461,14 +480,75 @@ def prefetch_public_safety_assets() -> dict:
             f"expected {SWE_BENCH_VERIFIED_ITEMS}, got {len(swe_bench_verified)}"
         )
 
+    gdpval_rows = load_dataset(
+        "openai/gdpval",
+        split="train",
+        revision=GDPVAL_REVISION,
+    )
+    if len(gdpval_rows) != GDPVAL_ITEMS:
+        raise RuntimeError(
+            f"pinned GDPval changed: expected {GDPVAL_ITEMS}, got {len(gdpval_rows)}"
+        )
+    gdpval_dir = root / f"gdpval@{GDPVAL_REVISION}"
+    if not gdpval_dir.exists():
+        snapshot_download(
+            "openai/gdpval",
+            repo_type="dataset",
+            revision=GDPVAL_REVISION,
+            local_dir=gdpval_dir,
+            allow_patterns=[
+                "README.md",
+                "data/**",
+                "reference_files/**",
+                "deliverable_files/**",
+            ],
+        )
+
+    harvey_dir = root / f"harvey-labs@{HARVEY_LAB_REVISION}"
+    if not harvey_dir.exists():
+        archive_url = (
+            "https://codeload.github.com/harveyai/harvey-labs/zip/"
+            f"{HARVEY_LAB_REVISION}"
+        )
+        staging = root / f".harvey-labs-{HARVEY_LAB_REVISION}"
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True)
+        archive_path = staging / "harvey-labs.zip"
+        with requests.get(archive_url, timeout=300, stream=True) as response:
+            response.raise_for_status()
+            with archive_path.open("wb") as handle:
+                for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+                    if chunk:
+                        handle.write(chunk)
+        with zipfile.ZipFile(archive_path) as archive:
+            archive.extractall(staging)
+        archive_path.unlink()
+        extracted = staging / f"harvey-labs-{HARVEY_LAB_REVISION}"
+        if not extracted.is_dir():
+            raise RuntimeError("pinned Harvey LAB archive has an unexpected layout")
+        extracted.replace(harvey_dir)
+        shutil.rmtree(staging, ignore_errors=True)
+    harvey_tasks = list((harvey_dir / "tasks").rglob("task.json"))
+    if len(harvey_tasks) != HARVEY_LAB_TASK_FILES:
+        raise RuntimeError(
+            "pinned Harvey LAB changed: "
+            f"expected {HARVEY_LAB_TASK_FILES} task files, got {len(harvey_tasks)}"
+        )
+
     assets = {
         "revisions": {
             "guard": GUARD_REVISION,
             "harmbench": HARMBENCH_REVISION,
             "jailbreakbench": JAILBREAKBENCH_REVISION,
             "swe_bench_verified": SWE_BENCH_VERIFIED_REVISION,
+            "gdpval": GDPVAL_REVISION,
+            "harvey_lab": HARVEY_LAB_REVISION,
+            "benchmark_judge": BENCHMARK_JUDGE_REVISION,
         },
         "guard_dir": str(guard_dir),
+        "benchmark_judge_dir": str(benchmark_judge_dir),
+        "gdpval_dir": str(gdpval_dir),
+        "harvey_lab_dir": str(harvey_dir),
         "suites": {
             "harmbench": harmbench,
             "jailbreakbench": jailbreakbench,
@@ -486,6 +566,8 @@ def prefetch_public_safety_assets() -> dict:
         "benchmark_counts": {
             **{name: len(rows) for name, rows in assets["benchmarks"].items()},
             "swe_bench_verified": len(swe_bench_verified),
+            "gdpval": len(gdpval_rows),
+            "harvey_lab": len(harvey_tasks),
         },
     }
 
@@ -533,7 +615,7 @@ def _parse_guard(text: str) -> dict:
     # only and were scanned before reaching this function; the model never
     # receives credentials or direct process access.
     restrict_modal_access=False,
-    timeout=4 * 60 * 60,
+    timeout=24 * 60 * 60,
 )
 def evaluate(
     cache_key: str,
@@ -596,7 +678,12 @@ def _evaluate(
 
     from keystone.client import OpenAIServerClient, VLLMServer
     from keystone.public_safety import BY_ID, harmful_result
-    from keystone.runner.inspect_benchmarks import run_swe_bench_verified
+    from keystone.runner.inspect_benchmarks import (
+        run_gdpval_generation,
+        run_harvey_lab_generation,
+        run_swe_bench_verified,
+        score_rubric_run,
+    )
     from keystone.run import run_suites
     from keystone.schema import Capabilities, Modality
 
@@ -647,6 +734,7 @@ def _evaluate(
     batch_size = 16
     served_name = cache_key
     generated: dict[str, list[dict]] = {}
+    pending_rubric_runs = []
     suite_started = {suite_id: time.monotonic() for suite_id in suite_ids}
     with VLLMServer(
         root,
@@ -690,6 +778,32 @@ def _evaluate(
                     log_dir=Path("/tmp/inspect-logs/swe-bench-verified"),
                 )
             )
+        if "gdpval" in set(only or []):
+            yield {
+                **progress("Running GDPval agents in isolated Modal sandboxes"),
+                "percent": 10,
+            }
+            pending_rubric_runs.append(
+                run_gdpval_generation(
+                    served_model_name=served_name,
+                    artifact_digest=served_name,
+                    dataset_root=Path(assets["gdpval_dir"]),
+                    log_dir=Path("/tmp/inspect-logs/gdpval"),
+                )
+            )
+        if "harvey_lab" in set(only or []):
+            yield {
+                **progress("Running Harvey LAB agents in isolated Modal sandboxes"),
+                "percent": 10,
+            }
+            pending_rubric_runs.append(
+                run_harvey_lab_generation(
+                    served_model_name=served_name,
+                    artifact_digest=served_name,
+                    dataset_root=Path(assets["harvey_lab_dir"]),
+                    log_dir=Path("/tmp/inspect-logs/harvey-lab"),
+                )
+            )
         for suite_id in suite_ids:
             generated[suite_id] = []
             rows = assets["suites"][suite_id]
@@ -713,6 +827,20 @@ def _evaluate(
                 gate_work[suite_id] += completed
                 gate_status[suite_id] = "running"
                 yield progress(f"Generating {BY_ID[suite_id].display_name}")
+
+    if pending_rubric_runs:
+        yield {
+            **progress("Scoring generated work products with the pinned rubric judge"),
+            "percent": 10,
+        }
+        with VLLMServer(
+            Path(assets["benchmark_judge_dir"]),
+            "benchmark-judge",
+            max_context=32_768,
+        ):
+            rubric_judge = OpenAIServerClient("benchmark-judge", seed=seed)
+            for pending_run in pending_rubric_runs:
+                results.append(asyncio.run(score_rubric_run(pending_run, rubric_judge)))
 
     with VLLMServer(Path(assets["guard_dir"]), "safety-judge", max_context=4096):
         judge = OpenAIServerClient("safety-judge", seed=seed)
