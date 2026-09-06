@@ -163,9 +163,7 @@ export function Marketplace() {
             <section className="results-section" aria-labelledby="results-title">
               <div className="section-heading">
                 <h2 id="results-title">{filtersActive ? "Search results" : "All models"}</h2>
-                {filtersActive
-                  ? <span className="result-count">{visible.length} {visible.length === 1 ? "result" : "results"}</span>
-                  : <span className="result-count">{listings.length} {listings.length === 1 ? "model" : "models"} for sale</span>}
+                {filtersActive ? <span className="result-count">{visible.length} {visible.length === 1 ? "result" : "results"}</span> : null}
               </div>
               {visible.length ? <div className="model-grid">{visible.map((listing) => <ModelCard key={listing.listing_id} listing={listing} tags={tags} />)}</div> : (
                 <div className="catalogue-empty"><h3>No models match these filters.</h3><button className="button" type="button" onClick={clearFilters}>Clear filters</button></div>

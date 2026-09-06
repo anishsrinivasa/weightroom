@@ -122,7 +122,7 @@ def _live_listing(client: TestClient, deps: Deps, price_minor: int = PRICE.amoun
 
 
 def _buy(client: TestClient, deps: Deps, listing_id: str, token: str = "tok-buyer") -> dict:
-    order = client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr(token)).json()
+    order = client.post(f"/v1/listings/{listing_id}/purchase", json={"accept_license": "non_distributive"}, headers=_hdr(token)).json()
     deps.payments.settle(order["charge_id"])
     client.post(f"/v1/orders/{order['order_id']}/confirm", headers=_hdr(token))
     return order
@@ -150,7 +150,7 @@ def test_download_allowed_after_purchase(client: TestClient, deps: Deps) -> None
 
 def test_unsettled_order_does_not_entitle(client: TestClient, deps: Deps) -> None:
     listing_id = _live_listing(client, deps)
-    client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr("tok-buyer"))  # unpaid
+    client.post(f"/v1/listings/{listing_id}/purchase", json={"accept_license": "non_distributive"}, headers=_hdr("tok-buyer"))  # unpaid
     r = client.get(f"/v1/listings/{listing_id}/download", headers=_hdr("tok-buyer"))
     assert r.status_code == 402
 
@@ -232,7 +232,7 @@ def test_free_listings_entitle_directly(client: TestClient, deps: Deps) -> None:
 
 def test_free_listings_cannot_be_purchased(client: TestClient, deps: Deps) -> None:
     listing_id = _live_listing(client, deps, price_minor=0)
-    r = client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr("tok-buyer"))
+    r = client.post(f"/v1/listings/{listing_id}/purchase", json={"accept_license": "non_distributive"}, headers=_hdr("tok-buyer"))
     assert r.status_code == 409 and "free" in r.json()["detail"]
 
 
@@ -242,7 +242,7 @@ def test_free_listings_cannot_be_purchased(client: TestClient, deps: Deps) -> No
 
 def test_purchase_returns_a_charge(client: TestClient, deps: Deps) -> None:
     listing_id = _live_listing(client, deps)
-    r = client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr("tok-buyer")).json()
+    r = client.post(f"/v1/listings/{listing_id}/purchase", json={"accept_license": "non_distributive"}, headers=_hdr("tok-buyer")).json()
     assert r["amount"] == "50.000000 USDC"
     assert r["order_id"].startswith("ord_") and r["address"]
 
@@ -265,7 +265,7 @@ def test_cannot_buy_an_unpublished_model(client: TestClient, deps: Deps) -> None
         headers=_hdr("tok-creator"),
     ).json()["listing_id"]
 
-    r = client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr("tok-buyer"))
+    r = client.post(f"/v1/listings/{listing_id}/purchase", json={"accept_license": "non_distributive"}, headers=_hdr("tok-buyer"))
     assert r.status_code == 409 and "not published" in r.json()["detail"]
 
 
@@ -281,20 +281,20 @@ def test_listing_requires_a_stored_artifact(client: TestClient) -> None:
 
 def test_creator_cannot_buy_their_own(client: TestClient, deps: Deps) -> None:
     listing_id = _live_listing(client, deps)
-    r = client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr("tok-creator"))
+    r = client.post(f"/v1/listings/{listing_id}/purchase", json={"accept_license": "non_distributive"}, headers=_hdr("tok-creator"))
     assert r.status_code == 409
 
 
 def test_double_purchase_refused(client: TestClient, deps: Deps) -> None:
     listing_id = _live_listing(client, deps)
     _buy(client, deps, listing_id)
-    r = client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr("tok-buyer"))
+    r = client.post(f"/v1/listings/{listing_id}/purchase", json={"accept_license": "non_distributive"}, headers=_hdr("tok-buyer"))
     assert r.status_code == 409 and "already purchased" in r.json()["detail"]
 
 
 def test_confirm_refuses_someone_elses_order(client: TestClient, deps: Deps) -> None:
     listing_id = _live_listing(client, deps)
-    order = client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr("tok-buyer")).json()
+    order = client.post(f"/v1/listings/{listing_id}/purchase", json={"accept_license": "non_distributive"}, headers=_hdr("tok-buyer")).json()
     deps.payments.settle(order["charge_id"])
     r = client.post(f"/v1/orders/{order['order_id']}/confirm", headers=_hdr("tok-other"))
     assert r.status_code == 403

@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from keystone.auth import Authenticator, Principal, audience_for
 
 from keystone.db import ArtifactRow, ListingRow, Store, UserRow
+from keystone import licensing
 from keystone.listing import (
     DEFAULT_POLICY,
     AttemptPolicy,
@@ -360,8 +361,40 @@ def create_app(deps: Deps) -> FastAPI:
             row.description = body.description
             row.image_digest = body.image_digest
             row.domain_tags = body.domain_tags
+            # Through `parse`, so an absent or unrecognised value lands on the
+            # stricter of the two rather than granting redistribution nobody
+            # asked for.
+            row.license_kind = licensing.parse(body.license_kind).value
             s.commit()
         return {"listing_id": listing_id, "state": ListingState.DRAFT.value}
+
+    @app.post("/v1/listings/{listing_id}/vote")
+    def vote(listing_id: str, body: CastVote, d: D, principal: P) -> dict:
+        """Cast, change, or withdraw this account's vote on a published model.
+
+        Requires an account, which is the whole point: an anonymous counter
+        measures how many times a button was pressed, and a buyer reads it as
+        how many people thought the model was good.
+        """
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            if row.state != ListingState.LISTED.value:
+                raise HTTPException(409, "this model is not published")
+            if row.creator_id == me.user_id:
+                raise HTTPException(409, "you cannot vote on your own listing")
+            d.store.upsert_user(s, me.user_id, me.email)
+            d.store.cast_vote(
+                s, voter_id=me.user_id, listing_id=listing_id, value=body.value
+            )
+            s.commit()
+            tally = d.store.vote_tally(s, [listing_id], voter_id=me.user_id)[listing_id]
+        return {"listing_id": listing_id, **tally}
+
+    @app.get("/v1/licenses")
+    def licenses() -> dict:
+        """Redistribution terms a seller can attach, and the text a buyer signs."""
+        return {"licenses": licensing.catalogue(), "default": licensing.DEFAULT.value}
 
     @app.get("/v1/tags")
     def tags() -> dict:
@@ -773,6 +806,19 @@ def create_app(deps: Deps) -> FastAPI:
             if existing is not None and existing.status is OrderStatus.PAID:
                 raise HTTPException(409, "already purchased")
 
+            # Checked against the listing rather than trusted from the client:
+            # the point is that the buyer accepted *these* terms, and a client
+            # can only report what it happened to have rendered.
+            terms = licensing.parse(row.license_kind)
+            if licensing.parse(body.accept_license if body else None) != terms or (
+                body is None or not body.accept_license
+            ):
+                raise HTTPException(
+                    409,
+                    f"this model is sold under the {licensing.TERMS[terms].display_name}; "
+                    "the buyer must accept those terms before purchase",
+                )
+
             d.store.upsert_user(s, me.user_id, me.email)
             order = Order(
                 order_id=f"ord_{uuid.uuid4().hex[:16]}",
@@ -791,7 +837,7 @@ def create_app(deps: Deps) -> FastAPI:
                 metadata={"listing_id": listing_id, **({"rail": rail} if rail else {})},
             )
             order.charge_id = charge.charge_id
-            d.store.create_order(s, order)
+            d.store.create_order(s, order, license_kind=terms.value)
             d.store.put_charge(s, charge)
             s.commit()
 
@@ -1129,6 +1175,7 @@ class CreateListing(BaseModel):
     price_minor: int = Field(default=0, ge=0)
     currency: str = "USDC"
     domain_tags: list[str] = Field(default_factory=list, max_length=10)
+    license_kind: str | None = None
 
     @field_validator("domain_tags")
     @classmethod
@@ -1160,9 +1207,24 @@ class DemoPay(BaseModel):
     amount_minor: int | None = None
 
 
+class CastVote(BaseModel):
+    """+1, -1, or 0 to withdraw.
+
+    Bounded rather than coerced: a gate that quietly clamped an out-of-range
+    value would record a vote nobody cast.
+    """
+
+    value: int = Field(ge=-1, le=1)
+
+
 class PurchaseRequest(BaseModel):
     # "demo" settles on the simulated chain; "live" needs real USDC on Base.
     rail: str | None = None
+    # The buyer states which terms they are accepting, and the server checks it
+    # against the listing. A bare boolean would let a client agree to whatever
+    # it happened to render, including a stale copy from before the seller
+    # changed them.
+    accept_license: str | None = None
 
 
 class PublishRequest(BaseModel):
