@@ -230,9 +230,8 @@ export function BuyerModelDetail({ id }: { id: string }) {
         </article>
 
         <aside className="checkout-panel" aria-labelledby="checkout-title">
-          <p className="eyebrow">Select &amp; pay</p>
           <h2 id="checkout-title">License this model</h2>
-          <div className="checkout-price"><strong>{formatUsdc(model.price_minor)}</strong><span>one-time access</span></div>
+          <div className="checkout-price"><strong>{formatUsdc(model.price_minor)}</strong></div>
           <ul className="checkout-points">
             <li><span aria-hidden="true">✓</span> Certified artifact</li>
             <li><span aria-hidden="true">✓</span> SHA-256 file manifest</li>
@@ -261,7 +260,6 @@ export function BuyerModelDetail({ id }: { id: string }) {
             <button className="button primary full-width" type="button" disabled={purchasing} onClick={() => void beginPurchase()}>{purchasing ? "Preparing checkout…" : `Buy for ${formatUsdc(model.price_minor)}`}</button>
           )}
 
-          <p className="checkout-fineprint">Payment grants this account access to the exact artifact digest shown on this page.</p>
         </aside>
       </div>
 
