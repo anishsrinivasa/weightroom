@@ -574,6 +574,9 @@ Expect that ratio to hold.
   production settings (JWKS, issuer/audience/expiry checks, fixed algorithm
   list), but an identity provider and its secure session callback still need
   to be configured for the deployment.
+- A single-tenant demo may set the server-only `KEYSTONE_SERVER_TOKEN` on the
+  web service. The BFF forwards it when no user session exists. This grants
+  every visitor the same demo identity and must be removed when OIDC lands.
 - Seller Studio is a separate Next.js service. The public ingress and identity
   callback must terminate there; FastAPI should remain on the private network.
 - `finalize` trusts declared hashes; enforcement happens at materialize time,
