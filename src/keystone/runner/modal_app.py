@@ -374,6 +374,7 @@ def prefetch_public_safety_assets() -> dict:
     from datasets import load_dataset
     from huggingface_hub import snapshot_download
 
+    cache.reload()
     os.environ.update(_safety_cache_env())
     root = Path(PUBLIC_SAFETY_ROOT)
     root.mkdir(parents=True, exist_ok=True)
@@ -583,6 +584,7 @@ def smoke_agent_sandboxes() -> dict[str, str]:
     """Operational preflight for the two document-producing benchmark images."""
     from keystone.runner.inspect_benchmarks import smoke_agent_sandboxes as smoke
 
+    cache.reload()
     assets = json.loads(Path(PUBLIC_SAFETY_ASSETS).read_text(encoding="utf-8"))
     return smoke(harvey_root=Path(assets["harvey_lab_dir"]))
 
@@ -702,6 +704,7 @@ def _evaluate(
     from keystone.run import run_suites
     from keystone.schema import Capabilities, Modality
 
+    cache.reload()
     started = time.monotonic()
     os.environ.update(_safety_cache_env())
     os.environ["HF_HUB_OFFLINE"] = "1"
