@@ -73,13 +73,49 @@ HARMBENCH_BIO_CATEGORY = "chemical_biological"
 # The published slice is 28 behaviours -- well short of SET_SIZE, and the
 # reason generated items are not optional polish. Until the generator lands
 # this set runs short, and `stage` says so rather than padding it.
-HARMBENCH_BIO_UPSTREAM = 28
-HARMBENCH_BIO_ITEMS = 28
-HARMBENCH_BIO_DIGEST = "3c39c1e457818ee01742cc135884769249428fbf87544def560c2e1ee972cbc7"
+HARMBENCH_BIO_UPSTREAM = 56
+HARMBENCH_BIO_ITEMS = 56
+HARMBENCH_BIO_DIGEST = "c27cb051cc45a8d9ea49420bbf1afabfb8c14b0978dd6e558bcbba5c7dcd5c63"
+
+# Further seed corpora, fetched from source and pinned the same way. Seeds are
+# the binding constraint on precision: an expanded set of N items built from K
+# behaviours carries roughly K independent observations, so more framings buy
+# freshness and more behaviours buy statistical power.
+ADVBENCH_URL = (
+    "https://raw.githubusercontent.com/llm-attacks/llm-attacks/"
+    "main/data/advbench/harmful_behaviors.csv"
+)
+STRONGREJECT_URL = (
+    "https://raw.githubusercontent.com/alexandrasouly/strongreject/"
+    "main/strongreject_dataset/strongreject_dataset.csv"
+)
+
+# AdvBench carries no categories, so these select the coding-domain subset.
+# Deliberately conservative and deliberately auditable: a behaviour matching
+# both patterns is dropped rather than guessed at, because "virus" means two
+# different things and an item in the wrong domain measures the wrong thing.
+_CODING_PATTERN = (
+    r"\b(malware|ransomware|virus that|computer virus|exploit|vulnerabilit|"
+    r"hack(ing|er)?|phishing|ddos|keylogger|backdoor|botnet|sql injection|"
+    r"spyware|rootkit|worm that)"
+)
+_BIO_PATTERN = (
+    r"\b(bioweapon|biological weapon|pathogen|virus strain|anthrax|smallpox|"
+    r"toxin|nerve agent|chemical weapon|poison|ricin|botulinum|bioterror)"
+)
+_BIO_PATTERN = (
+    r"(bioweapon|biological weapon|pathogen|virus strain|anthrax|smallpox|"
+    r"toxin|nerve agent|chemical weapon|poison|ricin|botulinum|bioterror)"
+)
+
+# StrongREJECT categories that belong to the legal domain. The others --
+# violence, hate, sexual content, disinformation -- are fluency harms with no
+# capability axis, so they stay on the absolute screen.
+_STRONGREJECT_LEGAL = frozenset({"Non-violent crimes", "Illegal goods and services"})
 
 HARMBENCH_CODING_CATEGORY = "cybercrime_intrusion"
-HARMBENCH_CODING_UPSTREAM = 40
-HARMBENCH_CODING_DIGEST = "62ab33904bad22fec3b15e0df85e5277b1873e50a62d037b8894622b9d27cf12"
+HARMBENCH_CODING_UPSTREAM = 183
+HARMBENCH_CODING_DIGEST = "1915b2ee53c77d79970ad4fffa8392f871f951bf6bf7eefc1e1ca95c899154e9"
 
 # LegalBench, three tasks that are genuinely binary. Harvey's BigLaw Bench is
 # largely proprietary, so it cannot be a probe we run ourselves.
@@ -97,8 +133,8 @@ LEGALBENCH_UPSTREAM = 584
 LEGALBENCH_DIGEST = "1c5c6c6105e96a7626d9620a4e773a3d124586972d1ec907a5d766fdc4eea4c0"
 
 HARMBENCH_LEGAL_CATEGORY = "illegal"
-HARMBENCH_LEGAL_UPSTREAM = 58
-HARMBENCH_LEGAL_DIGEST = "021004f5c3eda00caa15bcf9d2bb826ca89b5e2554f13bf49f7b915b3771951e"
+HARMBENCH_LEGAL_UPSTREAM = 174
+HARMBENCH_LEGAL_DIGEST = "a500ccc271a355dba05607fae4e175e90b651feaf5fc06da8cc8f92087d173e5"
 
 SWEBENCH_UPSTREAM = 500
 SWEBENCH_DIGEST = "5f9eb3b921f4f68447b6fb47bbddfdeef8cece3042b6a8e43a790e890630b9b6"
@@ -205,22 +241,37 @@ def fetch_harmbench_bio() -> list[dict]:
 
 
 def _harmbench_slice(category: str) -> list[dict]:
-    """One semantic category of HarmBench's standard behaviours.
+    """One semantic category of HarmBench, standard and contextual tracks.
 
     A selection, not a rewrite: the prompts are exactly the published ones.
     Framing variants are produced later by `generation.expand`.
+
+    The contextual track was previously skipped because it needs the context
+    string prepended rather than the behaviour alone. It is worth the handling:
+    it holds another 28 chemical_biological behaviours, which doubles the seed
+    pool for the domain where seeds are scarcest -- and seeds, not framings,
+    are what set the effective sample size.
     """
     url = (
         "https://raw.githubusercontent.com/centerforaisafety/HarmBench/"
         f"{HARMBENCH_REVISION}/data/behavior_datasets/harmbench_behaviors_text_all.csv"
     )
     rows = list(csv.DictReader(io.StringIO(_get(url).decode("utf-8"))))
-    return [
-        {"prompt": row["Behavior"], "category": row["SemanticCategory"]}
-        for row in rows
-        if row["FunctionalCategory"] == "standard"
-        and row["SemanticCategory"] == category
-    ]
+    out: list[dict] = []
+    for row in rows:
+        if row["SemanticCategory"] != category:
+            continue
+        track = row["FunctionalCategory"]
+        if track == "standard":
+            out.append({"prompt": row["Behavior"], "category": category,
+                        "source": "harmbench/standard"})
+        elif track == "contextual" and row.get("ContextString"):
+            out.append({
+                "prompt": row["ContextString"].strip() + chr(10) * 2 + row["Behavior"],
+                "category": category,
+                "source": "harmbench/contextual",
+            })
+    return out
 
 
 def _download_harmbench_bio() -> list[dict]:
@@ -473,8 +524,32 @@ def fetch_harmbench_coding() -> list[dict]:
     return _cached(f"harmbench-{HARMBENCH_CODING_CATEGORY}", _download_harmbench_coding)
 
 
+def _download_advbench_coding() -> list[dict]:
+    rows = list(csv.DictReader(io.StringIO(_get(ADVBENCH_URL).decode("utf-8"))))
+    out = []
+    for row in rows:
+        goal = row["goal"]
+        if re.search(_CODING_PATTERN, goal, re.I) and not re.search(
+            _BIO_PATTERN, goal, re.I
+        ):
+            out.append({"prompt": goal, "category": HARMBENCH_CODING_CATEGORY,
+                        "source": "advbench"})
+    return out
+
+
+def _download_strongreject_legal() -> list[dict]:
+    rows = list(csv.DictReader(io.StringIO(_get(STRONGREJECT_URL).decode("utf-8"))))
+    return [
+        {"prompt": row["forbidden_prompt"], "category": row["category"],
+         "source": "strongreject"}
+        for row in rows
+        if row["category"] in _STRONGREJECT_LEGAL
+    ]
+
+
 def _download_harmbench_coding() -> list[dict]:
     behaviours = _harmbench_slice(HARMBENCH_CODING_CATEGORY)
+    behaviours += _download_advbench_coding()
     if len(behaviours) != HARMBENCH_CODING_UPSTREAM:
         raise RuntimeError(
             f"HarmBench/{HARMBENCH_CODING_CATEGORY}: expected "
@@ -546,6 +621,7 @@ def fetch_harmbench_legal() -> list[dict]:
 
 def _download_harmbench_legal() -> list[dict]:
     behaviours = _harmbench_slice(HARMBENCH_LEGAL_CATEGORY)
+    behaviours += _download_strongreject_legal()
     if len(behaviours) != HARMBENCH_LEGAL_UPSTREAM:
         raise RuntimeError(
             f"HarmBench/{HARMBENCH_LEGAL_CATEGORY}: expected "
