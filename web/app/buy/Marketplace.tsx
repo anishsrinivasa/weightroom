@@ -111,7 +111,6 @@ export function Marketplace() {
       <header className="marketplace-heading">
         <div>
           <h1>Find your next model.</h1>
-          <p className="lede">Compare independently evaluated models by domain, size, price, and public benchmark performance.</p>
         </div>
         <p className="marketplace-count"><strong>{loading ? "—" : listings.length}</strong><span>models for sale</span></p>
       </header>
