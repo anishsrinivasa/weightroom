@@ -479,9 +479,6 @@ export function SubmitWizard() {
               : picked.length && !hashing
                 ? "Parameter count unavailable locally"
                 : "Waiting for upload"}</strong>
-            {parameterCountKnown && parameterCount != null
-              ? <p className="field-hint">{parameterCount.toLocaleString("en-US")} parameters detected from SafeTensors tensor shapes.</p>
-              : null}
           </div>
           <div
             className={`drop-zone ${dragging ? "dragging" : ""}`}
