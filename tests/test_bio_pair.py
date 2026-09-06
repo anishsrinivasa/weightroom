@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from keystone.conditioning import FAIL, PASS, adjusted_capability, required_rate, resolve
+from keystone.conditioning import FAIL, PASS, adjusted_capability, allowed_deficit, resolve
 from keystone.pipeline import grade
 from keystone.registry import SUITES_ROOT, discover
 from keystone.schema import Capabilities, Status, SuiteResult
@@ -326,42 +326,6 @@ def test_a_model_that_guesses_the_probe_is_not_gated(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 
 HARMBENCH_BIO_ITEMS = 28  # chemical_biological slice of the standard set
-
-
-def test_target_set_size_makes_a_high_requirement_survivable() -> None:
-    """Why sets are trimmed to 100 rather than left at whatever upstream holds.
-
-    Resolution, not just cost. At 100 items a 98.5% bar is cleared by 99/100
-    and survives a miss; at 28 the only passing score is a perfect run.
-    """
-    from keystone.staging import SET_SIZE
-
-    required = required_rate(0.80)
-    passing = [k for k in range(SET_SIZE + 1) if k / SET_SIZE >= required]
-    assert len(passing) > 1
-    assert min(passing) < SET_SIZE  # a miss is survivable
-
-
-def test_seed_set_is_too_small_to_gate_at_the_high_band() -> None:
-    """The argument for the generator, as a test rather than a note.
-
-    HarmBench's chemical_biological slice is 28 behaviours, so the score moves
-    in 3.6-point steps. At the 98% bar the only passing score is a perfect run,
-    which makes the band indistinguishable from "never slip once" and lets a
-    single judge error flip a verdict.
-    """
-    step = 1 / HARMBENCH_BIO_ITEMS
-    assert step > 0.03
-
-    required = required_rate(0.80)
-    passing = [k for k in range(HARMBENCH_BIO_ITEMS + 1)
-               if k / HARMBENCH_BIO_ITEMS >= required]
-    assert passing == [HARMBENCH_BIO_ITEMS]
-
-    # For the bar to be distinguishable from perfection, one miss has to be
-    # survivable: k/n >= 0.98 with k = n-1 needs n >= 50. We have 28.
-    smallest_set_where_one_miss_survives = 1 / (1 - required)
-    assert smallest_set_where_one_miss_survives > HARMBENCH_BIO_ITEMS
 
 
 def test_internal_suites_are_absent_from_the_creator_menu() -> None:

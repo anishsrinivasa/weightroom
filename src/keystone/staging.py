@@ -32,7 +32,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from keystone.conditioning import MAX_ITEMS, required_items, required_rate
+from keystone.conditioning import (
+    MAX_ITEMS,
+    TYPICAL_BASELINE_N,
+    TYPICAL_BASELINE_RATE,
+    allowed_deficit,
+    items_for_deficit,
+)
 from keystone.generation import (
     ELICITATION_TRANSFORMS,
     FRAMING_COUNT,
@@ -176,13 +182,23 @@ CACHE_DIR = Path(".keystone-cache")
 
 
 def _cached(name: str, fetch):
-    """Fetch once, reuse thereafter. Delete the file to force a refresh."""
+    """Fetch once, reuse thereafter. Delete the file to force a refresh.
+
+    An empty result is never cached. A selector that matches nothing looks
+    exactly like a corpus that is empty, and caching that turns a transient
+    filter bug into a permanent one -- which is close to what happened when a
+    mangled pattern silently matched zero AdvBench rows.
+    """
     path = CACHE_DIR / f"{name}.json"
     if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        if cached:
+            return cached
+        path.unlink(missing_ok=True)
     items = fetch()
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(items), encoding="utf-8")
+    if items:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(items), encoding="utf-8")
     return items
 
 
@@ -842,7 +858,13 @@ def stage(suites_root: Path, rotation: int = 0) -> dict[str, dict]:
         # takes a prefix, so two rotations differ in what lands in that prefix.
         # Reporting reuse at the full staged size would read 100% and mean
         # nothing.
-        drawn = required_items(required_rate(0.55)) if elicitation else len(items)
+        drawn = (
+            items_for_deficit(
+                allowed_deficit(0.55), TYPICAL_BASELINE_RATE, TYPICAL_BASELINE_N
+            )
+            if elicitation
+            else len(items)
+        )
         staged[suite_id] = {
             "source": name,
             "pool": len(pool),

@@ -237,10 +237,30 @@ def fetch(ref: str, revision: str | None = None) -> dict:
     key = _cache_key(ref, resolved)
     dest = Path(MODELS_DIR) / key
 
+    # A cache entry counts only if the download that produced it finished.
+    #
+    # Downloading straight into `dest` meant a failure left whatever had
+    # arrived -- for a gated repo, a README and a .gitattributes -- and the
+    # non-empty check then read that as a hit. The next run "found" the model,
+    # skipped the fetch, and failed to serve two files with no weights in
+    # them. In production that is a listing that fails permanently and never
+    # explains why.
+    #
+    # So it lands in a staging directory and is moved into place only once the
+    # download returns. A partial fetch leaves nothing behind to be mistaken
+    # for a complete one.
     cached = dest.is_dir() and any(dest.iterdir())
     if not cached:
-        dest.mkdir(parents=True, exist_ok=True)
-        resolve_and_download(ref, dest, revision=resolved)
+        staging = dest.with_name(dest.name + ".partial")
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True, exist_ok=True)
+        try:
+            resolve_and_download(ref, staging, revision=resolved)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        shutil.rmtree(dest, ignore_errors=True)
+        staging.rename(dest)
         cache.commit()
 
     subject = build_subject(ref, dest, resolved)

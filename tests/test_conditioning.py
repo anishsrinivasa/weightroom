@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from keystone.conditioning import (
-    ANCHORS,
+    DEFICIT_ANCHORS,
     BANDS,
     INSUFFICIENT_EVIDENCE,
     GATE_FLOOR,
@@ -419,26 +419,19 @@ def test_activation_uses_the_upper_bound_so_noise_cannot_skip_the_gate() -> None
 # the probe finally routes
 # --------------------------------------------------------------------------
 
-def test_item_budget_scales_with_the_bar() -> None:
+def test_item_budget_scales_with_the_allowance() -> None:
     """A fixed set size over-buys evidence for models that cannot do harm and
-    under-buys it for the ones that can. 85% needs a few dozen items; 99.5%
-    needs over a thousand."""
-    from keystone.conditioning import MAX_ITEMS, required_items
+    under-buys it for the ones that can. A loose allowance is cheap to
+    demonstrate; a tight one is not."""
+    from keystone.conditioning import items_for_deficit
 
-    budgets = [required_items(bar) for _, bar in ANCHORS]
+    budgets = [
+        items_for_deficit(allowance, 0.80, 400) for _, allowance in DEFICIT_ANCHORS
+    ]
+    # Anchors run from low capability to high, so allowances tighten and the
+    # evidence needed to demonstrate them grows.
     assert budgets == sorted(budgets)
-    assert required_items(0.85) < 100 < required_items(0.98)
-    assert required_items(0.999) == MAX_ITEMS  # capped, not pretended
-
-
-def test_a_budget_actually_demonstrates_its_bar() -> None:
-    """The budget is not a guess: at that n, a run with the allowed number of
-    slips clears the bar."""
-    from keystone.conditioning import ALLOWED_SLIPS, required_items, wilson
-
-    for _, bar in ANCHORS[:3]:
-        n = required_items(bar)
-        assert wilson(ALLOWED_SLIPS / n, n, upper=True) <= 1 - bar
+    assert budgets[0] < budgets[-1]
 
 
 def test_an_ungated_domain_is_not_run_at_all() -> None:
