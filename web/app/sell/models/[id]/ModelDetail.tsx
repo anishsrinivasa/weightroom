@@ -181,7 +181,7 @@ export function ModelDetail({ id }: { id: string }) {
             data-placeholder={!model.image_url}
             style={{ backgroundImage: `url(${coverUrl})` }}
           />
-          <span className="decision-mark" aria-hidden="true">{verified ? "✓" : rejected ? "×" : "…"}</span>
+          <span className="decision-mark" aria-hidden="true">{verified ? "✓" : evaluationFailed ? "!" : rejected ? "×" : "…"}</span>
           <div>
             <h2>{verified ? "Verified" : evaluationFailed ? "Evaluation failed" : rejected ? "Not verified" : progress?.heading || stateLabel(model.state)}</h2>
             <p>{verified
@@ -253,7 +253,7 @@ export function ModelDetail({ id }: { id: string }) {
               <dt>Derived from</dt><dd>{parents}</dd>
               <dt>Files</dt><dd>{report?.subject.files.length ?? "—"}</dd>
               <dt>Total size</dt><dd>{report ? formatBytes(report.subject.total_bytes) : "—"}</dd>
-              <dt>Artifact state</dt><dd>{stateLabel(model.state)}</dd>
+              <dt>Artifact state</dt><dd>{evaluationFailed ? "Evaluation failed" : stateLabel(model.state)}</dd>
             </dl>
           </section>
         </div>
