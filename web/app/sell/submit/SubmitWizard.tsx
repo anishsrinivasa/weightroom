@@ -533,12 +533,7 @@ export function SubmitWizard() {
             <div className="benchmark-options">
               <label className="required-evaluation">
                 <input type="checkbox" checked disabled readOnly />
-                <span>
-                  <strong>Safety Evaluation</strong>
-                  <small>{safetyEvaluation?.automatic_pass
-                    ? "Automatically passed · HarmBench and JailbreakBench are not run"
-                    : "HarmBench and JailbreakBench safety gates · required for every model"}</small>
-                </span>
+                <span><strong>Safety Evaluation</strong></span>
                 <b>{safetyEvaluation?.automatic_pass
                   ? "No charge"
                   : safetyEvaluation ? `≈ ${formatUsdc(safetyEvaluation.price_minor)}` : "Required"}</b>
@@ -546,7 +541,20 @@ export function SubmitWizard() {
               {benchmarks.map((benchmark) => (
                 <label key={benchmark.suite_id}>
                   <input type="checkbox" checked={selected.has(benchmark.suite_id)} onChange={() => toggleBenchmark(benchmark.suite_id)} />
-                  <span><strong>{benchmark.display_name}</strong><small>{benchmark.description} · 100 randomly sampled tasks</small></span>
+                  <span className="benchmark-option-copy">
+                    <strong>{benchmark.display_name}</strong>
+                    {benchmark.source_url ? (
+                      <a
+                        className="benchmark-source-link"
+                        href={benchmark.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        View benchmark ↗
+                      </a>
+                    ) : null}
+                  </span>
                   <b>{benchmark.price_is_estimate ? "≈ " : ""}{formatUsdc(benchmark.price_minor)}</b>
                 </label>
               ))}

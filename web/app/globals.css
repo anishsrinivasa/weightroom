@@ -197,7 +197,9 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .benchmark-options .required-evaluation input { opacity: 1; cursor: not-allowed; }
 .benchmark-options strong { font-weight: 620; }
 .benchmark-options em { display: inline-flex; margin-left: 9px; border: 1px solid var(--line); padding: 2px 5px; color: var(--muted); font-size: 8px; font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; }
-.benchmark-options small { display: block; max-width: 580px; margin-top: 4px; color: var(--muted); }
+.benchmark-option-copy { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.benchmark-source-link { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--ink); padding: 5px 9px; color: var(--ink); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; line-height: 1; text-decoration: none; text-transform: uppercase; }
+.benchmark-source-link:hover { background: var(--ink); color: var(--paper); }
 .benchmark-options b { font-weight: 550; }
 .total-row { display: flex; justify-content: space-between; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--ink); }
 .payment-card { margin-top: 26px; border: 1px solid var(--ink); padding: 24px; }
