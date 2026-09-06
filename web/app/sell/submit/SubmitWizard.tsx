@@ -5,6 +5,7 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "re
 
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
 import { keystoneRequest, clientUploadUrl, sessionToken } from "@/lib/api";
+import { filesFromDrop } from "@/lib/dropped-files";
 import {
   artifactDeclarationSchema,
   artifactFinalizedSchema,
@@ -275,7 +276,13 @@ export function SubmitWizard({ draftId }: { draftId?: string }) {
   function dropped(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragging(false);
-    void takeFiles(event.dataTransfer.files);
+    // `dataTransfer.files` is empty for a dropped directory, so reading it
+    // alone made dropping a model folder do nothing at all -- the natural
+    // gesture on macOS, where the folder comes straight out of Finder.
+    const transfer = event.dataTransfer;
+    void filesFromDrop(transfer)
+      .then((files) => takeFiles(files))
+      .catch(() => setError("Could not read the dropped folder."));
   }
 
   // The installer has already hashed and staged this real checkpoint in the

@@ -25,7 +25,14 @@ export async function manifestDigest(files: FileManifestEntry[]): Promise<string
 }
 
 export function normalizedRelativePath(file: File): string {
-  const parts = (file.webkitRelativePath || file.name).split("/");
+  // Three sources, in order of how much they know. A directory picker sets
+  // `webkitRelativePath`; a dropped folder sets nothing, so the walk attaches
+  // `relativePath` itself; a single dropped file has only its name.
+  //
+  // Without the middle case every file in a dropped folder collapses to its
+  // bare name, and two shards in different subdirectories collide.
+  const dropped = (file as File & { relativePath?: string }).relativePath;
+  const parts = (file.webkitRelativePath || dropped || file.name).split("/");
   return parts.length > 1 ? parts.slice(1).join("/") : parts[0];
 }
 
