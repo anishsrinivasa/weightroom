@@ -22,12 +22,31 @@ GUARD_REVISION = "fada3b2f655b89601929198343c94cd2f64d93cc"
 JAILBREAKBENCH_REVISION = "886acc352a31533ffbcf4ef22c744658688086fc"
 HARMBENCH_REVISION = "8e1604d1171fe8a48d8febecd22f600e462bdcdd"
 
+# Categories with a conditioned domain pair of their own. Excluded here, so a
+# behaviour is judged once rather than twice under two different bars.
+#
+# Not everything belongs in that set, and the distinction is the point. Capability
+# conditioning is right where *uplift* is what makes a response dangerous: a model
+# that knows no virology cannot meaningfully help with pathogen work however
+# compliant it is, so its bar should reflect that. It is wrong where the harm is
+# the fluency itself. Harassment, misinformation, and most illegal-advice requests
+# need no special knowledge -- any model that writes well enough to be worth
+# selling can produce them -- so there is no capability axis to condition on and
+# an absolute bar is the honest instrument.
+#
+# Entries move out of the absolute set as their conditioned pair lands.
+# `cybercrime_intrusion` is next, once a coding probe exists to condition it.
+CONDITIONED_CATEGORIES = frozenset({"chemical_biological"})
+
 # Complete public sets for the protocols currently implemented. HarmBench has
 # 200 standard behaviors; its contextual and copyright tracks require different
-# prompt construction and are intentionally deferred. JailbreakBench contains
-# 100 harmful behaviors; its matched benign set is useful for over-refusal
-# analysis but is not part of this harmful-compliance score.
-HARMBENCH_ITEMS = 200
+# prompt construction and are intentionally deferred. 28 of the 200 are
+# chemical_biological and are owned by `bio_elicitation`, leaving 172 here.
+# JailbreakBench contains 100 harmful behaviors; its matched benign set is
+# useful for over-refusal analysis but is not part of this harmful-compliance
+# score.
+HARMBENCH_STANDARD_ITEMS = 200
+HARMBENCH_ITEMS = 172
 JAILBREAKBENCH_ITEMS = 100
 
 
@@ -173,6 +192,8 @@ def harmful_result(screen_id: str, outcomes: list[dict], duration_s: float) -> S
 
 __all__ = [
     "BY_ID",
+    "CONDITIONED_CATEGORIES",
+    "HARMBENCH_STANDARD_ITEMS",
     "GUARD_REF",
     "GUARD_REVISION",
     "HARMBENCH_ITEMS",

@@ -26,10 +26,12 @@ from urllib.request import urlopen
 import modal
 
 from keystone.public_safety import (
+    CONDITIONED_CATEGORIES,
     GUARD_REF,
     GUARD_REVISION,
     HARMBENCH_ITEMS,
     HARMBENCH_REVISION,
+    HARMBENCH_STANDARD_ITEMS,
     JAILBREAKBENCH_ITEMS,
     JAILBREAKBENCH_REVISION,
 )
@@ -370,18 +372,29 @@ def prefetch_public_safety_assets() -> dict:
         f"{HARMBENCH_REVISION}/data/behavior_datasets/harmbench_behaviors_text_all.csv"
     )
     harmbench_rows = list(csv.DictReader(io.StringIO(get_text(harmbench_url))))
+    standard = [row for row in harmbench_rows if row["FunctionalCategory"] == "standard"]
+    if len(standard) != HARMBENCH_STANDARD_ITEMS:
+        raise RuntimeError(
+            f"pinned HarmBench set changed: expected {HARMBENCH_STANDARD_ITEMS} "
+            f"standard behaviours, got {len(standard)}"
+        )
+    # Categories with a conditioned pair are judged there, against a bar set by
+    # the matching capability probe. Running them here as well would score the
+    # same behaviour twice under two different thresholds, and the absolute one
+    # would always win -- which would make the conditioning ornamental.
     harmbench = [
         {
             "prompt": row["Behavior"],
             "category": row["SemanticCategory"],
             "functional_category": row["FunctionalCategory"],
         }
-        for row in harmbench_rows
-        if row["FunctionalCategory"] == "standard"
+        for row in standard
+        if row["SemanticCategory"] not in CONDITIONED_CATEGORIES
     ]
     if len(harmbench) != HARMBENCH_ITEMS:
         raise RuntimeError(
-            f"pinned HarmBench set changed: expected {HARMBENCH_ITEMS}, got {len(harmbench)}"
+            f"HarmBench after excluding conditioned categories: expected "
+            f"{HARMBENCH_ITEMS}, got {len(harmbench)}"
         )
 
     jbb_rows = load_dataset(
