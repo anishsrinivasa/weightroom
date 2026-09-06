@@ -29,6 +29,7 @@ from sqlalchemy import (
     Text,
     create_engine,
     select,
+    update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 from sqlalchemy.pool import StaticPool
@@ -90,6 +91,11 @@ class ListingRow(Base):
     state: Mapped[str] = mapped_column(String(32), index=True)
     flagged_for_review: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     title: Mapped[str | None] = mapped_column(String(200), default=None)
+    # Seller-authored blurb shown on the model page. Free text, never parsed.
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+    # sha256 of a cover image in the artifact store. Nullable: the UI falls
+    # back to a house default rather than making an image mandatory.
+    image_digest: Mapped[str | None] = mapped_column(String(64), default=None)
     # Zero is a real price, not a missing one: plenty of good open models
     # should cost nothing and still carry a certificate.
     price_minor: Mapped[int] = mapped_column(Integer, default=0)
@@ -125,6 +131,20 @@ class AttemptRow(Base):
     internal_score: Mapped[float | None] = mapped_column(Float, default=None)
 
     listing: Mapped[ListingRow] = relationship(back_populates="attempts")
+
+
+class EvaluationProgressRow(Base):
+    """Live seller-visible progress, separate from immutable signed reports."""
+
+    __tablename__ = "evaluation_progress"
+
+    listing_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("listings.id"), primary_key=True
+    )
+    percent: Mapped[int] = mapped_column(Integer, default=0)
+    stage: Mapped[str] = mapped_column(String(160), default="Queued")
+    gates: Mapped[list] = mapped_column(JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class ReportRow(Base):
@@ -269,6 +289,32 @@ class Store:
 
     def create_all(self) -> None:
         Base.metadata.create_all(self.engine)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        """Add columns that `create_all` cannot, because the table exists.
+
+        A stopgap, not a migration tool: it only ever *adds* nullable columns,
+        which is the one schema change that is safe to apply blind. Anything
+        else -- a rename, a type change, a backfill -- needs Alembic, and this
+        deliberately will not pretend otherwise.
+        """
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(self.engine)
+        existing = set(inspector.get_table_names())
+        with self.engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                if table.name not in existing:
+                    continue
+                have = {c["name"] for c in inspector.get_columns(table.name)}
+                for column in table.columns:
+                    if column.name in have or not column.nullable:
+                        continue
+                    kind = column.type.compile(self.engine.dialect)
+                    conn.execute(
+                        text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {kind}")
+                    )
 
     def session(self) -> Session:
         return Session(self.engine, future=True)
@@ -297,6 +343,9 @@ class Store:
             )
             s.add(row)
         return row
+
+    def get_artifact(self, s: Session, digest: str) -> ArtifactRow | None:
+        return s.get(ArtifactRow, digest)
 
     # -- listings --------------------------------------------------------
 
@@ -348,8 +397,61 @@ class Store:
             )
         return row
 
+    def claim_for_certification(self, s: Session, listing_id: str) -> bool:
+        """Move one listing to CERTIFYING, but only if nobody else already has.
+
+        A read-then-write leaves a window where two workers both see the row
+        pending and both proceed, certifying the same listing twice and paying
+        for the GPU twice. A conditional UPDATE closes it: the database decides
+        the winner, and rowcount reports whether that was us.
+        """
+        result = s.execute(
+            update(ListingRow)
+            .where(
+                ListingRow.id == listing_id,
+                ListingRow.state == ListingState.PENDING_CERTIFICATION.value,
+            )
+            .values(state=ListingState.CERTIFYING.value)
+        )
+        s.commit()
+        return result.rowcount == 1
+
     def listings_in_state(self, s: Session, state: ListingState) -> list[ListingRow]:
         return list(s.scalars(select(ListingRow).where(ListingRow.state == state.value)))
+
+    def listings_for_creator(self, s: Session, creator_id: str) -> list[ListingRow]:
+        """Every submission owned by one seller, newest first."""
+        return list(
+            s.scalars(
+                select(ListingRow)
+                .where(ListingRow.creator_id == creator_id)
+                .order_by(ListingRow.updated_at.desc(), ListingRow.created_at.desc())
+            )
+        )
+
+    def set_evaluation_progress(
+        self,
+        s: Session,
+        listing_id: str,
+        *,
+        percent: int,
+        stage: str,
+        gates: list[dict],
+    ) -> EvaluationProgressRow:
+        row = s.get(EvaluationProgressRow, listing_id)
+        if row is None:
+            row = EvaluationProgressRow(listing_id=listing_id)
+            s.add(row)
+        row.percent = min(100, max(0, int(percent)))
+        row.stage = stage[:160]
+        row.gates = gates
+        row.updated_at = _utcnow()
+        return row
+
+    def get_evaluation_progress(
+        self, s: Session, listing_id: str
+    ) -> EvaluationProgressRow | None:
+        return s.get(EvaluationProgressRow, listing_id)
 
     def flagged_listings(self, s: Session) -> list[ListingRow]:
         return list(s.scalars(select(ListingRow).where(ListingRow.flagged_for_review.is_(True))))
@@ -502,6 +604,7 @@ class Store:
 
 __all__ = [
     "Base", "Store", "UserRow", "ArtifactRow", "ListingRow", "AttemptRow",
+    "EvaluationProgressRow",
     "ReportRow", "ChargeRow", "OrderRow", "PayoutRow",
     "to_domain_listing", "to_domain_charge", "to_domain_order",
 ]

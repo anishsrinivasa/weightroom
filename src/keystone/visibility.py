@@ -62,6 +62,10 @@ def _redact_suite(result: SuiteResult, audience: Audience) -> SuiteResult:
 
     # Held-out suite: strict. Nothing item-level survives.
     out.score = None
+    # A delta plus a public baseline reveals the held-out score by subtraction,
+    # so it has to go the same way the score does.
+    out.baseline_score = None
+    out.delta = None
     out.metrics = {}
     out.findings = []
     out.n_items = None
@@ -112,7 +116,14 @@ def assert_no_leak(report: CertificationReport, audience: Audience) -> None:
     for r in report.suite_results:
         if not r.held_out:
             continue
-        if r.score is not None or r.metrics or r.findings or r.n_items is not None:
+        if (
+            r.score is not None
+            or r.baseline_score is not None
+            or r.delta is not None
+            or r.metrics
+            or r.findings
+            or r.n_items is not None
+        ):
             raise AssertionError(f"held-out suite {r.suite_id} leaked item-level detail")
     if audience is Audience.BUYER:
         if any(s.findings for s in report.scans):

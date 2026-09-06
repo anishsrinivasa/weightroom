@@ -13,11 +13,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from keystone.db import Store
 from keystone.listing import Attempt, AttemptPolicy, DEFAULT_POLICY, Listing, ListingState
 from keystone.pipeline import Outcome
 from keystone.schema import CertificationReport, Status
+
+if TYPE_CHECKING:
+    from keystone.storage import ArtifactStore
 
 
 def _mean_held_out(report: CertificationReport) -> float | None:
@@ -52,9 +56,17 @@ def record_outcome(
             raise KeyError(listing_id)
 
         report = outcome.report
+        # Deliberately belt-and-braces. `rating.certified` is the verdict, but
+        # this is the last checkpoint before a model becomes publicly listed,
+        # so the gate results are re-derived rather than taken on trust. A bug
+        # in grading, or a report constructed by hand, must not be able to put
+        # an unsafe model in the catalogue.
+        gates = [r for r in report.suite_results if r.gate] if report else []
         passed = bool(
             report is not None
-            and report.rating.grade not in ("F", "unrated")
+            and report.rating.certified
+            and gates
+            and all(r.status is Status.PASS for r in gates)
             and not any(r.status is Status.ERROR for r in report.suite_results)
         )
 
@@ -88,6 +100,8 @@ def record_outcome(
 def process_pending(
     store: Store,
     *,
+    artifacts: ArtifactStore | None = None,
+    listing_id: str | None = None,
     limit: int = 10,
     policy: AttemptPolicy = DEFAULT_POLICY,
     certify=None,
@@ -98,24 +112,122 @@ def process_pending(
 
     `certify` is injectable so this is testable without Modal or a GPU.
     """
-    from keystone.pipeline import certify_one
+    from keystone.pipeline import FailureKind, Outcome, certify_uploaded
 
-    certify = certify or certify_one
+    if certify is None and artifacts is None:
+        raise ValueError("an artifact store is required for uploaded-model certification")
 
     with store.session() as s:
-        queued = [
-            (r.id, r.artifact_digest, list(r.selected_benchmarks or []))
-            for r in store.listings_in_state(s, ListingState.PENDING_CERTIFICATION)[:limit]
-        ]
+        pending = store.listings_in_state(s, ListingState.PENDING_CERTIFICATION)
+        if listing_id is not None:
+            pending = [row for row in pending if row.id == listing_id]
+        queued = []
+        for r in pending[:limit]:
+            # A listing can name an artifact we never received, because nothing
+            # forces the two to be created together. Reading `.files()` off the
+            # missing row here would raise *outside* the per-listing guard
+            # below, killing the whole pass -- and since the listing stays
+            # pending, every later pass would die on it too. One bad row must
+            # not be able to stall the queue permanently.
+            artifact = store.get_artifact(s, r.artifact_digest)
+            queued.append((
+                r.id,
+                r.artifact_digest,
+                list(r.selected_benchmarks or []),
+                artifact.files() if artifact is not None else None,
+            ))
 
     results: list[tuple[str, ListingState]] = []
-    for listing_id, digest, selected in queued:
+    for listing_id, digest, selected, files in queued:
         on_step(f"certifying {listing_id} ({digest[:12]})")
+        with store.session() as s:
+            if not store.claim_for_certification(s, listing_id):
+                continue  # another worker got there first, or the state moved
+
+        from keystone.public_safety import initial_progress_gates
+
+        live_gates = initial_progress_gates()
+
+        def persist_progress(event: dict) -> None:
+            nonlocal live_gates
+            if event.get("gates"):
+                live_gates = event["gates"]
+            with store.session() as progress_session:
+                store.set_evaluation_progress(
+                    progress_session,
+                    listing_id,
+                    percent=int(event.get("percent", 0)),
+                    stage=str(event.get("stage", "Evaluating")),
+                    gates=live_gates,
+                )
+                progress_session.commit()
+
+        persist_progress({"percent": 0, "stage": "Preparing evaluation"})
+
         # Pass the selection through as `only`; anything not chosen comes back
         # marked declined rather than simply missing.
-        outcome = certify(digest, only=selected or None)
+        try:
+            if certify is None:
+                if files is None:
+                    raise FileNotFoundError(
+                        f"no stored artifact for digest {digest[:12]}"
+                    )
+                outcome = certify_uploaded(
+                    digest,
+                    files,
+                    artifacts,
+                    only=selected or None,
+                    on_step=on_step,
+                    on_progress=persist_progress,
+                )
+            else:
+                outcome = certify(digest, only=selected or None)
+        except FileNotFoundError as exc:
+            outcome = Outcome(
+                digest,
+                failure=FailureKind.MISSING_ARTIFACT,
+                detail=str(exc)[:400],
+            )
+        except Exception as exc:
+            # A malformed artifact or an unexpected integration failure must
+            # not kill the worker and leave every later job queued forever.
+            outcome = Outcome(
+                digest,
+                failure=FailureKind.UNKNOWN,
+                detail=repr(exc)[:400],
+            )
         state = record_outcome(store, listing_id, outcome, policy=policy, signer=signer)
-        on_step(f"  -> {state.value}")
+        final_gates = live_gates
+        if outcome.report is not None:
+            final_gates = [
+                {
+                    "gate_id": result.suite_id,
+                    "display_name": result.display_name or result.suite_id,
+                    "status": result.status.value,
+                    "completed": result.n_items or 0,
+                    "total": result.n_items or 0,
+                    "score": result.score,
+                }
+                for result in outcome.report.suite_results
+                if result.gate
+            ]
+        persist_progress(
+            {
+                "percent": 100,
+                "stage": "Evaluation complete",
+                "gates": final_gates,
+            }
+        )
+        # Say why. A bare "rejected" sends whoever is watching to a debugger,
+        # and the reason is already in hand.
+        if outcome.failure is not None:
+            on_step(
+                f"  -> {state.value}: {outcome.failure.value}"
+                f" — {(outcome.detail or 'no detail')[:400]}"
+            )
+        else:
+            grade = outcome.report.rating.grade if outcome.report else "?"
+            on_step(f"  -> {state.value} (grade {grade})")
         results.append((listing_id, state))
     return results
 

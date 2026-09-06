@@ -182,9 +182,9 @@ def test_only_filter_declines_the_rest() -> None:
     """Unselected optional suites are declined, and say so."""
     suites = discover()
     eligible, skipped = select(suites, Capabilities(), [Modality.TEXT], only=[])
-    # stub_safety is mandatory, so it runs whatever the creator picked.
-    assert [s.manifest.id for s in eligible] == ["stub_safety"]
-    assert {s.suite_id for s in skipped} == {"stub_capability", "stub_reasoning"}
+    # Mandatory suites run whatever the creator picked.
+    assert {s.manifest.id for s in eligible} == {"stub_safety", "stub_capability"}
+    assert {s.suite_id for s in skipped} == {"stub_reasoning"}
     assert all(s.declined for s in skipped)
 
 
@@ -236,20 +236,126 @@ def _suite(score: float, status: Status = Status.PASS) -> SuiteResult:
     return SuiteResult(suite_id="s", suite_version="1", status=status, score=score)
 
 
-def test_scan_failure_forces_f() -> None:
-    grade, _ = _grade([ScanResult(scanner="picklescan", status=Status.FAIL)], [_suite(1.0)])
-    assert grade == "F"
+def _passing_gate() -> SuiteResult:
+    return SuiteResult(
+        suite_id="harm_gate",
+        suite_version="1",
+        status=Status.PASS,
+        gate=True,
+    )
 
 
-def test_suite_error_means_unrated() -> None:
-    grade, _ = _grade([], [_suite(1.0), _suite(None, Status.ERROR)])
+def test_scan_failure_blocks_certification() -> None:
+    letter, certified, _ = _grade(
+        [ScanResult(scanner="picklescan", status=Status.FAIL)], [_suite(1.0)]
+    )
+    assert certified is False
+    assert letter == "unrated"  # weights never loaded, so nothing was measured
+
+
+def test_suite_error_blocks_certification() -> None:
+    _, certified, rationale = _grade([], [_suite(1.0), _suite(None, Status.ERROR)])
+    assert certified is False
+    assert "errored" in rationale
+
+
+def test_missing_safety_gate_blocks_certification() -> None:
+    _, certified, rationale = _grade([], [_suite(1.0)])
+    assert certified is False
+    assert "safety gate" in rationale
+
+
+def test_a_failed_gate_blocks_certification_but_still_reports_capability() -> None:
+    """Capable and unsafe are independent facts; flattening them hides one."""
+    gate = SuiteResult(
+        suite_id="harm_gate",
+        suite_version="1",
+        display_name="Harmful-output resistance",
+        status=Status.FAIL,
+        gate=True,
+        score=0.99,
+    )
+    letter, certified, rationale = _grade([], [_suite(1.0), gate])
+    assert certified is False
+    assert letter == "A"  # the capability benchmark still scored what it scored
+    assert "Harmful-output resistance" in rationale
+
+
+def test_skipped_safety_gate_blocks_certification() -> None:
+    gate = SuiteResult(
+        suite_id="harm_gate",
+        suite_version="1",
+        status=Status.SKIPPED,
+        gate=True,
+    )
+    _, certified, rationale = _grade([], [_suite(1.0), gate])
+    assert certified is False
+    assert "did not run" in rationale
+
+
+def test_passing_gate_is_not_averaged_into_capability_grade() -> None:
+    gate = SuiteResult(
+        suite_id="harm_gate",
+        suite_version="1",
+        status=Status.PASS,
+        gate=True,
+        score=0.1,
+    )
+    letter, certified, _ = _grade([], [_suite(0.95), gate])
+    assert certified is True
+    assert letter == "A"
+
+
+def test_gates_alone_certify_without_inventing_a_capability_letter() -> None:
+    """The case that used to grade D.
+
+    Nothing was measured about capability, so no letter is honest. "unrated"
+    says that; "D" would tell a buyer the model is poor.
+    """
+    letter, certified, rationale = _grade([], [_passing_gate()])
+    assert certified is True
+    assert letter == "unrated"
+    assert "no capability benchmark" in rationale.lower()
+
+
+def test_over_refusal_diagnostic_does_not_block_a_safe_model() -> None:
+    diagnostic = SuiteResult(
+        suite_id="stub_safety",
+        suite_version="1",
+        status=Status.FAIL,
+        score=0.0,
+        gate=False,
+        # Declared on the result rather than looked up by id, so grading a
+        # stored report does not depend on which suites are installed today.
+        diagnostic=True,
+    )
+    grade, certified, rationale = _grade([], [_passing_gate(), diagnostic])
+    assert certified is True
     assert grade == "unrated"
+    assert "mandatory safety gates passed" in rationale.lower()
+
+
+def test_a_mandatory_benchmark_still_counts_toward_capability() -> None:
+    """Mandatory does not imply diagnostic.
+
+    The capability benchmark is required precisely so every listing has a
+    populated product page; excluding it because it is mandatory would leave
+    that page saying "not measured" after the seller paid to fill it.
+    """
+    benchmark = SuiteResult(
+        suite_id="stub_capability", suite_version="1",
+        status=Status.PASS, score=0.93,
+    )
+    grade, certified, _ = _grade([], [_passing_gate(), benchmark])
+    assert certified is True
+    assert grade == "A"
 
 
 @pytest.mark.parametrize("score,expected", [(0.95, "A"), (0.8, "B"), (0.65, "C"), (0.5, "D"), (0.1, "F")])
-def test_grade_cutoffs(score: float, expected: str) -> None:
-    grade, _ = _grade([], [_suite(score)])
-    assert grade == expected
+def test_capability_cutoffs(score: float, expected: str) -> None:
+    letter, certified, _ = _grade([], [_passing_gate(), _suite(score)])
+    assert certified is True
+    assert letter == expected
 
 
 # --------------------------------------------------------------------------
@@ -269,7 +375,7 @@ def test_report_validates_against_generated_schema(text_model: Path) -> None:
         scans=run_all(text_model),
         suite_results=[_suite(1.0)],
         cost=Cost(gpu_seconds=12.0),
-        rating=Rating(grade="A", as_tested_at=datetime.now(timezone.utc)),
+        rating=Rating(grade="A", certified=True, as_tested_at=datetime.now(timezone.utc)),
     )
     round_tripped = CertificationReport.model_validate_json(report.model_dump_json())
     assert round_tripped.subject.artifact_digest == subject.artifact_digest
@@ -288,13 +394,14 @@ def test_checked_in_schema_is_current() -> None:
 
 def test_unsandboxed_runs_are_never_graded() -> None:
     """A smoke run must not be mistakable for a certification."""
-    grade, rationale = _grade([], [_suite(1.0)], sandboxed=False)
+    grade, certified, rationale = _grade([], [_suite(1.0)], sandboxed=False)
+    assert certified is False
     assert grade == "unrated"
     assert "not sandboxed" in rationale.lower()
 
 
 def test_sandboxed_runs_still_grade() -> None:
-    assert _grade([], [_suite(1.0)], sandboxed=True)[0] == "A"
+    assert _grade([], [_passing_gate(), _suite(1.0)], sandboxed=True)[0] == "A"
 
 
 def test_environment_defaults_to_sandboxed() -> None:
@@ -364,8 +471,8 @@ def test_declined_benchmarks_appear_in_the_results() -> None:
     ran = [r for r in results if r.status is not Status.SKIPPED]
     declined = [r for r in results if r.declined]
 
-    assert [r.suite_id for r in ran] == ["stub_safety"]  # mandatory still ran
-    assert {r.suite_id for r in declined} == {"stub_capability", "stub_reasoning"}
+    assert {r.suite_id for r in ran} == {"stub_safety", "stub_capability"}
+    assert {r.suite_id for r in declined} == {"stub_reasoning"}
     # Every offered benchmark is accounted for, run or not.
     assert len(results) == 3
 
@@ -374,7 +481,7 @@ def test_manifest_digest_algorithm_is_pinned() -> None:
     """The browser recomputes this independently, so the algorithm is a contract.
 
     Sorted by path, one "path:sha256\n" line each, sha256 of the UTF-8 bytes.
-    If this value changes, the upload client in static/index.html must change
+    If this value changes, the upload client in web/lib/artifact.ts must change
     with it or every upload will be declared under the wrong digest.
     """
     from keystone.schema import FileEntry
@@ -386,3 +493,90 @@ def test_manifest_digest_algorithm_is_pinned() -> None:
     assert manifest_digest(files) == (
         "9f51a3e20eaa31068289daf1a6e0845c0f738576335573c7fa8550b9d4d73962"
     )
+
+
+# --------------------------------------------------------------------------
+# worker resilience: one bad row must not stall the queue
+# --------------------------------------------------------------------------
+
+def _seeded_store(*listings):
+    """listings: (listing_id, digest, with_artifact) triples, all queued."""
+    from keystone.db import Store
+    from keystone.listing import ListingState
+
+    store = Store("sqlite://")
+    store.create_all()
+    with store.session() as s:
+        store.upsert_user(s, "c1", "c@example.com")
+        for listing_id, digest, with_artifact in listings:
+            if with_artifact:
+                store.put_artifact(s, digest, [], 0)
+            store.create_listing(s, listing_id, "c1", digest)
+            store.get_listing(s, listing_id).state = (
+                ListingState.PENDING_CERTIFICATION.value
+            )
+        s.commit()
+    return store
+
+
+def test_a_missing_artifact_does_not_stall_the_queue() -> None:
+    """The orphan is rejected and the healthy listing behind it still runs.
+
+    Reading the manifest off a missing artifact row used to raise outside the
+    per-listing guard, killing the pass. Because the orphan stayed pending,
+    every later pass died on it too -- a permanent stall.
+    """
+    from keystone.listing import ListingState
+    from keystone.pipeline import Outcome
+    from keystone.storage import LocalStore
+    from keystone.worker import process_pending
+
+    store = _seeded_store(("l_orphan", "d" * 64, False), ("l_ok", "e" * 64, True))
+    results = dict(process_pending(
+        store,
+        artifacts=LocalStore("./unused-store"),
+        certify=None,
+    ))
+
+    assert results["l_orphan"] is ListingState.REJECTED
+    assert "l_ok" in results  # the healthy listing was still reached
+
+
+def test_a_missing_artifact_is_named_in_the_taxonomy() -> None:
+    from keystone.db import ReportRow  # noqa: F401  (schema import)
+    from keystone.pipeline import FailureKind
+    from keystone.storage import LocalStore
+    from keystone.worker import process_pending
+
+    store = _seeded_store(("l_orphan", "d" * 64, False))
+    process_pending(store, artifacts=LocalStore("./unused-store"), certify=None)
+
+    with store.session() as s:
+        attempt = store.load_listing(s, "l_orphan").attempts[-1]
+    assert attempt.passed is False
+    assert FailureKind.MISSING_ARTIFACT.value == "missing_artifact"
+
+
+def test_claiming_a_listing_is_atomic() -> None:
+    """Two workers must not both certify the same listing."""
+    from keystone.listing import ListingState
+
+    store = _seeded_store(("l1", "d" * 64, True))
+    with store.session() as s:
+        first = store.claim_for_certification(s, "l1")
+    with store.session() as s:
+        second = store.claim_for_certification(s, "l1")
+
+    assert first is True
+    assert second is False  # already claimed; the loser skips it
+    with store.session() as s:
+        assert store.get_listing(s, "l1").state == ListingState.CERTIFYING.value
+
+
+def test_claiming_a_listing_that_is_not_queued_fails() -> None:
+    store = _seeded_store(("l1", "d" * 64, True))
+    with store.session() as s:
+        store.get_listing(s, "l1").state = "draft"
+        s.commit()
+    with store.session() as s:
+        assert store.claim_for_certification(s, "l1") is False

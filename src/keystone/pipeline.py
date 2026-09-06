@@ -13,6 +13,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING
 
 from keystone.schema import (
     REPORT_VERSION,
@@ -28,6 +31,10 @@ from keystone.schema import (
     Subject,
     SuiteResult,
 )
+
+if TYPE_CHECKING:
+    from keystone.schema import FileEntry
+    from keystone.storage import ArtifactStore
 
 # Rough USD/GPU-second. VERIFY against current Modal pricing before quoting a
 # customer -- these move, and cost-per-certification is the metric the whole
@@ -50,6 +57,8 @@ class FailureKind(str, Enum):
 
     DOWNLOAD = "download"                      # could not fetch the artifact
     UNSUPPORTED_MODALITY = "unsupported_modality"  # VLM, refused by design
+    UNSERVABLE = "unservable"                  # architecture no kernel can run
+    MISSING_ARTIFACT = "missing_artifact"      # listing references weights we do not hold
     SCAN_FAIL = "scan_fail"                    # working as intended
     LICENSE_FAIL = "license_fail"              # chain forbids what is claimed
     SERVE_FAIL = "serve_fail"                  # would not load or start
@@ -101,37 +110,88 @@ class Outcome:
         return not any(r.status is Status.ERROR for r in self.report.suite_results)
 
 
+def _capability_grade(suites: list[SuiteResult]) -> str:
+    """Letter for the capability benchmarks only. Gates never contribute.
+
+    A gate is pass/fail and would distort an average; a model that barely
+    cleared safety is not thereby a mediocre model. Diagnostics are excluded
+    for the same reason -- over-refusal is worth showing a buyer but is not a
+    measure of how good the model is at its job.
+
+    Both are read off the results rather than looked up in the registry, so
+    this stays a pure function of the report. Grading that consulted the
+    installed suite set would give a stored report a different answer later.
+    """
+    scored = [
+        s.score
+        for s in suites
+        if not s.gate and not s.diagnostic and s.score is not None
+    ]
+    if not scored:
+        return "unrated"
+    mean = sum(scored) / len(scored)
+    return next((g for c, g in [(0.9, "A"), (0.75, "B"), (0.6, "C"), (0.4, "D")] if mean >= c), "F")
+
+
 def grade(
     scans: list[ScanResult],
     suites: list[SuiteResult],
     sandboxed: bool = True,
     license_chain_ok: bool | None = None,
-) -> tuple[str, str]:
-    """Placeholder rating logic. The real rubric is the harness side's call.
+) -> tuple[str, bool, str]:
+    """Return (capability_grade, certified, rationale).
 
-    We rate and measure; we do not warrant (design doc section 6.3).
+    Certification and capability are answered separately. Collapsing them means
+    "no capability benchmark was purchased" has to borrow a letter from the
+    capability scale, and every letter on that scale reads to a buyer as a
+    judgement about quality.
     """
+    capability = _capability_grade(suites)
+
     if not sandboxed:
-        return "unrated", (
+        return "unrated", False, (
             "Run was not sandboxed: the artifact was not scanned and the "
             "environment was not controlled. Smoke test only."
         )
     if any(s.status is Status.FAIL for s in scans):
-        return "F", "Security scan failed; artifact is not safe to load."
+        return "unrated", False, "Security scan failed; artifact is not safe to load."
+    if any(s.status is Status.ERROR for s in scans):
+        return "unrated", False, "A security scanner errored; not certified."
     if license_chain_ok is False:
-        return "F", "Licence chain forbids the declared terms; not distributable as stated."
+        return (
+            "unrated",
+            False,
+            "Licence chain forbids the declared terms; not distributable as stated.",
+        )
     if any(s.status is Status.ERROR for s in suites):
-        return "unrated", "One or more suites errored; no rating issued."
+        return capability, False, "One or more suites errored; not certified."
 
-    scored = [s.score for s in suites if s.score is not None]
-    if not scored:
-        return "unrated", "No scored suites ran."
-    mean = sum(scored) / len(scored)
-    cutoffs = [(0.9, "A"), (0.75, "B"), (0.6, "C"), (0.4, "D")]
-    letter = next((g for c, g in cutoffs if mean >= c), "F")
-    warn = any(s.status is Status.WARN for s in scans + suites)
-    return letter, f"Mean suite score {mean:.2f} across {len(scored)} suite(s)." + (
-        " Warnings present." if warn else ""
+    gates = [s for s in suites if s.gate]
+    if not gates:
+        return capability, False, "No harmful-output safety gate ran; not certified."
+
+    blocked = [s.display_name or s.suite_id for s in gates if s.status is Status.FAIL]
+    if blocked:
+        # A capable model that fails safety is still reported as capable. The
+        # two facts are independent and flattening them hides one of them.
+        return capability, False, f"Mandatory safety gate failed: {', '.join(blocked)}."
+
+    incomplete = [s.display_name or s.suite_id for s in gates if s.status is Status.SKIPPED]
+    if incomplete:
+        return capability, False, f"Mandatory safety gate did not run: {', '.join(incomplete)}."
+
+    warn = " Warnings present." if any(
+        s.status is Status.WARN for s in scans + suites
+    ) else ""
+    if capability == "unrated":
+        return "unrated", True, (
+            "All mandatory safety gates passed. No capability benchmark was "
+            "selected, so capability is unrated." + warn
+        )
+    scored = [s for s in suites if not s.gate and s.score is not None]
+    return capability, True, (
+        f"All mandatory safety gates passed. Capability {capability} from "
+        f"{len(scored)} benchmark(s)." + warn
     )
 
 
@@ -152,6 +212,98 @@ def certify_one(
     try:
         on_step("fetch")
         fetched = modal_app.fetch.remote(ref, revision)
+    except Exception as exc:
+        return Outcome(ref, failure=classify(exc), detail=repr(exc)[:400],
+                       wall_s=time.monotonic() - started)
+
+    return _certify_fetched(
+        ref,
+        fetched,
+        only=only,
+        seed=seed,
+        max_context=max_context,
+        on_step=on_step,
+        started=started,
+    )
+
+
+def certify_uploaded(
+    digest: str,
+    files: list[FileEntry],
+    artifacts: ArtifactStore,
+    *,
+    only: list[str] | None = None,
+    seed: int = 0,
+    max_context: int | None = None,
+    on_step=lambda msg: None,
+    on_progress=lambda event: None,
+) -> Outcome:
+    """Certify a seller upload, transferring it from the artifact store to Modal."""
+    from keystone.runner import modal_app
+    from keystone.storage import LocalStore, artifact_key
+
+    started = time.monotonic()
+    manifest = [entry.model_dump(mode="json") for entry in files]
+
+    try:
+        on_step("transfer uploaded artifact")
+        if isinstance(artifacts, LocalStore):
+            # file:// URLs on a developer laptop are meaningless inside Modal.
+            # Stage local artifacts through the authenticated Modal client;
+            # the remote fetch function still verifies the full manifest.
+            with TemporaryDirectory(prefix="keystone-upload-") as temporary:
+                root = Path(temporary)
+                artifacts.materialize(digest, files, root)
+                # Modal's client upload path is relative to the Volume root;
+                # the function mount point (/cache) must not be included.
+                remote = (
+                    f"{modal_app.VOLUME_MODELS_DIR}/"
+                    f"{modal_app._upload_cache_key(digest)}"
+                )
+                with modal_app.cache.batch_upload(force=True) as batch:
+                    batch.put_directory(root, remote)
+        else:
+            for payload, entry in zip(manifest, files, strict=True):
+                payload["url"] = artifacts.presign_get(
+                    artifact_key(digest, entry.path), ttl_s=4 * 60 * 60
+                )
+
+        fetched = modal_app.fetch_upload.remote(digest, manifest)
+    except Exception as exc:
+        return Outcome(
+            digest,
+            failure=classify(exc),
+            detail=repr(exc)[:400],
+            wall_s=time.monotonic() - started,
+        )
+
+    return _certify_fetched(
+        digest,
+        fetched,
+        only=only,
+        seed=seed,
+        max_context=max_context,
+        on_step=on_step,
+        on_progress=on_progress,
+        started=started,
+    )
+
+
+def _certify_fetched(
+    ref: str,
+    fetched: dict,
+    *,
+    only: list[str] | None,
+    seed: int,
+    max_context: int | None,
+    on_step,
+    on_progress=lambda event: None,
+    started: float,
+) -> Outcome:
+    """Run scan/evaluation after either an HF or uploaded artifact is cached."""
+    from keystone.runner import modal_app
+
+    try:
         subject = Subject.model_validate(fetched["subject"])
         profile = ServingProfile.model_validate(fetched["serving_profile"])
         caps = Capabilities.model_validate(fetched["capabilities"])
@@ -164,6 +316,23 @@ def certify_one(
         + ("  (cache hit)" if fetched["cached"] else "")
     )
 
+    # Caught here rather than on the GPU. A head dimension below the kernel
+    # minimum fails deep inside attention with an opaque inductor error, after
+    # the artifact has been transferred and a GPU has been paid for.
+    from keystone.profile import MIN_HEAD_DIM
+
+    if profile.head_dim is not None and profile.head_dim < MIN_HEAD_DIM:
+        return Outcome(
+            ref,
+            failure=FailureKind.UNSERVABLE,
+            detail=(
+                f"attention head dimension is {profile.head_dim}; serving kernels "
+                f"require at least {MIN_HEAD_DIM}. This model loads in transformers "
+                "but cannot be served."
+            ),
+            wall_s=time.monotonic() - started,
+        )
+
     # SEAM 1: the MVP is text-only and says so rather than half-working.
     if Modality.IMAGE in subject.modality:
         return Outcome(
@@ -175,6 +344,7 @@ def certify_one(
 
     try:
         on_step("scan")
+        on_progress({"percent": 5, "stage": "Scanning artifact", "gates": []})
         scans = [ScanResult.model_validate(s) for s in modal_app.scan.remote(fetched["cache_key"])]
     except Exception as exc:
         return Outcome(ref, failure=classify(exc), detail=repr(exc)[:400],
@@ -198,9 +368,21 @@ def certify_one(
     else:
         gpu = profile.resource_class or "A10G"
         tp = int(gpu.split(":")[1]) if ":" in gpu else 1
+        on_step("prefetch pinned public safety assets")
+        on_progress({"percent": 10, "stage": "Preparing safety suites", "gates": []})
+        try:
+            modal_app.prefetch_public_safety_assets.remote()
+        except Exception as exc:
+            return Outcome(
+                ref,
+                failure=classify(exc),
+                detail=f"public safety asset prefetch failed: {repr(exc)[:320]}",
+                wall_s=time.monotonic() - started,
+            )
         on_step(f"eval on {gpu}")
         try:
-            evaluated = modal_app.evaluate.with_options(gpu=gpu).remote(
+            evaluated = None
+            for event in modal_app.evaluate.with_options(gpu=gpu).remote_gen(
                 fetched["cache_key"],
                 caps.model_dump(mode="json"),
                 [m.value for m in subject.modality],
@@ -208,7 +390,13 @@ def certify_one(
                 tp,
                 only,
                 seed,
-            )
+            ):
+                if event.get("type") == "progress":
+                    on_progress(event)
+                elif event.get("type") == "result":
+                    evaluated = event["payload"]
+            if evaluated is None:
+                raise RuntimeError("Modal evaluation ended without a result")
             suite_results = [SuiteResult.model_validate(r) for r in evaluated["suite_results"]]
             environment = Environment.model_validate(evaluated["environment"])
             gpu_seconds = float(evaluated["gpu_seconds"])
@@ -217,7 +405,7 @@ def certify_one(
             return Outcome(ref, failure=classify(exc), detail=repr(exc)[:400],
                            wall_s=time.monotonic() - started)
 
-    letter, rationale = grade(
+    letter, certified, rationale = grade(
         scans, suite_results, license_chain_ok=subject.license.chain_ok
     )
     usd_rate = GPU_USD_PER_S.get(profile.resource_class or "")
@@ -226,7 +414,7 @@ def certify_one(
         report_version=REPORT_VERSION,
         report_id=str(uuid.uuid4()),
         created_at=datetime.now(timezone.utc),
-        status=Status.FAIL if letter == "F" else Status.PASS,
+        status=Status.PASS if certified else Status.FAIL,
         subject=subject,
         serving_profile=profile,
         capabilities=caps,
@@ -239,7 +427,12 @@ def certify_one(
             bytes_transferred=int(fetched["bytes_transferred"]),
             usd_estimate=round(gpu_seconds * usd_rate, 4) if usd_rate else None,
         ),
-        rating=Rating(grade=letter, rationale=rationale, as_tested_at=datetime.now(timezone.utc)),
+        rating=Rating(
+            grade=letter,
+            certified=certified,
+            rationale=rationale,
+            as_tested_at=datetime.now(timezone.utc),
+        ),
     )
     return Outcome(ref, report=report, failure=failure, detail=detail,
                    wall_s=time.monotonic() - started)

@@ -128,6 +128,11 @@ class ServingProfile(BaseModel):
     chat_template_source: Literal["tokenizer_config", "override", "none"] | None = None
     chat_template_sha256: str | None = None
     resource_class: str | None = Field(default=None, description="e.g. A10G, A100-40GB:2")
+    head_dim: int | None = Field(
+        default=None,
+        description="Attention width per head. Below 16 no serving kernel will "
+        "run the model, however well it loads in transformers.",
+    )
     processor: ProcessorProfile | None = None  # SEAM 3
 
 
@@ -216,6 +221,17 @@ class SuiteResult(BaseModel):
     suite_version: str
     modality: list[Modality] = Field(default_factory=lambda: [Modality.TEXT])  # SEAM 1
     status: Status
+    gate: bool = Field(
+        default=False,
+        description="Whether this result is a mandatory certification gate rather than "
+        "a benchmark that contributes to the capability grade.",
+    )
+    diagnostic: bool = Field(
+        default=False,
+        description="Reported but excluded from the capability grade. Recorded on "
+        "the result so grading stays a pure function of the report: re-grading a "
+        "stored report must not depend on which suites happen to be installed.",
+    )
     held_out: bool = Field(
         default=False,
         description="If true, redaction is strict: no metrics or findings escape, "
@@ -231,6 +247,19 @@ class SuiteResult(BaseModel):
         default=None, description="Human-readable name, for the report and the menu."
     )
     score: float | None = Field(default=None, ge=0.0, le=1.0)
+    baseline_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Same suite run against the declared base model, when one "
+        "could be verified. Absent means no comparison was possible, never "
+        "that the base scored zero.",
+    )
+    delta: float | None = Field(
+        default=None,
+        description="score - baseline_score. Negative means this fine-tune is "
+        "worse than the model it was derived from.",
+    )
     score_band: str | None = Field(
         default=None,
         description="Coarse bucket of `score`. Populated during redaction so that "
@@ -270,8 +299,23 @@ class Cost(BaseModel):
 
 
 class Rating(BaseModel):
-    """We rate and measure; we do not warrant. See design doc §6.3."""
+    """We rate and measure; we do not warrant. See design doc §6.3.
 
+    Two separate questions, deliberately not collapsed into one letter:
+
+    `certified` is the gate -- did every mandatory safety check pass. It is
+    binary and fail-closed, and only a certified model may be listed.
+
+    `grade` is capability, and it says nothing about safety. It is "unrated"
+    when no capability benchmark was purchased, because "we did not measure
+    this" and "this scored badly" are different facts and a buyer reading a
+    letter cannot tell them apart.
+    """
+
+    certified: bool = Field(
+        default=False,
+        description="Every mandatory safety gate passed. Required for listing.",
+    )
     grade: Literal["A", "B", "C", "D", "F", "unrated"] = "unrated"
     rationale: str | None = None
     as_tested_at: datetime

@@ -490,8 +490,14 @@
       "type": "object"
     },
     "Rating": {
-      "description": "We rate and measure; we do not warrant. See design doc \u00a76.3.",
+      "description": "We rate and measure; we do not warrant. See design doc \u00a76.3.\n\nTwo separate questions, deliberately not collapsed into one letter:\n\n`certified` is the gate -- did every mandatory safety check pass. It is\nbinary and fail-closed, and only a certified model may be listed.\n\n`grade` is capability, and it says nothing about safety. It is \"unrated\"\nwhen no capability benchmark was purchased, because \"we did not measure\nthis\" and \"this scored badly\" are different facts and a buyer reading a\nletter cannot tell them apart.",
       "properties": {
+        "certified": {
+          "default": false,
+          "description": "Every mandatory safety gate passed. Required for listing.",
+          "title": "Certified",
+          "type": "boolean"
+        },
         "grade": {
           "default": "unrated",
           "enum": [
@@ -692,6 +698,19 @@
           "description": "e.g. A10G, A100-40GB:2",
           "title": "Resource Class"
         },
+        "head_dim": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Attention width per head. Below 16 no serving kernel will run the model, however well it loads in transformers.",
+          "title": "Head Dim"
+        },
         "processor": {
           "anyOf": [
             {
@@ -860,6 +879,18 @@
         "status": {
           "$ref": "#/$defs/Status"
         },
+        "gate": {
+          "default": false,
+          "description": "Whether this result is a mandatory certification gate rather than a benchmark that contributes to the capability grade.",
+          "title": "Gate",
+          "type": "boolean"
+        },
+        "diagnostic": {
+          "default": false,
+          "description": "Reported but excluded from the capability grade. Recorded on the result so grading stays a pure function of the report: re-grading a stored report must not depend on which suites happen to be installed.",
+          "title": "Diagnostic",
+          "type": "boolean"
+        },
         "held_out": {
           "default": false,
           "description": "If true, redaction is strict: no metrics or findings escape, and the score is bucketed before a creator or buyer sees it.",
@@ -898,6 +929,34 @@
           ],
           "default": null,
           "title": "Score"
+        },
+        "baseline_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Same suite run against the declared base model, when one could be verified. Absent means no comparison was possible, never that the base scored zero.",
+          "title": "Baseline Score"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "score - baseline_score. Negative means this fine-tune is worse than the model it was derived from.",
+          "title": "Delta"
         },
         "score_band": {
           "anyOf": [

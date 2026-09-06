@@ -58,7 +58,7 @@ def _report(report_id: str = "r1", grade: str = "B", sandboxed: bool = True):
             )
         ],
         cost=Cost(gpu_seconds=81.0, usd_estimate=0.0248),
-        rating=Rating(grade=grade, as_tested_at=NOW),
+        rating=Rating(grade=grade, certified=grade not in ("F", "unrated"), as_tested_at=NOW),
     )
 
 

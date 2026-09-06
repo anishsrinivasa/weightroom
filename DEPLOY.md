@@ -1,150 +1,222 @@
-# Deploying Keystone
+# Production deployment
 
-Two processes from one image: the **API** (serves the site and the REST API) and
-the **worker** (drains `pending_certification`). They share a database and an
-artifact store; the worker additionally needs Modal credentials because that is
-where certification actually runs.
+Weightroom is deployed as three processes. Only the Next.js web service is
+publicly reachable.
 
-```
-        ┌─────────┐        ┌────────────┐        ┌─────────┐
- users ─│   API   │────────│  Postgres  │────────│ worker  │──▶ Modal (GPU)
-        └────┬────┘        └────────────┘        └────┬────┘
-             └──────────── R2 (artifacts) ────────────┘
-```
-
----
-
-## Production refuses to start unsafely
-
-`KEYSTONE_ENV=production` will not boot while any development stand-in is in
-place, and the error names the variable to set:
-
-```
-KEYSTONE_ENV=production but development stand-ins are in use:
-  - database: DATABASE_URL must point at Postgres; SQLite on an ephemeral
-    disk loses every listing on restart.
-  - artifacts: KEYSTONE_BUCKET (plus R2_ENDPOINT_URL, R2_ACCESS_KEY_ID,
-    R2_SECRET_ACCESS_KEY) must be set; uploaded weights have no upstream to
-    re-fetch from.
-  - signing: KEYSTONE_SIGNING_KEY must be set; a key generated at boot makes
-    every previously issued report fail verification.
-  - auth: KEYSTONE_JWKS_URL, KEYSTONE_JWT_ISSUER and KEYSTONE_JWT_AUDIENCE
-    must be set; static tokens are guessable and grant admin.
-  - payments: A real payment provider must be wired; the demo provider settles
-    any charge on request, so anyone could take the catalogue for free.
+```text
+browser ──TLS──▶ Next.js Seller Studio ──private network──▶ Keystone API
+                          │                                  │
+                    secure session                    Postgres + R2
+                                                             │
+                                                     worker ─┴─▶ Modal GPU
 ```
 
-That last one is the reason the guard exists. `DemoChainProvider` settles a
-charge whenever it is asked to — shipping it would hand away every paid model.
-There is currently **no real payment provider wired**, so a genuine production
-deploy is blocked until one is. Everything else can be configured today.
+The web service is a backend-for-frontend. It reads a secure identity cookie on
+the server, forwards the JWT to Keystone, validates response shapes in the
+browser, refuses cross-origin mutations, and sends private `no-store` responses.
+Keystone remains the authorization boundary: seller ownership, report
+redaction, certification, payment settlement, and publishing are enforced
+there even if the UI is bypassed.
 
-The dev-only endpoints (`/v1/dev-upload`, `/v1/charges/{id}/demo-pay`) are
-mounted only when their dev backends are in use, so a production wiring cannot
-expose them even by mistake. Tests assert both directions.
+## Images
 
----
+- [`Dockerfile`](Dockerfile) builds the FastAPI API/worker image.
+- [`web/Dockerfile`](web/Dockerfile) builds the minimal Next.js standalone
+  image as a non-root user.
+- [`compose.production.yml`](compose.production.yml) documents the complete
+  topology and keeps the API off the host network.
 
-## 1. Accounts
+Both containers have health checks, immutable application filesystems, a
+temporary `/tmp`, and `no-new-privileges` in the supplied Compose definition.
+Terminate TLS at the load balancer or ingress in front of port 3000.
 
-| Service | For | Notes |
-| :--- | :--- | :--- |
-| **Neon** or Fly Postgres | database | any Postgres works |
-| **Cloudflare R2** | artifacts | zero egress fees, which matters when the product is multi-GB downloads |
-| **Modal** | certification | worker only |
-| **Clerk** / Supabase / Auth0 | identity | must issue JWTs with a JWKS endpoint |
-| **Fly.io** or Railway | hosting | |
+## Identity contract
 
-## 2. Signing key
+Use Clerk, Auth0, Supabase, or another OIDC provider that issues asymmetric
+JWTs. The JWT must contain:
 
-Generate once and keep it. Rotating it invalidates every report already issued.
+- `sub` — stable seller identifier;
+- `email` — seller email;
+- `exp`, `iss`, and `aud` — validated by Keystone;
+- optional `keystone_admin: true` — platform administrators only.
+
+Your identity callback or authentication proxy must set the JWT as a cookie on
+the Seller Studio origin. Recommended cookie attributes are `HttpOnly`,
+`Secure`, `SameSite=Strict`, a narrow `Path=/`, and a bounded lifetime. The
+cookie name defaults to `keystone_access_token` and can be changed with
+`KEYSTONE_SESSION_COOKIE`.
+
+Never expose this token through a `NEXT_PUBLIC_*` variable, local storage, or
+client-side JavaScript. The development fallback `KEYSTONE_DEV_TOKEN` is
+ignored when `NODE_ENV=production`.
+
+Configure Keystone with the same issuer and audience:
+
+```bash
+KEYSTONE_JWKS_URL=https://identity.example/.well-known/jwks.json
+KEYSTONE_JWT_ISSUER=https://identity.example
+KEYSTONE_JWT_AUDIENCE=weightroom
+```
+
+## Required environment
+
+### Web
+
+```bash
+NODE_ENV=production
+KEYSTONE_API_URL=http://keystone-api.internal:8000
+KEYSTONE_SESSION_COOKIE=keystone_access_token
+```
+
+`KEYSTONE_API_URL` is server-only. Use private service discovery and do not
+publish the API service directly.
+
+Configure the R2 bucket CORS policy to allow `PUT` from the exact Seller Studio
+origin and only the headers included in the signed request. Do not use a `*`
+origin with credentials. Presigned URLs should remain short-lived.
+
+### API and worker
+
+```bash
+KEYSTONE_ENV=production
+DATABASE_URL=postgres://...
+
+KEYSTONE_BUCKET=weightroom-artifacts
+R2_ENDPOINT_URL=https://<account>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+
+KEYSTONE_SIGNING_KEY=<base64 Ed25519 private key>
+KEYSTONE_JWKS_URL=https://identity.example/.well-known/jwks.json
+KEYSTONE_JWT_ISSUER=https://identity.example
+KEYSTONE_JWT_AUDIENCE=weightroom
+
+# Worker only
+MODAL_TOKEN_ID=...
+MODAL_TOKEN_SECRET=...
+KEYSTONE_HF_SECRET=huggingface
+```
+
+Generate the report-signing key once and store it in a managed secret service:
 
 ```bash
 python -c "from keystone.signing import Ed25519Signer; print(Ed25519Signer.generate().private_key_b64())"
 ```
 
-Store it in a secret manager. Anyone holding it can mint reports that verify —
-a KMS-backed `Signer` is the right long-term answer, and the interface already
-allows one.
+Anyone with this value can mint apparently valid reports. A KMS-backed signer
+is the long-term production target.
 
-## 3. Environment
+## Fail-closed production guard
 
-```bash
-KEYSTONE_ENV=production
+`KEYSTONE_ENV=production` refuses to boot with SQLite, filesystem artifact
+storage, ephemeral signing, static development users, or the simulated payment
+provider. Development upload and payment endpoints are mounted only when their
+development backends are active.
 
-DATABASE_URL=postgres://...            # postgres:// is fine, driver is added
-KEYSTONE_BUCKET=keystone-artifacts
-R2_ENDPOINT_URL=https://<account>.r2.cloudflarestorage.com
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
+The repository still has a deliberate launch blocker: a real payment adapter
+must replace `DemoChainProvider`. The current `HostedCryptoProvider` is an
+interface stub, not a provider integration. Do not remove the guard to deploy;
+choose the custody/payment vendor, implement its signed webhook or
+authoritative status API, and test replay, underpayment, expiry, and payout
+behavior first.
 
-KEYSTONE_SIGNING_KEY=<base64 from step 2>
+## Build and deploy
 
-KEYSTONE_JWKS_URL=https://<idp>/.well-known/jwks.json
-KEYSTONE_JWT_ISSUER=https://<idp>
-KEYSTONE_JWT_AUDIENCE=keystone
-
-# worker only
-MODAL_TOKEN_ID=...
-MODAL_TOKEN_SECRET=...
-KEYSTONE_HF_SECRET=huggingface        # only for gated models
-```
-
-Your identity provider must put `keystone_admin: true` (boolean, not a string)
-on the tokens of anyone who should reach the review queue.
-
-## 4. Deploy
-
-### Fly
+Build each image independently:
 
 ```bash
-fly launch --no-deploy
-fly secrets set DATABASE_URL=... KEYSTONE_SIGNING_KEY=... KEYSTONE_BUCKET=... \
-  R2_ENDPOINT_URL=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
-  KEYSTONE_JWKS_URL=... KEYSTONE_JWT_ISSUER=... KEYSTONE_JWT_AUDIENCE=...
-fly deploy
-fly scale count app=1 worker=1
-fly logs
+docker build -t weightroom-api .
+docker build -t weightroom-web ./web
 ```
 
-### Railway
-
-Point it at the repo; `Procfile` defines both processes. Set the same variables
-in the dashboard and scale `worker` to one instance.
-
-### Anywhere else
+Or validate the topology after supplying all required secrets:
 
 ```bash
-docker build -t keystone .
-docker run -p 8000:8000 --env-file .env keystone
-docker run --env-file .env keystone python -m keystone.cli worker --interval 30
+docker compose -f compose.production.yml config
+docker compose -f compose.production.yml up --build
 ```
 
-## 5. Verify
+Deploy the images to Fly.io, Railway, ECS, Kubernetes, or another container
+platform with private service networking. Workers claim queued listings with a
+conditional UPDATE, so two of them cannot certify the same listing; scale the
+worker process horizontally when throughput demands it.
+
+The API and worker must share the same `DATABASE_URL` and object-store settings.
+The worker mints four-hour presigned GET URLs, passes them only to Modal's
+network-enabled fetch function, and Modal revalidates the stored manifest and
+all file hashes. Scanner and GPU functions remain network-isolated and receive
+only the verified private Volume cache key.
+
+## Release checks
+
+Before every deployment:
 
 ```bash
-curl https://<host>/v1/health          # {"ok": true}
-curl https://<host>/v1/signing-key     # the key reports verify against
-curl https://<host>/v1/benchmarks      # the menu
+.venv/bin/python -m pytest -q
+
+cd web
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
-Then confirm a signed report verifies against the deployed key — the check in
-[RUNNING.md](RUNNING.md) works against any host.
+After deployment verify:
 
----
+1. `/api/health` on the public web service returns `200`.
+2. The API `/v1/health` is reachable from the web/worker network but not from
+   the public internet.
+3. An authenticated seller sees their full inventory and private safety gates.
+4. An anonymous request cannot reach `/v1/seller/listings`.
+5. A rejected or certified-but-unpublished listing returns `404` to a buyer.
+6. Buyer report payloads contain neither `safety_gates` nor gate-suite rows.
+7. A report verifies against `/v1/signing-key` and fails verification after any
+   signed field is modified.
+8. Payment confirmation is rejected until the provider reports settlement.
 
-## Notes
+## Operational notes
 
-**Schema.** `create_all()` runs at boot, which creates missing tables and does
-nothing else. It will not alter an existing column. Add Alembic before the first
-schema change reaches real data.
+- Add Alembic before the first production schema migration. `create_all()` does
+  not alter existing columns.
+- Store artifacts in R2 or S3; the Modal volume is only an evaluation cache.
+- CSP uses a fresh per-request nonce. Seller pages are intentionally rendered
+  dynamically and private responses are not CDN-cacheable.
+- Add centralized logs and metrics for request IDs, queue latency, provider
+  callbacks, evaluation failures, and publication decisions before launch.
 
-**The worker is light.** Certification runs on Modal, so this image needs the
-Modal client rather than torch — a few hundred MB, not several GB.
+## Payments
 
-**Scaling.** The API is stateless; run as many as you like. The worker claims
-work by reading `pending_certification`, which has no locking, so **run exactly
-one** until that changes. Two workers would certify the same listing twice.
+Non-custodial by default. Buyers send USDC straight to an address you control
+and the platform only watches the chain, so no processor holds your money and
+nobody needs your identity documents.
 
-**Cost.** The API and worker idle cheaply. GPU time is the real spend and it is
-on Modal, metered per certification and recorded in `report.cost`.
+```bash
+KEYSTONE_RECEIVE_ADDRESS=0x...      # from your own wallet
+KEYSTONE_RPC_URL=https://mainnet.base.org
+KEYSTONE_CONFIRMATIONS=3
+```
+
+Verify before taking money:
+
+```bash
+keystone checkout-probe
+```
+
+It reads the chain head, confirms the configured contract really reports itself
+as six-decimal USDC, and prints the exact amount a buyer would be asked to send.
+A wrong contract address means watching the wrong token, and every payment would
+look unpaid forever -- so this fails loudly instead.
+
+**The server holds no private key.** It makes read-only RPC calls; code that
+cannot sign cannot lose the money. Creator payouts are sent from the wallet that
+holds the funds, deliberately outside this process.
+
+Charges are told apart by amount: each order is quoted with a sub-dollar offset
+derived from its id, so two buyers paying the same list price produce
+distinguishable transfers, and a single payment can never clear two orders.
+
+A hosted processor (Coinbase Commerce) is also wired if you would rather someone
+else custody funds -- set `COINBASE_COMMERCE_API_KEY` and it takes precedence
+over nothing; on-chain is tried first.
+

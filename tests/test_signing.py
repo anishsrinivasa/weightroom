@@ -53,7 +53,7 @@ def _report(grade: str = "B", digest: str = "d" * 64) -> CertificationReport:
             SuiteResult(suite_id="s", suite_version="1", status=Status.PASS, score=0.9)
         ],
         cost=Cost(gpu_seconds=81.0),
-        rating=Rating(grade=grade, as_tested_at=NOW),
+        rating=Rating(grade=grade, certified=True, as_tested_at=NOW),
     )
 
 

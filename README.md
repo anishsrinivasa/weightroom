@@ -1,6 +1,6 @@
-# Keystone
+# Weightroom
 
-One self-contained platform. Creators upload open-weight models; when they ask
+Keystone is Weightroom's certification and marketplace backend. Creators upload open-weight models; when they ask
 to publish, **certification runs as the gate**. Passing lists the model, failing
 sends it back with coarse feedback. Buyers download artifacts they can verify
 themselves.
@@ -8,7 +8,7 @@ themselves.
 Concept and strategy live in [model-marketplace-design-doc.md](model-marketplace-design-doc.md).
 This repo is the platform that implements it.
 
-**To run it locally, see [RUNNING.md](RUNNING.md)** — two commands, no GPU, no Modal account, no spend.
+**To run it locally, see [RUNNING.md](RUNNING.md)** — two services, no GPU, no Modal account, no spend.
 To ship it, see [DEPLOY.md](DEPLOY.md).
 
 **Scope right now: text-only LLMs.** VLM support is an additive layer, not a
@@ -67,17 +67,35 @@ scales with the selection, so the fee does too.
 ```
 GET /v1/benchmarks
 
-  REQUIRED  Safety - refusal behaviour     15.000000 USDC
-  optional  Instruction following          10.000000 USDC
-  optional  Multi-step reasoning           20.000000 USDC
+  REQUIRED  Quality - over-refusal diagnostic  15.000000 USDC
+  optional  Instruction following              10.000000 USDC
+  optional  Multi-step reasoning                20.000000 USDC
 ```
 
 Three rules make this safe to offer:
 
-**Safety is not on the menu.** `SuiteManifest.mandatory` suites run whatever the
-creator selected, and are folded in server-side — omitting one from the request
-does not skip it. A badge a seller could opt out of when they expected to fail
-would mean nothing.
+**Safety gates are not on the menu.** `SuiteManifest.mandatory` suites run
+whatever the creator selected, and are folded in server-side — omitting one
+from the request does not skip it. `SuiteManifest.gate` is a separate,
+load-bearing flag: gate scores are never averaged into capability grades, a
+failed gate forces an F, and an errored or skipped gate produces no rating.
+The worker independently requires at least one passing gate before it can move
+a listing to `certified`.
+
+The checked-in `stub_safety` suite is intentionally **not** such a gate. It is
+a public over-refusal diagnostic: useful quality information, but not a reason
+to withhold an otherwise safe open-weight model. It does not affect the
+capability grade or certification result.
+
+Every Modal certification automatically runs two pinned public safety screens:
+the 200 standard HarmBench behaviors and the 100 harmful JailbreakBench
+behaviors. Both are fail-closed gates and are never seller-selectable. Public
+datasets and the independent Qwen3Guard judge are fetched before the model is
+loaded; evaluation then runs with network and Modal API access blocked. These
+are full public prompt sets for the direct harmful-request protocol implemented
+here, but they are not official benchmark-native leaderboard runs: the current
+JailbreakBench screen does not apply jailbreak attacks and both screens use the
+pinned Qwen3Guard judge. The reports record sample counts and source revisions.
 
 **Declining is visible.** Every offered benchmark appears in the report, run or
 not, marked `declined`. A benchmark a seller can silently omit is a benchmark
@@ -242,14 +260,23 @@ a restart. Dev generates an ephemeral one.
 ## API and worker
 
 ```bash
-keystone serve            # API + placeholder UI on :8000
-keystone worker --once    # drain the certification queue
+keystone serve            # API only on :8000
+keystone worker           # continuously drain the certification queue
+keystone worker --once    # drain the current queue, then stop
+cd web && npm run dev     # Next.js Seller Studio on :3000
 ```
 
 The API ([`api.py`](src/keystone/api.py)) is thin: it validates, writes rows,
 and queues. No request thread ever waits on a GPU — publishing moves a listing
 to `pending_certification` and returns in milliseconds, and
 [`worker.py`](src/keystone/worker.py) picks it up out of process.
+
+The worker resolves the listing's digest against the immutable artifact
+manifest instead of treating the digest as a Hugging Face repository name.
+Local files are staged through Modal's authenticated client; production object
+storage is fetched with short-lived HTTPS URLs. The remote fetch plane verifies
+the manifest and every file hash before untrusted weights reach a scanner or
+GPU process.
 
 Flow:
 
@@ -273,10 +300,17 @@ Three properties worth protecting:
 - **Settlement is re-read from the payment provider.** A client saying it paid
   is not evidence that it paid — also tested.
 
-The UI at `/` is a deliberate placeholder: one static file, black and white, no
-framework and no build step. Browse the catalogue, walk the publish flow, and
-see the admin review queue. Switch the token dropdown to watch the same report
-redact differently for buyer, creator, and admin.
+The production web application lives in [`web/`](web/). It is a black-and-white
+Next.js Seller Studio with a private inventory, a four-step
+upload/benchmark/payment/verification flow, and a model record that exposes
+safety gates only to its seller. Browser calls go through a same-origin route
+handler that reads the seller's secure, HttpOnly identity cookie and forwards
+the bearer token to Keystone; tokens are never stored in client JavaScript.
+
+A verified model remains private until its seller explicitly publishes it; an
+unverified model has no publish action. The public listing API strips gate
+summaries and gate-suite rows because appearing in the marketplace already
+means those gates passed.
 
 ## Buying and entitlement
 
@@ -332,7 +366,7 @@ payment, so we never take money from someone we are about to reject on cooldown.
 ```bash
 uv venv --python 3.12          # 3.13+ has no torch/vLLM wheels yet
 uv pip install -e .
-python -m pytest -q            # 84 offline tests, no GPU needed
+python -m pytest -q            # 300 offline tests, no GPU needed
 ```
 
 Modal (for anything that actually runs a model):
@@ -414,9 +448,20 @@ public vs. held-out, the rotation policy, and how coarse the categories are.
 Platform side builds the machinery that enforces it — redaction, attempt
 tracking, cooldowns, fee hooks, rotation indices, re-cert scheduling.
 
-`suites/stub_capability` and `suites/stub_safety` demonstrate the shape; they
-are not real benchmarks. The safety stub measures over-refusal on benign prompts
-deliberately — a genuine signal that needs no adversarial content in this repo.
+`suites/stub_capability`, `suites/stub_reasoning`, and `suites/stub_safety`
+demonstrate the pluggable suite shape; they are not real benchmarks. The
+production worker additionally runs the public battery defined in
+[`public_safety.py`](src/keystone/public_safety.py), with orchestration in the
+network-isolated Modal evaluation function. The current battery is deliberately
+limited to the complete 200-item HarmBench standard set and the 100 harmful
+JailbreakBench behaviors. Seller-visible progress is streamed in batches; the
+final public-suite safety percentage is included in the report. These are
+currently scored by the pinned Qwen3Guard judge and must not be described as
+official benchmark results until the benchmark-native scorer policy is settled.
+The quality stub measures
+over-refusal on benign prompts deliberately — a genuine signal that needs no
+adversarial content in this repo, but explicitly not a certification-blocking
+safety gate.
 **Adversarial probes must never be committed here.**
 
 ---
@@ -472,17 +517,19 @@ Expect that ratio to hold.
 
 ## Known gaps
 
-- Only the crypto rail is real. `HostedCryptoProvider` is a skeleton awaiting a
-  vendor; `MockPaymentProvider` backs dev and tests. No fiat rail, which caps
-  you at buyers who can pay in stablecoin.
+- `HostedCryptoProvider` is still a skeleton awaiting a real custody/payment
+  vendor. Production fails closed while the simulated provider is active. No
+  fiat rail exists yet either.
 - `_GPU_USD_PER_S` in [`cli.py`](src/keystone/cli.py) is approximate. Verify
   against current Modal pricing.
 
 - `_grade()` is placeholder logic; the real rubric belongs to the harness side.
-- `StaticTokenAuth` backs the dev server. `JWTAuth` is production-shaped
-  (JWKS, issuer/audience/expiry checks, fixed algorithm list) but is not wired
-  into `dev_app` and has no provider configured.
-- The frontend is a placeholder: one static file, no build step, no framework.
+- `StaticTokenAuth` backs local development. `JWTAuth` is wired through
+  production settings (JWKS, issuer/audience/expiry checks, fixed algorithm
+  list), but an identity provider and its secure session callback still need
+  to be configured for the deployment.
+- Seller Studio is a separate Next.js service. The public ingress and identity
+  callback must terminate there; FastAPI should remain on the private network.
 - `finalize` trusts declared hashes; enforcement happens at materialize time,
   before weights are ever loaded. Fine, but it means a bad manifest is caught
   late rather than at upload.

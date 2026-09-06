@@ -82,10 +82,16 @@ def _report(digest: str) -> CertificationReport:
         ),
         environment=Environment(sandboxed=True),
         suite_results=[
-            SuiteResult(suite_id="s", suite_version="1", status=Status.PASS, score=0.95)
+            SuiteResult(
+                suite_id="harm_gate",
+                suite_version="1",
+                status=Status.PASS,
+                gate=True,
+                score=0.95,
+            )
         ],
         cost=Cost(gpu_seconds=80.0),
-        rating=Rating(grade="A", as_tested_at=NOW),
+        rating=Rating(grade="A", certified=True, as_tested_at=NOW),
     )
 
 
@@ -197,15 +203,35 @@ def test_purchase_returns_a_charge(client: TestClient, deps: Deps) -> None:
 
 
 def test_cannot_buy_an_unpublished_model(client: TestClient, deps: Deps) -> None:
+    # A real, finalized artifact, so this exercises the listing state rather
+    # than the missing-artifact check.
     digest = uuid.uuid4().hex + uuid.uuid4().hex
+    body = {"digest": digest, "files": FILES}
+    client.post("/v1/artifacts", json=body, headers=_hdr("tok-creator"))
+    for f in FILES:
+        target = deps.artifacts.root / artifact_key(digest, f["path"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"x" * f["size_bytes"])
+    client.post(f"/v1/artifacts/{digest}/finalize", json=body, headers=_hdr("tok-creator"))
+
     listing_id = client.post(
         "/v1/listings",
         json={"artifact_digest": digest, "price_minor": 1000},
         headers=_hdr("tok-creator"),
     ).json()["listing_id"]
-    # Draft listings have no artifact row, but the state check fires first.
+
     r = client.post(f"/v1/listings/{listing_id}/purchase", headers=_hdr("tok-buyer"))
     assert r.status_code == 409 and "not published" in r.json()["detail"]
+
+
+def test_listing_requires_a_stored_artifact(client: TestClient) -> None:
+    """Otherwise the row reaches the queue with nothing to certify."""
+    r = client.post(
+        "/v1/listings",
+        json={"artifact_digest": "f" * 64, "price_minor": 1000},
+        headers=_hdr("tok-creator"),
+    )
+    assert r.status_code == 409 and "upload it first" in r.json()["detail"]
 
 
 def test_creator_cannot_buy_their_own(client: TestClient, deps: Deps) -> None:

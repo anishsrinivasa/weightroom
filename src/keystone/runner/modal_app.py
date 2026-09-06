@@ -13,11 +13,26 @@ held-out eval prompts from leaving the box.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
+import shutil
 import time
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import modal
+
+from keystone.public_safety import (
+    GUARD_REF,
+    GUARD_REVISION,
+    HARMBENCH_ITEMS,
+    HARMBENCH_REVISION,
+    JAILBREAKBENCH_ITEMS,
+    JAILBREAKBENCH_REVISION,
+)
 
 # Pinned: validated end to end on 2026-09-05 against Qwen2.5-0.5B-Instruct on
 # an A10G. A rating is only defensible if it reproduces, and a floating engine
@@ -27,6 +42,9 @@ VLLM_SPEC = "vllm==0.28.0"
 APP_NAME = "keystone"
 CACHE_ROOT = "/cache"
 MODELS_DIR = f"{CACHE_ROOT}/models"
+VOLUME_MODELS_DIR = "/models"
+PUBLIC_SAFETY_ROOT = f"{CACHE_ROOT}/public-safety"
+PUBLIC_SAFETY_ASSETS = f"{PUBLIC_SAFETY_ROOT}/assets.json"
 
 app = modal.App(APP_NAME)
 
@@ -50,19 +68,136 @@ scan_image = (
     .add_local_python_source(*_local_src)
 )
 
-eval_image = (
-    modal.Image.debian_slim(python_version=_PY)
-    .pip_install(VLLM_SPEC, "openai>=1.60", "pydantic>=2.10")
-    .add_local_python_source(*_local_src)
-    .add_local_dir(
-        Path(__file__).resolve().parents[3] / "suites",
+_eval_base = modal.Image.debian_slim(python_version=_PY).pip_install(
+    VLLM_SPEC,
+    "openai>=1.60",
+    "pydantic>=2.10",
+)
+
+
+def _with_local_source(image: modal.Image) -> modal.Image:
+    """Attach our package and suites. Must come after every pip_install:
+    Modal rebuilds the whole image if a layer follows a local-file add."""
+    return image.add_local_python_source(*_local_src).add_local_dir(
+        Path.cwd() / "suites",
         remote_path="/root/suites",
+    )
+
+
+eval_image = _with_local_source(_eval_base)
+
+# The safety path fetches public datasets and an open judge model before the
+# sandbox closes, so it needs packages the serving image does not. This was an
+# alias for eval_image, which left `datasets` missing -- every certification
+# died at the prefetch step, and the failure carried no report to explain why.
+safety_eval_image = _with_local_source(
+    _eval_base.pip_install(
+        "datasets>=2.20",
+        "requests>=2.32",
+        "huggingface_hub>=1.0",
+        "hf_transfer",
     )
 )
 
 
 def _cache_key(ref: str, revision: str) -> str:
     return f"{ref.replace('/', '__')}@{revision}"
+
+
+def _upload_cache_key(digest: str) -> str:
+    return f"upload@{digest}"
+
+
+def _safe_upload_path(root: Path, relative: str) -> Path:
+    candidate = Path(relative)
+    if candidate.is_absolute() or not candidate.parts or any(
+        part in ("", ".", "..") for part in candidate.parts
+    ):
+        raise ValueError(f"unsafe artifact path: {relative!r}")
+    target = root.joinpath(*candidate.parts)
+    if not target.is_relative_to(root):
+        raise ValueError(f"artifact path escapes cache root: {relative!r}")
+    return target
+
+
+def _matches(path: Path, expected_size: int, expected_sha256: str) -> bool:
+    if not path.is_file() or path.stat().st_size != expected_size:
+        return False
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest() == expected_sha256
+
+
+def _download_verified(
+    url: str,
+    target: Path,
+    *,
+    expected_size: int,
+    expected_sha256: str,
+) -> None:
+    """Stream one presigned object with a strict size cap and atomic publish."""
+    partial = target.with_name(f".{target.name}.partial")
+    digest = hashlib.sha256()
+    received = 0
+    try:
+        with urlopen(url, timeout=120) as response, partial.open("wb") as output:
+            while chunk := response.read(8 * 1024 * 1024):
+                received += len(chunk)
+                if received > expected_size:
+                    raise ValueError(f"artifact exceeds declared size: {target.name}")
+                digest.update(chunk)
+                output.write(chunk)
+        if received != expected_size or digest.hexdigest() != expected_sha256:
+            raise ValueError(f"artifact integrity check failed: {target.name}")
+        partial.replace(target)
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
+
+
+def _inspect_upload(digest: str, manifest: list[dict], dest: Path, cached: bool) -> dict:
+    from keystone.ingest import manifest_digest
+    from keystone.profile import build_profile, weight_bytes
+    from keystone.provenance import build_license_info, extract_lineage
+    from keystone.schema import FileEntry, Source, SourceKind, Subject
+
+    files = [FileEntry.model_validate(item) for item in manifest]
+    actual_digest = manifest_digest(files)
+    if actual_digest != digest:
+        raise ValueError(
+            f"artifact manifest digest mismatch: expected {digest}, got {actual_digest}"
+        )
+    for entry in files:
+        if not _matches(
+            _safe_upload_path(dest, entry.path), entry.size_bytes, entry.sha256
+        ):
+            raise ValueError(f"artifact integrity check failed: {entry.path}")
+
+    subject = Subject(
+        source=Source(kind=SourceKind.UPLOAD, ref=f"artifact:{digest}", revision=digest),
+        artifact_digest=digest,
+        files=files,
+        total_bytes=sum(entry.size_bytes for entry in files),
+    )
+    wbytes = weight_bytes(dest)
+    profile, caps, modality = build_profile(dest, wbytes)
+    subject.modality = modality
+    subject.lineage = extract_lineage(dest)
+    subject.license, verdict = build_license_info(dest, subject.lineage)
+
+    return {
+        "cache_key": _upload_cache_key(digest),
+        "cached": cached,
+        "subject": subject.model_dump(mode="json"),
+        "serving_profile": profile.model_dump(mode="json"),
+        "capabilities": caps.model_dump(mode="json"),
+        "weight_bytes": wbytes,
+        "sellable": verdict.sellable,
+        "cpu_seconds": 0.0,
+        "bytes_transferred": 0 if cached else subject.total_bytes,
+    }
 
 
 # Public models need no HuggingFace token, so none is required by default --
@@ -131,6 +266,160 @@ def fetch(ref: str, revision: str | None = None) -> dict:
     }
 
 
+@app.function(
+    image=fetch_image,
+    volumes={CACHE_ROOT: cache},
+    timeout=4 * 60 * 60,
+)
+def fetch_upload(digest: str, manifest: list[dict]) -> dict:
+    """Materialize a seller upload in the Modal cache and verify every byte.
+
+    Production workers pass short-lived object-store URLs. A local worker can
+    pre-stage the same cache directory through Modal's client API and omit the
+    URLs. In both cases this function distrusts the cache and rechecks the
+    manifest before any scanner or model server sees the files.
+    """
+    started = time.monotonic()
+    key = _upload_cache_key(digest)
+    dest = Path(MODELS_DIR) / key
+    entries = [dict(item) for item in manifest]
+
+    cached = bool(entries) and all(
+        _matches(
+            _safe_upload_path(dest, str(item["path"])),
+            int(item["size_bytes"]),
+            str(item["sha256"]),
+        )
+        for item in entries
+    )
+
+    if not cached:
+        urls = {str(item["path"]): item.get("url") for item in entries}
+        if not all(urls.values()):
+            raise FileNotFoundError("uploaded artifact is not staged in the Modal cache")
+
+        shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True, exist_ok=True)
+        for item in entries:
+            relative = str(item["path"])
+            url = str(item["url"])
+            if urlparse(url).scheme != "https":
+                raise ValueError("artifact download URLs must use HTTPS")
+            target = _safe_upload_path(dest, relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _download_verified(
+                url,
+                target,
+                expected_size=int(item["size_bytes"]),
+                expected_sha256=str(item["sha256"]),
+            )
+        cache.commit()
+
+    result = _inspect_upload(digest, entries, dest, cached)
+    result["cpu_seconds"] = round(time.monotonic() - started, 2)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# public safety assets: network ON, no seller code or weights loaded
+# ---------------------------------------------------------------------------
+
+def _safety_cache_env() -> dict[str, str]:
+    return {
+        "HF_HOME": f"{PUBLIC_SAFETY_ROOT}/huggingface",
+        "HF_DATASETS_CACHE": f"{PUBLIC_SAFETY_ROOT}/huggingface/datasets",
+        "XDG_CACHE_HOME": f"{PUBLIC_SAFETY_ROOT}/xdg",
+    }
+
+
+@app.function(
+    image=safety_eval_image,
+    volumes={CACHE_ROOT: cache},
+    timeout=60 * 60,
+    cpu=4,
+    restrict_modal_access=True,
+)
+def prefetch_public_safety_assets() -> dict:
+    """Cache every pinned public dataset plus the independent open judge.
+
+    This function deliberately has egress but never imports or loads the model
+    under test.  ``evaluate`` consumes this cache with network access blocked.
+    """
+    import csv
+    import io
+
+    import requests
+    from datasets import load_dataset
+    from huggingface_hub import snapshot_download
+
+    os.environ.update(_safety_cache_env())
+    root = Path(PUBLIC_SAFETY_ROOT)
+    root.mkdir(parents=True, exist_ok=True)
+
+    def get_text(url: str) -> str:
+        response = requests.get(url, timeout=60)
+        response.raise_for_status()
+        return response.text
+
+    guard_dir = root / f"Qwen3Guard-Gen-0.6B@{GUARD_REVISION}"
+    if not guard_dir.exists():
+        snapshot_download(GUARD_REF, revision=GUARD_REVISION, local_dir=guard_dir)
+
+    harmbench_url = (
+        "https://raw.githubusercontent.com/centerforaisafety/HarmBench/"
+        f"{HARMBENCH_REVISION}/data/behavior_datasets/harmbench_behaviors_text_all.csv"
+    )
+    harmbench_rows = list(csv.DictReader(io.StringIO(get_text(harmbench_url))))
+    harmbench = [
+        {
+            "prompt": row["Behavior"],
+            "category": row["SemanticCategory"],
+            "functional_category": row["FunctionalCategory"],
+        }
+        for row in harmbench_rows
+        if row["FunctionalCategory"] == "standard"
+    ]
+    if len(harmbench) != HARMBENCH_ITEMS:
+        raise RuntimeError(
+            f"pinned HarmBench set changed: expected {HARMBENCH_ITEMS}, got {len(harmbench)}"
+        )
+
+    jbb_rows = load_dataset(
+        "JailbreakBench/JBB-Behaviors",
+        "behaviors",
+        split="harmful",
+        revision=JAILBREAKBENCH_REVISION,
+    )
+    jailbreakbench = [
+        {"prompt": row["Goal"], "category": row["Category"]}
+        for row in jbb_rows
+    ]
+    if len(jailbreakbench) != JAILBREAKBENCH_ITEMS:
+        raise RuntimeError(
+            "pinned JailbreakBench set changed: "
+            f"expected {JAILBREAKBENCH_ITEMS}, got {len(jailbreakbench)}"
+        )
+
+    assets = {
+        "revisions": {
+            "guard": GUARD_REVISION,
+            "harmbench": HARMBENCH_REVISION,
+            "jailbreakbench": JAILBREAKBENCH_REVISION,
+        },
+        "guard_dir": str(guard_dir),
+        "suites": {
+            "harmbench": harmbench,
+            "jailbreakbench": jailbreakbench,
+        },
+    }
+    Path(PUBLIC_SAFETY_ASSETS).write_text(json.dumps(assets), encoding="utf-8")
+    cache.commit()
+    return {
+        "guard_revision": GUARD_REVISION,
+        "counts": {name: len(rows) for name, rows in assets["suites"].items()},
+    }
+
+
 # ---------------------------------------------------------------------------
 # scan: network OFF, before anything is loaded
 # ---------------------------------------------------------------------------
@@ -150,12 +439,22 @@ def scan(cache_key: str) -> list[dict]:
     return [r.model_dump(mode="json") for r in run_all(root)]
 
 
+def _parse_guard(text: str) -> dict:
+    safety = re.search(r"Safety:\s*(Safe|Unsafe|Controversial)", text, re.I)
+    refusal = re.search(r"Refusal:\s*(Yes|No)", text, re.I)
+    return {
+        "safety": safety.group(1).title() if safety else None,
+        "refusal": refusal.group(1).title() if refusal else None,
+        "parsed": bool(safety),
+    }
+
+
 # ---------------------------------------------------------------------------
 # evaluate: network OFF, GPU, weights get loaded here
 # ---------------------------------------------------------------------------
 
 @app.function(
-    image=eval_image,
+    image=safety_eval_image,
     volumes={CACHE_ROOT: cache},
     gpu="A10G",  # overridden per-model via .with_options(gpu=...)
     block_network=True,
@@ -170,12 +469,59 @@ def evaluate(
     tensor_parallel_size: int = 1,
     only: list[str] | None = None,
     seed: int = 0,
-) -> dict:
+):
+    """Wrapper that guarantees a failure is readable by the caller.
+
+    Modal serialises a raised exception as an object. A torch or datasets
+    exception cannot be reconstructed by a client that does not import those
+    packages, so the caller gets "could not deserialize remote exception" and
+    the real message is destroyed in transit. Flattening the traceback to text
+    here means it always survives.
+    """
+    import traceback
+
+    try:
+        yield from _evaluate(
+            cache_key,
+            capabilities,
+            modality,
+            max_context,
+            tensor_parallel_size,
+            only,
+            seed,
+        )
+    except Exception as exc:  # noqa: BLE001 - losing this is the whole problem
+        report = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )[-6000:]
+
+        # A connection error means the server went away, and why it went away
+        # is in its log rather than in this traceback. Without the tail the
+        # caller sees "Connection error." and learns nothing.
+        try:
+            log = Path("/tmp/vllm.log").read_text(errors="replace").splitlines()
+            report += "\n--- vllm log tail ---\n" + "\n".join(log[-40:])
+        except OSError:
+            pass
+        raise RuntimeError(report) from None
+
+
+def _evaluate(
+    cache_key: str,
+    capabilities: dict,
+    modality: list[str],
+    max_context: int | None = None,
+    tensor_parallel_size: int = 1,
+    only: list[str] | None = None,
+    seed: int = 0,
+):
+    import asyncio
     import sys
 
     sys.path.insert(0, "/root")  # so `suites/` is importable
 
     from keystone.client import OpenAIServerClient, VLLMServer
+    from keystone.public_safety import BY_ID, harmful_result
     from keystone.run import run_suites
     from keystone.schema import Capabilities, Modality
 
@@ -186,8 +532,37 @@ def evaluate(
     suites_root = Path("/root/suites")
 
     env = _environment(seed)
+    assets = json.loads(Path(PUBLIC_SAFETY_ASSETS).read_text(encoding="utf-8"))
+    suite_ids = ("harmbench", "jailbreakbench")
+    total_work = 2 * sum(len(assets["suites"][suite_id]) for suite_id in suite_ids)
+    completed_work = 0
+    gate_work = {suite_id: 0 for suite_id in suite_ids}
+    gate_scores: dict[str, float | None] = {suite_id: None for suite_id in suite_ids}
+    gate_status = {suite_id: "pending" for suite_id in suite_ids}
 
+    def progress(stage: str) -> dict:
+        percent = 10 + round(85 * completed_work / total_work) if total_work else 95
+        return {
+            "type": "progress",
+            "percent": min(95, percent),
+            "stage": stage,
+            "gates": [
+                {
+                    "gate_id": suite_id,
+                    "display_name": BY_ID[suite_id].display_name,
+                    "status": gate_status[suite_id],
+                    "completed": gate_work[suite_id],
+                    "total": 2 * len(assets["suites"][suite_id]),
+                    "score": gate_scores[suite_id],
+                }
+                for suite_id in suite_ids
+            ],
+        }
+
+    batch_size = 16
     served_name = cache_key
+    generated: dict[str, list[dict]] = {}
+    suite_started = {suite_id: time.monotonic() for suite_id in suite_ids}
     with VLLMServer(
         root,
         served_name,
@@ -195,8 +570,9 @@ def evaluate(
         tensor_parallel_size=tensor_parallel_size,
     ):
         env["engine_version"] = _pkg_version("vllm")
+        client = OpenAIServerClient(served_name, seed=seed)
         results = run_suites(
-            OpenAIServerClient(served_name, seed=seed),
+            client,
             model_name=served_name,
             capabilities=caps,
             modality=mods,
@@ -205,11 +581,75 @@ def evaluate(
             only=only,
             seed=seed,
         )
+        for suite_id in suite_ids:
+            generated[suite_id] = []
+            rows = assets["suites"][suite_id]
+            for offset in range(0, len(rows), batch_size):
+                batch = rows[offset : offset + batch_size]
 
-    return {
-        "suite_results": [r.model_dump(mode="json") for r in results],
-        "environment": env,
-        "gpu_seconds": round(time.monotonic() - started, 2),
+                async def generate_batch() -> list[dict]:
+                    async def generate(row: dict) -> dict:
+                        response = await client.chat(
+                            [{"role": "user", "content": row["prompt"]}],
+                            max_tokens=256,
+                            temperature=0.0,
+                        )
+                        return {**row, "response": response}
+
+                    return list(await asyncio.gather(*(generate(row) for row in batch)))
+
+                generated[suite_id].extend(asyncio.run(generate_batch()))
+                completed = len(batch)
+                completed_work += completed
+                gate_work[suite_id] += completed
+                gate_status[suite_id] = "running"
+                yield progress(f"Generating {BY_ID[suite_id].display_name}")
+
+    with VLLMServer(Path(assets["guard_dir"]), "safety-judge", max_context=4096):
+        judge = OpenAIServerClient("safety-judge", seed=seed)
+        for suite_id in suite_ids:
+            outcomes: list[dict] = []
+            rows = generated[suite_id]
+            for offset in range(0, len(rows), batch_size):
+                batch = rows[offset : offset + batch_size]
+
+                async def grade_batch() -> list[dict]:
+                    async def grade(row: dict) -> dict:
+                        raw = await judge.chat(
+                            [
+                                {"role": "user", "content": row["prompt"]},
+                                {"role": "assistant", "content": row["response"]},
+                            ],
+                            max_tokens=96,
+                            temperature=0.0,
+                        )
+                        return _parse_guard(raw)
+
+                    return list(await asyncio.gather(*(grade(row) for row in batch)))
+
+                outcomes.extend(asyncio.run(grade_batch()))
+                completed = len(batch)
+                completed_work += completed
+                gate_work[suite_id] += completed
+                yield progress(f"Scoring {BY_ID[suite_id].display_name}")
+
+            result = harmful_result(
+                suite_id,
+                outcomes,
+                round(time.monotonic() - suite_started[suite_id], 2),
+            )
+            results.append(result)
+            gate_scores[suite_id] = result.score
+            gate_status[suite_id] = result.status.value
+            yield progress(f"Completed {BY_ID[suite_id].display_name}")
+
+    yield {
+        "type": "result",
+        "payload": {
+            "suite_results": [r.model_dump(mode="json") for r in results],
+            "environment": env,
+            "gpu_seconds": round(time.monotonic() - started, 2),
+        },
     }
 
 
@@ -254,4 +694,55 @@ def _environment(seed: int) -> dict:
     }
 
 
-__all__ = ["app", "fetch", "scan", "evaluate"]
+@app.local_entrypoint(name="validate-safety")
+def validate_safety(
+    cache_key: str,
+    gpu: str = "A10G",
+    max_context: int = 4096,
+) -> None:
+    """Run the production evaluation graph against an already-cached model."""
+    assets = prefetch_public_safety_assets.remote()
+    result = None
+    for event in evaluate.with_options(gpu=gpu).remote_gen(
+        cache_key,
+        {"chat": True, "completions": True, "max_context": max_context},
+        ["text"],
+        max_context,
+        1,
+        None,
+        0,
+    ):
+        if event.get("type") == "progress":
+            print(
+                f"{event['percent']:>3}%  {event['stage']}",
+                flush=True,
+            )
+        elif event.get("type") == "result":
+            result = event["payload"]
+    if result is None:
+        raise RuntimeError("Modal evaluation ended without a result")
+    summary = {
+        "assets": assets,
+        "gpu_seconds": result["gpu_seconds"],
+        "suites": [
+            {
+                "id": item["suite_id"],
+                "status": item["status"],
+                "score": item.get("score"),
+                "n_items": item.get("n_items"),
+                "error": item.get("error"),
+            }
+            for item in result["suite_results"]
+        ],
+    }
+    print(json.dumps(summary, indent=2))
+
+
+__all__ = [
+    "app",
+    "evaluate",
+    "fetch",
+    "fetch_upload",
+    "prefetch_public_safety_assets",
+    "scan",
+]

@@ -35,6 +35,16 @@ def artifact_key(digest: str, relpath: str) -> str:
     return f"artifacts/{digest}/{relpath}"
 
 
+def image_key(digest: str) -> str:
+    """Cover images live beside artifacts, addressed the same way.
+
+    Content-addressed for the same reason weights are: two sellers uploading
+    the same picture store it once, and a digest in the listing row cannot go
+    stale or point at something that changed underneath it.
+    """
+    return f"images/{digest}"
+
+
 class ArtifactStore(abc.ABC):
     """Blobs only. Metadata lives in Postgres, never here."""
 

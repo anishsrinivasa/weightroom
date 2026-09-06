@@ -59,6 +59,7 @@ class Skipped:
     display_name: str
     reason: str
     declined: bool = False
+    gate: bool = False
 
 
 def select(
@@ -84,11 +85,19 @@ def select(
         # useful fact that the model cannot do it.
         ok, reason = m.is_eligible(caps, modality)
         if not ok:
-            skipped.append(Skipped(m.id, m.name, reason))
+            skipped.append(Skipped(m.id, m.name, reason, gate=m.gate))
             continue
 
         if only is not None and not m.mandatory and m.id not in only:
-            skipped.append(Skipped(m.id, m.name, "declined by the creator", declined=True))
+            skipped.append(
+                Skipped(
+                    m.id,
+                    m.name,
+                    "declined by the creator",
+                    declined=True,
+                    gate=m.gate,
+                )
+            )
             continue
 
         eligible.append(suite)

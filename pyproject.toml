@@ -20,6 +20,7 @@ dependencies = [
     "cryptography>=43",
     "pyjwt[crypto]>=2.9",
     "psycopg[binary]>=3.2",
+    "pycryptodome>=3.20",
 ]
 
 [build-system]
@@ -28,9 +29,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/keystone"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/keystone/static" = "keystone/static"
 
 [project.scripts]
 keystone = "keystone.cli:app"

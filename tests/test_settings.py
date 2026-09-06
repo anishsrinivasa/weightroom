@@ -27,6 +27,27 @@ from keystone.signing import Ed25519Signer
 from keystone.storage import LocalStore, S3Store
 
 
+PAYMENT_ENV = (
+    "KEYSTONE_RECEIVE_ADDRESS",
+    "KEYSTONE_RPC_URL",
+    "COINBASE_COMMERCE_API_KEY",
+    "KEYSTONE_CHECKOUT_API_KEY",
+    "KEYSTONE_CHECKOUT_URL",
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_payment_config(monkeypatch):
+    """These assert what an *unconfigured* install does.
+
+    Without this they pass or fail depending on whether the developer's shell
+    happens to have payment credentials exported, which is not a property of
+    the code under test.
+    """
+    for name in PAYMENT_ENV:
+        monkeypatch.delenv(name, raising=False)
+
+
 def _prod(**kw) -> Settings:
     return Settings(env="production", **kw)
 

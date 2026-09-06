@@ -116,16 +116,31 @@ def build_auth(s: Settings) -> tuple[Authenticator, bool]:
 
 
 def build_payments(s: Settings) -> tuple[PaymentProvider, bool]:
-    # No real vendor is wired yet. When one is, return it here and flip the
-    # flag; the production guard below is what stops the demo shipping.
-    return (
-        DemoChainProvider(
-            chain=s.chain,
-            block_time_s=s.block_time_s,
-            required_confirmations=s.confirmations,
-        ),
-        True,
+    """A real processor when configured, the simulated chain otherwise."""
+    from keystone.providers.coinbase_commerce import from_env as coinbase_from_env
+    from keystone.providers.hosted_checkout import from_env as hosted_from_env
+    from keystone.providers.onchain import from_env as onchain_from_env
+
+    demo = DemoChainProvider(
+        chain=s.chain,
+        block_time_s=s.block_time_s,
+        required_confirmations=s.confirmations,
     )
+
+    # On-chain first: it needs no account, holds no keys, and takes no fee.
+    for build in (onchain_from_env, coinbase_from_env, hosted_from_env):
+        provider = build()
+        if provider is None:
+            continue
+        if s.is_production:
+            return provider, False
+        # Outside production, keep the simulated rail alongside the real one so
+        # the demo stays clickable while real payments are being exercised.
+        # The production guard still refuses to ship this pairing.
+        from keystone.providers.dual import DualPaymentProvider
+
+        return DualPaymentProvider(provider, demo), False
+    return demo, True
 
 
 # --------------------------------------------------------------------------

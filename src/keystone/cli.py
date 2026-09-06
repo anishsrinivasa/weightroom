@@ -250,7 +250,7 @@ def smoke(
         seed=seed,
     )
 
-    letter, rationale = grade([], results, sandboxed=False)
+    letter, certified, rationale = grade([], results, sandboxed=False)
     report = CertificationReport(
         report_id=str(uuid.uuid4()),
         created_at=datetime.now(timezone.utc),
@@ -264,7 +264,12 @@ def smoke(
         capabilities=caps,
         environment=Environment(seed=seed, sandboxed=False),
         suite_results=results,
-        rating=Rating(grade=letter, rationale=rationale, as_tested_at=datetime.now(timezone.utc)),
+        rating=Rating(
+            grade=letter,
+            certified=certified,
+            rationale=rationale,
+            as_tested_at=datetime.now(timezone.utc),
+        ),
     )
 
     path = _write(report, out_dir)
@@ -283,11 +288,13 @@ def serve(
     port: int = typer.Option(8000),
     reload: bool = typer.Option(False),
 ) -> None:
-    """Run the API and the placeholder UI. Dev wiring: SQLite, local store, mock payments."""
+    """Run the Keystone API. Seller Studio runs from the web directory."""
     import uvicorn
 
-    console.print(f"[bold]http://{host}:{port}[/]  (UI at /, docs at /docs)")
-    uvicorn.run("keystone.api:dev_app", factory=True, host=host, port=port, reload=reload)
+    console.print(f"[bold]http://{host}:{port}[/]  (API docs at /docs)")
+    # Use the same settings factory as production so DATABASE_URL, storage,
+    # signing, authentication, and payment configuration are honored locally.
+    uvicorn.run("keystone.settings:app", factory=True, host=host, port=port, reload=reload)
 
 
 @app.command()
@@ -295,19 +302,23 @@ def worker(
     once: bool = typer.Option(False, "--once", help="Drain the queue and exit."),
     interval: int = typer.Option(15, help="Seconds between polls."),
     limit: int = typer.Option(5, help="Max listings per pass."),
+    listing_id: str | None = typer.Option(
+        None, "--listing-id", help="Process only this queued listing."
+    ),
     db: str | None = typer.Option(None, help="Overrides DATABASE_URL."),
 ) -> None:
     """Certify queued listings. Separate process: no request thread waits on a GPU."""
     from dataclasses import replace as _replace
 
     from keystone.runner import modal_app
-    from keystone.settings import Settings, build_signer, build_store
+    from keystone.settings import Settings, build_artifacts, build_signer, build_store
     from keystone.worker import process_pending
 
     settings = Settings.from_env()
     if db:
         settings = _replace(settings, database_url=db)
     store, _ = build_store(settings)
+    artifacts, _ = build_artifacts(settings)
     store.create_all()
 
     # Reports the worker writes are signed with the same key the API serves, so
@@ -323,6 +334,8 @@ def worker(
         with modal_app.app.run():
             done = process_pending(
                 store,
+                artifacts=artifacts,
+                listing_id=listing_id,
                 limit=limit,
                 signer=signer,
                 on_step=lambda m: console.print(f"  [cyan]·[/] {m}"),
@@ -336,7 +349,7 @@ def worker(
 
 @app.command()
 def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
-    """Populate the dev database so the placeholder UI has something to show.
+    """Populate the dev database so the local web app has something to show.
 
     Uses fabricated reports -- no GPU, no spend. The signatures are real.
     """
@@ -356,15 +369,17 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     now = datetime.now(timezone.utc)
 
     def report(grade: str, digest: str, held: float) -> CertificationReport:
+        issued_grade = grade if held >= 0.75 else "F"
         return CertificationReport(
             report_id=f"rep_{_uuid.uuid4().hex[:12]}",
             created_at=now,
-            status=Status.PASS if grade != "F" else Status.FAIL,
+            status=Status.PASS if issued_grade != "F" else Status.FAIL,
             subject=Subject(
                 source=Source(kind=SourceKind.UPLOAD, ref=f"rcpt_{digest[:8]}"),
                 artifact_digest=digest,
                 files=[],
                 total_bytes=1_400_000_000,
+                license={"declared": "apache-2.0", "spdx": "Apache-2.0", "chain_ok": True},
             ),
             environment=Environment(sandboxed=True, seed=0, gpu="NVIDIA A10",
                                     engine_version="0.28.0", python_version="3.12.10"),
@@ -372,9 +387,10 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                    ScanResult(scanner="format_hygiene", status=Status.PASS)],
             suite_results=[
                 SuiteResult(suite_id="heldout_harm", suite_version="1.2.0",
-                            display_name="Safety - refusal behaviour",
+                            display_name="Harmful-output resistance",
                             status=Status.PASS if held >= 0.75 else Status.FAIL,
-                            held_out=True, score=held, metrics={"refusal_rate": held},
+                            gate=True, held_out=True, score=held,
+                            metrics={"safe_response_rate": held},
                             n_items=200,
                             categories=[] if held >= 0.75 else ["harmful_content_refusal"],
                             remediation=None if held >= 0.75 else "public/harm_practice_v1"),
@@ -391,8 +407,17 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             ],
             cost=Cost(gpu_seconds=142.0, cpu_seconds=9.0,
                       bytes_transferred=1_400_000_000, usd_estimate=0.0435),
-            rating=Rating(grade=grade, as_tested_at=now,
-                          rationale=f"Mean suite score across 2 suite(s); grade {grade}."),
+            rating=Rating(
+                grade=issued_grade,
+                # Certification is the gate; the letter is capability only.
+                certified=issued_grade != "F",
+                as_tested_at=now,
+                rationale=(
+                    f"All mandatory safety gates passed. Capability {issued_grade}."
+                    if issued_grade != "F"
+                    else "Mandatory safety gate failed: Harmful-output resistance."
+                ),
+            ),
         )
 
     # price in USDC minor units (6 decimals); 0 is a real price
@@ -400,7 +425,8 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         ("Legalese-7B (contract QA)", "1" * 64, "A", 0.94, True, 120_000_000),
         ("MedNote-3B (clinical summaries)", "2" * 64, "B", 0.81, True, 45_000_000),
         ("Tokenizer-Bench-0.5B (open)", "4" * 64, "A", 0.92, True, 0),
-        ("Sentinel-1B (log triage)", "3" * 64, "D", 0.62, False, 30_000_000),
+        ("ReadySet-3B (support)", "5" * 64, "A", 0.91, False, 60_000_000),
+        ("Sentinel-1B (log triage)", "3" * 64, "F", 0.62, False, 30_000_000),
     ]
 
     with store.session() as s:
@@ -415,14 +441,19 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             row = store.create_listing(s, listing_id, "u_creator", digest, title)
             row.price_minor = price
             s.commit()
-        record_outcome(store, listing_id, Outcome(digest, report=report(grade, digest, held)),
-                       signer=signer, now=now)
+        state = record_outcome(
+            store,
+            listing_id,
+            Outcome(digest, report=report(grade, digest, held)),
+            signer=signer,
+            now=now,
+        )
         if go_live:
-            publish_certified(store, listing_id)
+            state = publish_certified(store, listing_id)
         tag = "free" if price == 0 else f"{price / 1e6:.0f} USDC"
         console.print(
             f"  {title}  [bold]{grade}[/]  "
-            f"{'listed' if go_live else 'rejected'}  {tag}"
+            f"{state.value}  {tag}"
         )
 
     # A listing that looks like eval-set probing, for the admin queue.
@@ -438,13 +469,203 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     console.print(f"\nseeded {db}")
 
 
+@app.command("sample-model")
+def sample_model(
+    repo: str = typer.Option(
+        "HuggingFaceTB/SmolLM2-135M-Instruct",
+        help="Any small HuggingFace repo that a serving stack can actually run.",
+    ),
+    dest: Path = typer.Option(
+        Path("web/public/sample-model"), help="Served by the web app from /sample-model."
+    ),
+) -> None:
+    """Install a tiny real model for the submit flow to upload.
+
+    A real checkpoint rather than synthesised bytes: genuine config, tokenizer
+    and safetensors, so the demo exercises architecture detection, chat-template
+    resolution, lineage and the scanners -- not just hashing.
+
+    Deliberately not a `tiny-random-*` fixture. Those are a few megabytes and
+    load fine in transformers, but their attention heads are four wide and no
+    serving kernel will touch them, so certification dies on the GPU.
+
+    Not committed. Six megabytes of weights would live in git history forever.
+    """
+    import json as _json
+    import shutil
+
+    from huggingface_hub import snapshot_download
+
+    dest.mkdir(parents=True, exist_ok=True)
+    console.print(f"fetching [bold]{repo}[/] -> {dest}")
+    snapshot_download(
+        repo_id=repo,
+        local_dir=str(dest),
+        allow_patterns=["*.json", "*.safetensors", "*.model", "*.txt"],
+    )
+    shutil.rmtree(dest / ".cache", ignore_errors=True)
+
+    files = sorted(
+        p.relative_to(dest).as_posix()
+        for p in dest.rglob("*")
+        if p.is_file() and p.name != "files.json"
+    )
+    # The browser cannot list a directory, so it reads this manifest first.
+    (dest / "files.json").write_text(
+        _json.dumps({"name": repo.split("/")[-1], "source": repo, "files": files}, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    total = sum((dest / f).stat().st_size for f in files)
+    for f in files:
+        console.print(f"  {f:<28} {(dest / f).stat().st_size:>10,} B")
+    console.print(f"\n[bold]{len(files)}[/] files, {total / 1024 / 1024:.2f} MB")
+    if total > 64 * 1024 * 1024:
+        console.print("[yellow]warning[/] over the 64 MB browser upload limit")
+
+
+@app.command("checkout-probe")
+def checkout_probe(
+    amount: float = typer.Option(1.0, help="Charge amount to create, in USDC."),
+    reference: str = typer.Option("probe", help="Reference to round-trip."),
+    raw: bool = typer.Option(True, help="Print the processor's raw JSON."),
+) -> None:
+    """Create one live charge and check our field mapping against it.
+
+    The vendor-specific half of a payment adapter is guesswork until it has
+    spoken to the real API once. This makes that one call and prints the raw
+    response beside how we read it, so a wrong field name shows up here rather
+    than after a buyer has paid.
+
+    Creates a real charge. It costs nothing unless somebody pays it.
+    """
+    import json as _json
+
+    from keystone.payments import Currency, Money
+    from keystone.providers.coinbase_commerce import from_env as coinbase_from_env
+    from keystone.providers.hosted_checkout import from_env as hosted_from_env
+    from keystone.providers.onchain import OnChainProvider, from_env as onchain_from_env
+
+    provider = onchain_from_env() or coinbase_from_env() or hosted_from_env()
+    if provider is None:
+        console.print(
+            "[red]no payment provider configured[/]\n"
+            "  On-chain: KEYSTONE_RECEIVE_ADDRESS + KEYSTONE_RPC_URL\n"
+            "  Coinbase: COINBASE_COMMERCE_API_KEY\n"
+            "  Generic:  KEYSTONE_CHECKOUT_API_KEY + KEYSTONE_CHECKOUT_URL"
+        )
+        raise typer.Exit(code=2)
+
+    if isinstance(provider, OnChainProvider):
+        _probe_onchain(provider, amount, reference)
+        return
+
+    console.print(f"[bold]{type(provider).__name__}[/] -> {provider.config.base_url}")
+    money = Money.from_decimal(str(amount), Currency.USDC)
+
+    try:
+        charge = provider.create_charge(money, reference)
+    except Exception as exc:
+        console.print(f"[red]create failed[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if raw:
+        try:
+            body = provider._request("GET", f"/charges/{charge.charge_id}")
+            console.print("\n[dim]raw response[/]")
+            console.print(_json.dumps(body, indent=2)[:4000])
+        except Exception as exc:  # a mapping bug should not hide the charge
+            console.print(f"[yellow]could not re-read[/] {exc}")
+
+    table = Table(title="how we read it")
+    table.add_column("field")
+    table.add_column("value")
+    for field, value in [
+        ("charge_id", charge.charge_id),
+        ("reference", charge.reference or "[red]MISSING[/]"),
+        ("amount", str(charge.amount)),
+        ("status", charge.status.value),
+        ("checkout_url", charge.checkout_url or "[red]MISSING[/]"),
+        ("address", charge.address or "[yellow]none yet[/]"),
+        ("expires_at", str(charge.expires_at or "-")),
+    ]:
+        table.add_row(field, str(value))
+    console.print(table)
+
+    problems = []
+    if charge.reference != reference:
+        problems.append("reference did not round-trip -- metadata mapping is wrong")
+    if not charge.checkout_url:
+        problems.append("no checkout_url -- buyers would have nowhere to pay")
+    if charge.amount != money:
+        problems.append(f"amount changed: sent {money}, read back {charge.amount}")
+    if charge.status.value == "settled":
+        problems.append("a brand-new charge reads as settled -- status mapping is wrong")
+
+    if problems:
+        console.print("\n[red]mapping problems[/]")
+        for problem in problems:
+            console.print(f"  - {problem}")
+        raise typer.Exit(code=1)
+    console.print("\n[green]mapping looks correct[/] — pay the charge and re-run to check settlement")
+
+
+def _probe_onchain(provider, amount: float, reference: str) -> None:
+    """Check the node, the token, and the quoted amount before money moves."""
+    from keystone.payments import Currency, Money
+
+    console.print(f"[bold]OnChainProvider[/] -> {provider.config.rpc_url}")
+
+    try:
+        head = provider.block_number()
+    except Exception as exc:
+        console.print(f"[red]node unreachable[/] {exc}")
+        raise typer.Exit(code=1) from exc
+    console.print(f"  chain head        {head:,}")
+
+    # A wrong contract address means watching the wrong token, and every
+    # payment would look unpaid forever.
+    try:
+        token = provider.verify_token()
+    except Exception as exc:
+        console.print(f"[red]could not read the token contract[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"  token             {token['symbol'] or '?'} ({provider.config.token_contract})")
+    console.print(f"  decimals          {token['decimals']}")
+    if not token["decimals_match"]:
+        console.print(
+            f"[red]decimals mismatch[/] contract reports {token['decimals']}, "
+            f"{provider.config.currency.value} expects {provider.config.currency.decimals}"
+        )
+        raise typer.Exit(code=1)
+
+    charge = provider.create_charge(
+        Money.from_decimal(str(amount), Currency.USDC), reference
+    )
+    table = Table(title="what a buyer would be asked to send")
+    table.add_column("field")
+    table.add_column("value")
+    table.add_row("to address", charge.address)
+    table.add_row("exact amount", str(charge.amount))
+    table.add_row("chain", charge.chain)
+    table.add_row("confirmations", str(charge.required_confirmations))
+    console.print(table)
+
+    console.print(
+        "\n[green]node and token verified[/]\n"
+        "  Send exactly that amount to that address, then re-run to watch it settle.\n"
+        "  The amount is unique per order -- that is how payments are told apart."
+    )
+
+
 @app.command()
 def suites() -> None:
     """List discoverable suites and what they require."""
     from keystone.registry import discover
 
     table = Table(title="suites")
-    for col in ("id", "version", "modality", "requires", "held-out"):
+    for col in ("id", "version", "modality", "requires", "gate", "held-out"):
         table.add_column(col)
     for s in discover():
         m = s.manifest
@@ -453,6 +674,7 @@ def suites() -> None:
             m.version,
             ",".join(x.value for x in m.modality),
             ",".join(m.required_capabilities) or "-",
+            "yes" if m.gate else "no",
             "yes" if m.held_out else "no",
         )
     console.print(table)
