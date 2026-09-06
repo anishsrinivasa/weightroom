@@ -8,7 +8,10 @@
 from __future__ import annotations
 
 import json
+import os
 import statistics
+import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -281,6 +284,61 @@ def smoke(
 # --------------------------------------------------------------------------
 # misc
 # --------------------------------------------------------------------------
+
+@app.command()
+def dev(
+    host: str = typer.Option("127.0.0.1"),
+    port: int = typer.Option(8000),
+    worker_interval: int = typer.Option(15, min=1, help="Seconds between queue polls."),
+    worker_limit: int = typer.Option(5, min=1, help="Max listings per worker pass."),
+) -> None:
+    """Run the local API and certification worker as one managed stack.
+
+    Production keeps these as separate services. This command closes the local
+    development footgun where a paid submission could remain queued forever
+    because only the API was started.
+    """
+    import uvicorn
+
+    env = os.environ.copy()
+    key_path = Path(".keystone-key")
+    if not env.get("KEYSTONE_SIGNING_KEY"):
+        if key_path.exists():
+            env["KEYSTONE_SIGNING_KEY"] = key_path.read_text().strip()
+        else:
+            from keystone.signing import Ed25519Signer
+
+            key_path.write_text(Ed25519Signer.generate().private_key_b64() + "\n")
+            key_path.chmod(0o600)
+            env["KEYSTONE_SIGNING_KEY"] = key_path.read_text().strip()
+
+    worker_command = [
+        sys.executable,
+        "-m",
+        "keystone.cli",
+        "worker",
+        "--interval",
+        str(worker_interval),
+        "--limit",
+        str(worker_limit),
+    ]
+    worker_process = subprocess.Popen(worker_command, env=env)
+    console.print(
+        f"[bold]local stack[/] API on http://{host}:{port}; "
+        f"worker pid {worker_process.pid}"
+    )
+    try:
+        # Apply the same stable signing key to the in-process API factory.
+        os.environ["KEYSTONE_SIGNING_KEY"] = env["KEYSTONE_SIGNING_KEY"]
+        uvicorn.run("keystone.settings:app", factory=True, host=host, port=port)
+    finally:
+        worker_process.terminate()
+        try:
+            worker_process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            worker_process.kill()
+            worker_process.wait()
+
 
 @app.command()
 def serve(

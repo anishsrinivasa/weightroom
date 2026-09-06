@@ -283,11 +283,17 @@ a restart. Dev generates an ephemeral one.
 ## API and worker
 
 ```bash
+keystone dev              # local API + continuous worker on :8000
 keystone serve            # API only on :8000
 keystone worker           # continuously drain the certification queue
 keystone worker --once    # drain the current queue, then stop
 cd web && npm run dev     # Next.js Seller Studio on :3000
 ```
+
+Use `keystone dev` for local end-to-end marketplace work. It manages the API
+and worker as a pair so settled submissions cannot remain queued merely because
+the worker terminal was forgotten. Production continues to run them as separate
+services.
 
 The API ([`api.py`](src/keystone/api.py)) is thin: it validates, writes rows,
 and queues. No request thread ever waits on a GPU — publishing moves a listing

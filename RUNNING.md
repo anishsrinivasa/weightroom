@@ -1,10 +1,10 @@
 # Running Weightroom locally
 
-The application has two local services:
+The application has three local processes:
 
 - **Seller Studio** — Next.js 16 on port 3000.
-- **Keystone API** — FastAPI on port 8000. The evaluation worker is started
-  separately only when you want to process the queue on Modal.
+- **Keystone API** — FastAPI on port 8000.
+- **Evaluation worker** — drains paid submissions and dispatches them to Modal.
 
 The local path uses SQLite, filesystem storage, static development identity,
 and a simulated Base/USDC provider. It spends nothing.
@@ -43,7 +43,7 @@ cd ..
 The Python suite should report at least **300 passed**. The web suite should
 lint and type-check cleanly, pass its tests, and produce an optimized build.
 
-## Start the API
+## Start the API and worker
 
 Generate one stable local signing key and seed the database:
 
@@ -52,11 +52,13 @@ python -c "from keystone.signing import Ed25519Signer; print(Ed25519Signer.gener
 export KEYSTONE_SIGNING_KEY="$(<.keystone-key)"
 
 .venv/bin/keystone seed
-.venv/bin/keystone serve
+.venv/bin/keystone dev
 ```
 
 The API is now at <http://127.0.0.1:8000>; OpenAPI documentation is at
-<http://127.0.0.1:8000/docs>.
+<http://127.0.0.1:8000/docs>. The managed worker starts at the same time, uses
+the same database and signing key, and stops when the API stops. Certification
+invokes Modal and may incur GPU usage.
 
 ## Start Seller Studio
 
@@ -106,11 +108,10 @@ Browser hashing is capped at 64 MB per file. Production checkpoint uploads use
 presigned object-storage URLs and should use the resumable CLI path for very
 large files.
 
-## Run the worker
+## Run the worker separately
 
-The API only queues jobs; it never runs evaluations itself. Keep this command
-running in a third terminal whenever submissions should advance. The worker
-invokes Modal and may incur GPU usage:
+`keystone dev` already runs a worker. Use the separate command only when the API
+is hosted elsewhere or you deliberately started it with `keystone serve`:
 
 ```bash
 .venv/bin/keystone worker --interval 15
