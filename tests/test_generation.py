@@ -16,6 +16,7 @@ import pytest
 from keystone.generation import (
     ELICITATION_TRANSFORMS,
     FRAMING_COUNT,
+    FRAMING_FAMILIES,
     PROBE_TRANSFORMS,
     expand,
     fingerprint,
@@ -133,22 +134,41 @@ def test_rotation_five_is_not_rotation_zero() -> None:
     assert overlap(rotate(pool, 100, 0), rotate(pool, 100, 5)) < 100
 
 
-def test_overlap_floor_is_reported_rather_than_hidden() -> None:
-    """Drawing 100 from a 140-item pool forces 60 shared items between any two
-    rotations. No selection strategy improves on that, so the honest move is to
-    surface the number -- more seeds, not better shuffling, is the fix."""
+def test_the_library_is_large_enough_to_remove_forced_reuse() -> None:
+    """Freshness is arithmetic, not shuffling.
+
+    Drawing n items from a pool of p forces 2n - p to be shared between any two
+    rotations. With five framings over 28 behaviours the pool was 140 and the
+    floor was 60 of 100 -- the elicitation set could not be made fresh however
+    it was selected. The library is what fixed that, not the selector.
+    """
     from keystone.staging import overlap_floor
 
     seeds = behaviours(28)
     pool = expand(seeds, ELICITATION_TRANSFORMS, variants=FRAMING_COUNT)
     assert len(pool) == 28 * FRAMING_COUNT
+    assert overlap_floor(len(pool), 100) == 0
 
-    floor = overlap_floor(len(pool), 100)
-    assert floor == 60
-    assert overlap(rotate(pool, 100, 0), rotate(pool, 100, 3)) >= floor
+    # And the realised overlap is near-free too, not merely permitted to be.
+    assert overlap(rotate(pool, 100, 0), rotate(pool, 100, 3)) < 35
 
-    # A pool larger than twice the draw has no forced reuse at all.
+    # The relationship the floor expresses, stated directly.
+    assert overlap_floor(140, 100) == 60
     assert overlap_floor(1273, 100) == 0
+
+
+def test_framings_span_technique_families() -> None:
+    """A set drawn from one family reports robustness it has not measured.
+
+    Models are commonly hardened against direct requests and not against
+    fictional framing, so coverage has to be across families rather than across
+    wordings of the same trick.
+    """
+    assert len(FRAMING_FAMILIES) >= 6
+    pool = expand(behaviours(4), ELICITATION_TRANSFORMS, variants=FRAMING_COUNT)
+    assert {i["framing_family"] for i in pool} == set(FRAMING_FAMILIES)
+    # Every framing carries its own id too, so a failure names the technique.
+    assert len({i["framing"] for i in pool}) == FRAMING_COUNT
 
 
 # --------------------------------------------------------------------------

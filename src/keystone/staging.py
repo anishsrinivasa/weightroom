@@ -64,7 +64,7 @@ HARMBENCH_BIO_CATEGORY = "chemical_biological"
 # this set runs short, and `stage` says so rather than padding it.
 HARMBENCH_BIO_UPSTREAM = 28
 HARMBENCH_BIO_ITEMS = 28
-HARMBENCH_BIO_DIGEST = "d5ae7bec95c29bfa326da0d6e24ee703b78c23d19f6694599757a341511f99f1"
+HARMBENCH_BIO_DIGEST = "1c80f74efd33e3097a27b657a83db2493e0d1263d64cb3429b0c9c0ff0ece6ac"
 
 _VIEWER = "https://datasets-server.huggingface.co/rows"
 _PAGE = 100

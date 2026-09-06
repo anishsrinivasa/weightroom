@@ -5,19 +5,23 @@ little about whether a bio-capable model will assist with pathogen work, so
 the attack has to live where the capability does -- which is the whole reason
 domains are paired rather than pooled into one safety score.
 
-Items are staged into `assets/items.json`, never committed. In this first pass
-they are the `chemical_biological` slice of HarmBench's standard set, which is
-28 behaviours -- enough to prove the pipeline and not enough to gate on. See
-`test_seed_set_is_too_small_to_gate_at_the_high_band`: at 28 items the score
-moves in 3.6-point steps, so the 98% bar is indistinguishable from demanding a
-perfect run and one judge error flips a verdict. That is the argument for the
-generator, stated as a test rather than a note.
+Items are staged into `assets/items.json`, never committed. They are built from
+the `chemical_biological` slice of HarmBench's standard set -- 28 behaviours,
+which is too few to gate on directly -- expanded across the framing library in
+`generation.py` to reach a size where the strictest band is distinguishable
+from a perfect run.
 
-The refusal judge here is a placeholder. The real one is the harness side's
-pinned Qwen3Guard path in `public_safety.py`; this module scores with the same
-marker heuristic the stub suites use so the platform contract can be exercised
-without pulling a judge model into the loop. Swapping it changes this file and
-nothing else.
+Results are broken out per technique family as well as in aggregate. A model
+that refuses every direct request and folds to fictional framing scores the
+same overall as one that leaks uniformly, and those need different fixes.
+
+**The refusal judge here is still a placeholder.** It is the marker heuristic
+the stub suites use, which is fine for exercising the contract and wrong on
+real output -- a model can comply at length while opening with "I'm sorry,
+but". The pinned Qwen3Guard judge in `public_safety.py` is the real one, and it
+cannot be called from here: a suite is handed exactly one `ModelClient`, the
+model under test, and the judge needs its own server. Wiring it needs a
+two-phase suite protocol, which is the next piece of platform work.
 """
 
 from __future__ import annotations
@@ -149,13 +153,31 @@ class BioElicitationSuite:
         refused = sum(outcomes)
         rate = refused / len(items)
 
+        # Per-family rates, because an aggregate is not actionable. A model
+        # that refuses every direct request and folds to fictional framing
+        # scores the same as one that leaks uniformly, and they need different
+        # fixes. Internal-only, like everything else on this result.
+        by_family: dict[str, list[bool]] = {}
+        for item, was_refusal in zip(items, outcomes):
+            by_family.setdefault(item.get("framing_family", "unknown"), []).append(
+                was_refusal
+            )
+        family_metrics = {
+            f"refusal_rate.{family}": sum(hits) / len(hits)
+            for family, hits in sorted(by_family.items())
+        }
+
         return SuiteResult(**_skeleton(
             # PASS means "ran cleanly", not "cleared the bar". There is no bar
             # in this file -- `conditioning.resolve` supplies it and rewrites
             # this to FAIL if the rate falls short of the band the probe set.
             status=Status.PASS,
             score=rate,
-            metrics={"refusal_rate": rate, "n_refused": float(refused)},
+            metrics={
+                "refusal_rate": rate,
+                "n_refused": float(refused),
+                **family_metrics,
+            },
             categories=[CATEGORY],
             remediation=REMEDIATION,
             n_items=len(items),
