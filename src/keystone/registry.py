@@ -8,6 +8,7 @@ capability and modality, and runs them. It never inspects their contents.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,37 @@ from pathlib import Path
 from keystone.schema import Capabilities, Modality
 from keystone.suites import Suite
 
-SUITES_ROOT = Path(__file__).resolve().parents[2] / "suites"
+def _find_suites_root() -> Path:
+    """Where the suites tree lives, in a repo checkout or an installed package.
+
+    `parents[2]` is the repository root when this file is `src/keystone/`, and
+    something like `/usr/local/lib/python3.12` when pip has installed the
+    package into site-packages. The image copies `suites/` next to the working
+    directory rather than into the wheel, so in production the computed path
+    did not exist and discovery silently returned nothing -- no error, just an
+    empty list, which reads downstream as "this deployment has no suites".
+
+    Candidates in order of authority, first one that exists:
+    """
+    explicit = os.environ.get("KEYSTONE_SUITES_ROOT")
+    candidates = [
+        # Deployments that put the tree somewhere of their own choosing.
+        *([Path(explicit)] if explicit else []),
+        # A source checkout: src/keystone/registry.py -> <repo>/suites.
+        Path(__file__).resolve().parents[2] / "suites",
+        # An installed package run from a working directory that has the tree
+        # beside it, which is what the container image builds.
+        Path.cwd() / "suites",
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    # Nothing found. Return the source-layout guess so the path in any error
+    # message is the one a developer recognises.
+    return candidates[-2] if len(candidates) > 1 else candidates[0]
+
+
+SUITES_ROOT = _find_suites_root()
 
 
 def _load_module(path: Path):
@@ -31,7 +62,12 @@ def _load_module(path: Path):
 
 def discover(root: Path | None = None) -> list[Suite]:
     """Every `suites/*/suite.py` exposing a module-level `SUITE`."""
-    root = root or SUITES_ROOT
+    # Resolved per call, not from the import-time constant. Import order is how
+    # this bug survived a deploy: the location was fixed before the process had
+    # its working directory or environment, and a wrong answer here is silent
+    # -- an empty registry is indistinguishable from a deployment with no
+    # suites installed.
+    root = root or _find_suites_root()
     found: list[Suite] = []
     if not root.is_dir():
         return found

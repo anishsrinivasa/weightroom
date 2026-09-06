@@ -14,6 +14,12 @@ RUN pip install --no-cache-dir .
 
 COPY suites ./suites
 COPY schemas ./schemas
+
+# The package installs into site-packages while the suites tree stays
+# beside the working directory, so nothing above the package resolves to
+# it. Discovery falls back to the working directory, but naming it here
+# means the image does not depend on where a process happens to start.
+ENV KEYSTONE_SUITES_ROOT=/app/suites
 COPY benchmarks ./benchmarks
 
 # The gate's items live in `suites/*/assets`, which is gitignored -- a set in
