@@ -138,14 +138,16 @@ export function ModelDetail({ id }: { id: string }) {
       { gate_id: "jailbreakbench", display_name: "JailbreakBench harmful-request resistance", status: "pending", completed: 0, total: 200, score: null },
     ],
   } : undefined);
-  const visibleGates = model.safety_gates?.gates ?? progressRecord?.gates.map((gate) => ({
-    ...gate,
-    blocking: true,
-    evidence: gate.total
-      ? `${Math.min(gate.completed, gate.total)} of ${gate.total} evaluation steps completed.`
-      : "Waiting for the evaluation worker.",
-    n_items: null,
-  })) ?? [];
+  const visibleGates = model.safety_gates?.gates ?? progressRecord?.gates
+    .filter((gate) => gate.kind !== "benchmark")
+    .map((gate) => ({
+      ...gate,
+      blocking: true,
+      evidence: gate.total
+        ? `${Math.min(gate.completed, gate.total)} of ${gate.total} evaluation steps completed.`
+        : "Waiting for the evaluation worker.",
+      n_items: null,
+    })) ?? [];
   const gateOverall = model.safety_gates?.overall
     ?? (visibleGates.some((gate) => gate.status === "fail")
       ? "fail"
@@ -263,10 +265,16 @@ export function ModelDetail({ id }: { id: string }) {
             <div className="block-heading"><h2 id="benchmarks-title">Selected benchmark results</h2></div>
             {selectedBenchmarkIds.length ? selectedBenchmarkIds.map((suiteId) => {
               const result = reportedBenchmarksById.get(suiteId);
+              const live = progressRecord?.gates.find(
+                (item) => item.kind === "benchmark" && item.gate_id === suiteId,
+              );
               const score = result?.score == null ? null : Math.round(result.score * 100);
               const status = result && !result.declined
                 ? result.status
-                : evaluationFailed ? "error" : "pending";
+                : evaluationFailed ? "error" : live?.status || "pending";
+              const livePercent = live?.total
+                ? Math.round(100 * Math.min(live.completed, live.total) / live.total)
+                : 0;
               const value = score == null
                 ? result?.score_band || status
                 : `${score}%`;
@@ -275,10 +283,20 @@ export function ModelDetail({ id }: { id: string }) {
                   <div>
                     <span>{result?.display_name || benchmarkNames[suiteId] || suiteId}</span>
                     {score == null && !result?.score_band
-                      ? <GatePill status={status} />
+                      ? <span className="gate-result">
+                          {activeEvaluation && live?.total
+                            ? <strong>{live.completed} / {live.total}</strong>
+                            : null}
+                          <GatePill status={status} />
+                        </span>
                       : <strong>{value}</strong>}
                   </div>
-                  <div className="score-track" aria-hidden="true"><span style={{ width: score == null ? 0 : `${score}%` }} /></div>
+                  <div
+                    className="score-track"
+                    aria-label={activeEvaluation && live
+                      ? `${live.display_name}: ${live.completed} of ${live.total} tasks complete`
+                      : undefined}
+                  ><span style={{ width: score == null ? `${livePercent}%` : `${score}%` }} /></div>
                 </div>
               );
             }) : <div className="empty-cell">No public capability benchmark was selected.</div>}

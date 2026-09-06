@@ -710,12 +710,15 @@ def _evaluate(
     run_safety: bool = True,
 ):
     import asyncio
+    import queue
     import sys
+    import threading
 
     sys.path.insert(0, "/root")  # so `suites/` is importable
 
     from keystone.client import OpenAIServerClient, VLLMServer
-    from keystone.public_safety import BY_ID, harmful_result
+    from keystone.public_benchmarks import BY_ID as BENCHMARK_BY_ID, TASK_SAMPLE_SIZE
+    from keystone.public_safety import BY_ID as SAFETY_BY_ID, harmful_result
     from keystone.runner.inspect_benchmarks import (
         run_gdpval_generation,
         run_harvey_lab_generation,
@@ -745,14 +748,33 @@ def _evaluate(
             json.dumps(rows), encoding="utf-8"
         )
     suite_ids = ("harmbench", "jailbreakbench") if run_safety else ()
-    total_work = 2 * sum(len(assets["suites"][suite_id]) for suite_id in suite_ids)
-    completed_work = 0
+    selected_public = sorted(
+        set(only or []).intersection(assets.get("benchmarks", {}))
+    )
+    safety_total = 2 * sum(len(assets["suites"][suite_id]) for suite_id in suite_ids)
+    safety_completed = 0
     gate_work = {suite_id: 0 for suite_id in suite_ids}
     gate_scores: dict[str, float | None] = {suite_id: None for suite_id in suite_ids}
     gate_status = {suite_id: "pending" for suite_id in suite_ids}
+    benchmark_work = {
+        suite_id: {
+            "gate_id": suite_id,
+            "display_name": BENCHMARK_BY_ID[suite_id].display_name,
+            "kind": "benchmark",
+            "status": "pending",
+            "completed": 0,
+            "total": TASK_SAMPLE_SIZE,
+            "score": None,
+        }
+        for suite_id in selected_public
+    }
 
     def progress(stage: str) -> dict:
-        percent = 10 + round(85 * completed_work / total_work) if total_work else 95
+        completed = safety_completed + sum(
+            item["completed"] for item in benchmark_work.values()
+        )
+        total = safety_total + sum(item["total"] for item in benchmark_work.values())
+        percent = 10 + round(85 * completed / total) if total else 95
         return {
             "type": "progress",
             "percent": min(95, percent),
@@ -760,14 +782,14 @@ def _evaluate(
             "gates": [
                 {
                     "gate_id": suite_id,
-                    "display_name": BY_ID[suite_id].display_name,
+                    "display_name": SAFETY_BY_ID[suite_id].display_name,
                     "status": gate_status[suite_id],
                     "completed": gate_work[suite_id],
                     "total": 2 * len(assets["suites"][suite_id]),
                     "score": gate_scores[suite_id],
                 }
                 for suite_id in suite_ids
-            ],
+            ] + list(benchmark_work.values()),
         }
 
     batch_size = 16
@@ -783,47 +805,76 @@ def _evaluate(
     ):
         env["engine_version"] = _pkg_version("vllm")
         client = OpenAIServerClient(served_name, seed=seed)
-        selected_public = sorted(
-            set(only or []).intersection(assets.get("benchmarks", {}))
-        )
         if selected_public:
-            yield {
-                **progress(
-                    "Running selected capability benchmarks: "
-                    + ", ".join(selected_public)
-                ),
-                "percent": 10,
-            }
-        results = run_suites(
-            client,
-            model_name=served_name,
-            capabilities=caps,
-            modality=mods,
-            suites_root=suites_root,
-            scratch_dir=Path("/tmp/scratch"),
-            assets_root=benchmark_assets_root,
-            only=only,
-            disabled_ids={"stub_safety"} if not run_safety else None,
-            seed=seed,
-        )
-        if "swe_bench_verified" in set(only or []):
-            yield {
-                **progress("Running SWE-bench Verified in isolated Modal sandboxes"),
-                "percent": 10,
-            }
-            results.append(
-                run_swe_bench_verified(
-                    served_model_name=served_name,
-                    artifact_digest=served_name,
-                    dataset_dir=Path(assets["swe_bench_dataset_dir"]),
-                    log_dir=Path("/tmp/inspect-logs/swe-bench-verified"),
-                )
+            yield progress(
+                "Running selected capability benchmarks: "
+                + ", ".join(selected_public)
             )
+        run_events: queue.Queue = queue.Queue()
+
+        def run_registered_suites() -> None:
+            try:
+                completed_results = run_suites(
+                    client,
+                    model_name=served_name,
+                    capabilities=caps,
+                    modality=mods,
+                    suites_root=suites_root,
+                    scratch_dir=Path("/tmp/scratch"),
+                    assets_root=benchmark_assets_root,
+                    only=only,
+                    disabled_ids={"stub_safety"} if not run_safety else None,
+                    seed=seed,
+                    on_progress=lambda event: run_events.put(("progress", event)),
+                )
+                run_events.put(("result", completed_results))
+            except BaseException as exc:  # forwarded to the generator caller
+                run_events.put(("error", exc))
+
+        suite_thread = threading.Thread(target=run_registered_suites, daemon=True)
+        suite_thread.start()
+        while True:
+            event_type, payload = run_events.get()
+            if event_type == "progress":
+                item = benchmark_work.get(payload["suite_id"])
+                if item is not None:
+                    item["display_name"] = payload["display_name"]
+                    item["completed"] = min(payload["completed"], payload["total"])
+                    item["total"] = payload["total"]
+                    item["status"] = "running"
+                    yield progress(
+                        f"Running {payload['display_name']}: "
+                        f"{payload['completed']} of {payload['total']} tasks"
+                    )
+                continue
+            if event_type == "error":
+                raise payload
+            results = payload
+            break
+        suite_thread.join()
+        for result in results:
+            item = benchmark_work.get(result.suite_id)
+            if item is not None and not result.declined:
+                item["completed"] = result.n_items or item["total"]
+                item["status"] = result.status.value
+                item["score"] = result.score
+        if "swe_bench_verified" in set(only or []):
+            yield progress("Running SWE-bench Verified in isolated Modal sandboxes")
+            swe_result = run_swe_bench_verified(
+                served_model_name=served_name,
+                artifact_digest=served_name,
+                dataset_dir=Path(assets["swe_bench_dataset_dir"]),
+                log_dir=Path("/tmp/inspect-logs/swe-bench-verified"),
+            )
+            results.append(swe_result)
+            benchmark_work["swe_bench_verified"].update(
+                completed=swe_result.n_items or TASK_SAMPLE_SIZE,
+                status=swe_result.status.value,
+                score=swe_result.score,
+            )
+            yield progress("Completed SWE-bench Verified")
         if "gdpval" in set(only or []):
-            yield {
-                **progress("Running GDPval agents in isolated Modal sandboxes"),
-                "percent": 10,
-            }
+            yield progress("Running GDPval agents in isolated Modal sandboxes")
             pending_rubric_runs.append(
                 run_gdpval_generation(
                     served_model_name=served_name,
@@ -833,11 +884,13 @@ def _evaluate(
                     log_dir=Path("/tmp/inspect-logs/gdpval"),
                 )
             )
+            benchmark_work["gdpval"].update(
+                completed=TASK_SAMPLE_SIZE // 2,
+                status="running",
+            )
+            yield progress("Generated GDPval work products; waiting for scoring")
         if "harvey_lab" in set(only or []):
-            yield {
-                **progress("Running Harvey LAB agents in isolated Modal sandboxes"),
-                "percent": 10,
-            }
+            yield progress("Running Harvey LAB agents in isolated Modal sandboxes")
             pending_rubric_runs.append(
                 run_harvey_lab_generation(
                     served_model_name=served_name,
@@ -846,6 +899,11 @@ def _evaluate(
                     log_dir=Path("/tmp/inspect-logs/harvey-lab"),
                 )
             )
+            benchmark_work["harvey_lab"].update(
+                completed=TASK_SAMPLE_SIZE // 2,
+                status="running",
+            )
+            yield progress("Generated Harvey LAB work products; waiting for scoring")
         for suite_id in suite_ids:
             generated[suite_id] = []
             rows = assets["suites"][suite_id]
@@ -865,16 +923,13 @@ def _evaluate(
 
                 generated[suite_id].extend(asyncio.run(generate_batch()))
                 completed = len(batch)
-                completed_work += completed
+                safety_completed += completed
                 gate_work[suite_id] += completed
                 gate_status[suite_id] = "running"
-                yield progress(f"Generating {BY_ID[suite_id].display_name}")
+                yield progress(f"Generating {SAFETY_BY_ID[suite_id].display_name}")
 
     if pending_rubric_runs:
-        yield {
-            **progress("Scoring generated work products with the pinned rubric judge"),
-            "percent": 10,
-        }
+        yield progress("Scoring generated work products with the pinned rubric judge")
         with VLLMServer(
             Path(assets["benchmark_judge_dir"]),
             "benchmark-judge",
@@ -882,7 +937,14 @@ def _evaluate(
         ):
             rubric_judge = OpenAIServerClient("benchmark-judge", seed=seed)
             for pending_run in pending_rubric_runs:
-                results.append(asyncio.run(score_rubric_run(pending_run, rubric_judge)))
+                rubric_result = asyncio.run(score_rubric_run(pending_run, rubric_judge))
+                results.append(rubric_result)
+                benchmark_work[rubric_result.suite_id].update(
+                    completed=rubric_result.n_items or TASK_SAMPLE_SIZE,
+                    status=rubric_result.status.value,
+                    score=rubric_result.score,
+                )
+                yield progress(f"Completed {benchmark_work[rubric_result.suite_id]['display_name']}")
 
     if run_safety:
         with VLLMServer(Path(assets["guard_dir"]), "safety-judge", max_context=4096):
@@ -909,9 +971,9 @@ def _evaluate(
 
                     outcomes.extend(asyncio.run(grade_batch()))
                     completed = len(batch)
-                    completed_work += completed
+                    safety_completed += completed
                     gate_work[suite_id] += completed
-                    yield progress(f"Scoring {BY_ID[suite_id].display_name}")
+                    yield progress(f"Scoring {SAFETY_BY_ID[suite_id].display_name}")
 
                 result = harmful_result(
                     suite_id,
@@ -921,7 +983,7 @@ def _evaluate(
                 results.append(result)
                 gate_scores[suite_id] = result.score
                 gate_status[suite_id] = result.status.value
-                yield progress(f"Completed {BY_ID[suite_id].display_name}")
+                yield progress(f"Completed {SAFETY_BY_ID[suite_id].display_name}")
 
     yield {
         "type": "result",

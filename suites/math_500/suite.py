@@ -64,7 +64,10 @@ class Math500Suite:
             )
             return response, row["answer"]
 
-        responses = await asyncio.gather(*(ask(task_id) for task_id in chosen))
+        responses = []
+        for pending in asyncio.as_completed([ask(task_id) for task_id in chosen]):
+            responses.append(await pending)
+            ctx.on_progress(len(responses), len(chosen))
         correct = sum(answers_match(gold, response) for response, gold in responses)
         score = correct / len(responses)
         return SuiteResult(

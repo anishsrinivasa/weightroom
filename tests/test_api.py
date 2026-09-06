@@ -221,7 +221,16 @@ def test_live_evaluation_progress_is_seller_only(client: TestClient, deps: Deps)
                     "completed": 168,
                     "total": 400,
                     "score": None,
-                }
+                },
+                {
+                    "gate_id": "math_500",
+                    "display_name": "MATH-500",
+                    "kind": "benchmark",
+                    "status": "running",
+                    "completed": 37,
+                    "total": 100,
+                    "score": None,
+                },
             ],
         )
         s.commit()
@@ -231,6 +240,15 @@ def test_live_evaluation_progress_is_seller_only(client: TestClient, deps: Deps)
     ).json()
     assert creator["evaluation_progress"]["percent"] == 42
     assert creator["evaluation_progress"]["gates"][0]["completed"] == 168
+    assert creator["evaluation_progress"]["gates"][1] == {
+        "gate_id": "math_500",
+        "display_name": "MATH-500",
+        "kind": "benchmark",
+        "status": "running",
+        "completed": 37,
+        "total": 100,
+        "score": None,
+    }
     assert client.get(
         f"/v1/listings/{listing_id}", headers=_hdr("tok-other")
     ).status_code == 404

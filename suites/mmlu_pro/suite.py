@@ -77,7 +77,10 @@ class MMLUProSuite:
             )
             return extract_answer(response), row["answer"].upper()
 
-        answers = await asyncio.gather(*(ask(task_id) for task_id in chosen))
+        answers = []
+        for pending in asyncio.as_completed([ask(task_id) for task_id in chosen]):
+            answers.append(await pending)
+            ctx.on_progress(len(answers), len(chosen))
         correct = sum(predicted == expected for predicted, expected in answers)
         parsed = sum(predicted is not None for predicted, _ in answers)
         score = correct / len(answers)

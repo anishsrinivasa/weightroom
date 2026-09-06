@@ -12,7 +12,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from keystone.schema import Capabilities, Modality, SuiteResult
 
@@ -58,6 +58,10 @@ class SuiteContext:
     scratch_dir: Path
     assets_dir: Path  # SEAM 2: suite-owned blobs, staged before egress is cut
     seed: int = 0
+    on_progress: Callable[[int, int], None] = field(
+        default=lambda completed, total: None,
+        repr=False,
+    )
 
 
 # --------------------------------------------------------------------------

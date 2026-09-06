@@ -88,6 +88,7 @@ const safetyGateSchema = z.object({
 const evaluationProgressGateSchema = z.object({
   gate_id: z.string(),
   display_name: z.string(),
+  kind: z.enum(["safety", "benchmark"]).optional(),
   status: z.string(),
   completed: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),

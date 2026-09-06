@@ -38,6 +38,8 @@ def _context(tmp_path: Path, suite_id: str, response: str) -> SuiteContext:
 
 def test_mmlu_pro_runs_deterministic_hundred_task_sample(tmp_path: Path) -> None:
     ctx = _context(tmp_path, "mmlu_pro", "Reasoning. Answer: A")
+    progress = []
+    ctx.on_progress = lambda completed, total: progress.append((completed, total))
     rows = [
         {
             "id": str(index),
@@ -55,10 +57,15 @@ def test_mmlu_pro_runs_deterministic_hundred_task_sample(tmp_path: Path) -> None
     assert result.n_items == 100
     assert result.score == 1.0
     assert result.metrics["answer_parse_rate"] == 1.0
+    assert progress[0] == (1, 100)
+    assert progress[-1] == (100, 100)
+    assert len(progress) == 100
 
 
 def test_math_500_uses_symbolic_equivalence_on_hundred_tasks(tmp_path: Path) -> None:
     ctx = _context(tmp_path, "math_500", r"The result is \boxed{1/2}.")
+    progress = []
+    ctx.on_progress = lambda completed, total: progress.append((completed, total))
     rows = [
         {
             "id": str(index),
@@ -75,3 +82,6 @@ def test_math_500_uses_symbolic_equivalence_on_hundred_tasks(tmp_path: Path) -> 
 
     assert result.n_items == 100
     assert result.score == 1.0
+    assert progress[0] == (1, 100)
+    assert progress[-1] == (100, 100)
+    assert len(progress) == 100

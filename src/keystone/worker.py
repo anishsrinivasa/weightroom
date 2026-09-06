@@ -209,7 +209,10 @@ def process_pending(
         def persist_progress(event: dict) -> None:
             nonlocal live_gates
             if event.get("gates"):
-                live_gates = event["gates"]
+                merged = {gate["gate_id"]: gate for gate in live_gates}
+                for gate in event["gates"]:
+                    merged[gate["gate_id"]] = gate
+                live_gates = list(merged.values())
             with store.session() as progress_session:
                 store.set_evaluation_progress(
                     progress_session,
