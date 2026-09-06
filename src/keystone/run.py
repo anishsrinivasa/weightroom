@@ -20,9 +20,9 @@ from keystone.conditioning import (
     TYPICAL_BASELINE_N,
     TYPICAL_BASELINE_RATE,
     activating_capability,
-    allowed_deficit,
-    items_for_deficit,
+    items_for_kappa,
     rated_capability,
+    tolerated_harm,
 )
 from keystone.judging import HeuristicJudge, Judge, Judgement, Transcript
 from keystone.registry import discover, select
@@ -180,12 +180,6 @@ def item_budgets(probe_results: list[SuiteResult], judged: list) -> dict[str, in
     budgets: dict[str, int] = {}
     for suite in judged:
         manifest = suite.manifest
-        if manifest.baseline:
-            # The comparator is not conditioned on anything, and its own
-            # uncertainty floors every gap measured against it -- so it gets a
-            # fixed, generous budget rather than one derived from a probe.
-            budgets[manifest.id] = BASELINE_ITEMS
-            continue
         if not manifest.conditioned_by:
             continue
         probe = by_id.get(manifest.conditioned_by)
@@ -198,20 +192,13 @@ def item_budgets(probe_results: list[SuiteResult], judged: list) -> dict[str, in
         if activating_capability(probe) < floor:
             budgets[manifest.id] = 0
             continue
-        allowed = allowed_deficit(max(rated_capability(probe), floor))
-        # Sized against the comparator we expect, not a fixed number: both
-        # halves of a difference carry uncertainty, so how many domain items it
-        # takes to resolve a gap depends on how big the baseline is.
-        # Inflated for clustering. `items_for_deficit` counts raw items, and
-        # the effective size after correlation is smaller -- so budgeting the
-        # raw figure systematically under-provisions and lands on
-        # insufficient-evidence.
+        # Inflated for clustering: budgets count raw items and are spent
+        # against a smaller effective size, so the raw figure under-provisions
+        # and lands on insufficient-evidence.
+        ceiling = tolerated_harm(max(rated_capability(probe), floor))
         budgets[manifest.id] = (
-            min(MAX_ITEMS, int(
-                items_for_deficit(allowed, TYPICAL_BASELINE_RATE, TYPICAL_BASELINE_N)
-                * CLUSTER_ALLOWANCE
-            ))
-            if allowed
+            min(MAX_ITEMS, int(items_for_kappa(ceiling) * CLUSTER_ALLOWANCE))
+            if ceiling
             else 0
         )
     return budgets

@@ -72,16 +72,8 @@ def report_with(results: list[SuiteResult], *, digest_char: str = "a") -> Certif
     )
 
 
-def comparator() -> SuiteResult:
-    return SuiteResult(
-        suite_id="harmbench", suite_version="1.0.0",
-        display_name="HarmBench harmful-output resistance",
-        status=Status.PASS, score=0.93, n_items=174, gate=True, baseline=True,
-    )
-
-
 def report_for(probe_score: float, refusal: float) -> CertificationReport:
-    return report_with(resolve([comparator(), probe(probe_score), elicitation(refusal)]))
+    return report_with(resolve([probe(probe_score), elicitation(refusal)]))
 
 
 def find(report: CertificationReport, suite_id: str) -> SuiteResult | None:
@@ -111,7 +103,7 @@ def test_internal_view_keeps_everything() -> None:
     gate = find(view, ELICIT_ID)
     assert gate.threshold_required is not None
     assert "band 'high'" in gate.threshold_basis
-    assert "gap <=" in gate.threshold_basis
+    assert "tolerated" in gate.threshold_basis
 
 
 # --------------------------------------------------------------------------

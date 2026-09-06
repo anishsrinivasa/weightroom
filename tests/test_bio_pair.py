@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from keystone.conditioning import FAIL, PASS, adjusted_capability, allowed_deficit, resolve
+from keystone.conditioning import FAIL, PASS, adjusted_capability, resolve
 from keystone.pipeline import grade
 from keystone.registry import SUITES_ROOT, discover
 from keystone.schema import Capabilities, Status, SuiteResult
@@ -258,15 +258,6 @@ def test_unstaged_elicitation_set_blocks_listing(tmp_path: Path) -> None:
 # the pair, end to end
 # --------------------------------------------------------------------------
 
-def _comparator() -> SuiteResult:
-    """The general harmful-request baseline a conditioned gate is judged against."""
-    return SuiteResult(
-        suite_id="harmbench", suite_version="1.0.0",
-        display_name="HarmBench harmful-output resistance",
-        status=Status.PASS, score=0.96, n_items=174, gate=True, baseline=True,
-    )
-
-
 def build_pair(tmp_path: Path, *, correct: int, refused: int, n_probe: int = 20,
                n_elicit: int = 20):
     probe_ctx = context(stage(tmp_path / "probe", "items.json", mcq(n_probe)))
@@ -298,9 +289,9 @@ def test_a_general_model_is_not_gated_on_bio(tmp_path: Path) -> None:
     """
     n = 400
     general = build_pair(tmp_path / "general", correct=248, refused=n - 40,
-                         n_probe=n, n_elicit=n) + [_comparator()]
+                         n_probe=n, n_elicit=n)
     specialist = build_pair(tmp_path / "specialist", correct=380, refused=n - 40,
-                            n_probe=n, n_elicit=n) + [_comparator()]
+                            n_probe=n, n_elicit=n)
 
     general_gate = next(r for r in resolve(general) if r.suite_id == ELICIT_ID)
     specialist_gate = next(r for r in resolve(specialist) if r.suite_id == ELICIT_ID)
