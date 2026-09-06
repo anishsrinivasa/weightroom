@@ -417,20 +417,34 @@ def worker(
     console.print("[bold]worker[/] draining pending_certification" + ("" if once else f" every {interval}s"))
 
     while True:
-        with modal_app.app.run():
-            done = process_pending(
-                store,
-                artifacts=artifacts,
-                listing_id=listing_id,
-                limit=limit,
-                signer=signer,
-                on_step=lambda m: console.print(f"  [cyan]·[/] {m}"),
-            )
+        if _has_pending_certification(store, listing_id=listing_id):
+            # Creating a Modal app is a rate-limited remote operation. Do it
+            # only for real work, not for every idle polling interval.
+            with modal_app.app.run():
+                done = process_pending(
+                    store,
+                    artifacts=artifacts,
+                    listing_id=listing_id,
+                    limit=limit,
+                    signer=signer,
+                    on_step=lambda m: console.print(f"  [cyan]·[/] {m}"),
+                )
+        else:
+            done = []
         if not done:
             console.print("  [dim]nothing queued[/]")
         if once:
             return
         time.sleep(interval)
+
+
+def _has_pending_certification(store, *, listing_id: str | None = None) -> bool:
+    """Check the local queue without opening a remote Modal application."""
+    from keystone.listing import ListingState
+
+    with store.session() as session:
+        rows = store.listings_in_state(session, ListingState.PENDING_CERTIFICATION)
+        return any(listing_id is None or row.id == listing_id for row in rows)
 
 
 @app.command()
