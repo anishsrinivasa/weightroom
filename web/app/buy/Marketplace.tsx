@@ -98,7 +98,6 @@ export function Marketplace() {
     <>
       <header className="marketplace-heading">
         <div>
-          <p className="eyebrow">Certified open weights</p>
           <h1>Find your next model.</h1>
           <p className="lede">Compare independently evaluated models by domain, size, price, and public benchmark performance.</p>
         </div>
