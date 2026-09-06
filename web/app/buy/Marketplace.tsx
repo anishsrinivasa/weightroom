@@ -62,11 +62,6 @@ export function Marketplace() {
     benchmarks: benchmarkFilters,
   }), [benchmarkFilters, domains, listings, maximumPrice, minimumPrice, query, sizes]);
 
-  const featured = useMemo(
-    () => [...listings].sort((left, right) => right.created_at.localeCompare(left.created_at)).slice(0, 3),
-    [listings],
-  );
-
   function toggleFacet(setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) {
     setter((current) => {
       const next = new Set(current);
@@ -156,13 +151,6 @@ export function Marketplace() {
           </aside>
 
           <div className="marketplace-content">
-            {featured.length ? (
-              <section className="featured-section" aria-labelledby="featured-title">
-                <div className="section-heading"><h2 id="featured-title">New &amp; notable</h2></div>
-                <div className="model-grid featured-grid">{featured.map((listing) => <ModelCard key={listing.listing_id} listing={listing} tags={tags} featured />)}</div>
-              </section>
-            ) : null}
-
             <section className="results-section" aria-labelledby="results-title">
               <div className="section-heading">
                 <h2 id="results-title">{hasActiveFilters(query, minimumPrice, maximumPrice, domains, sizes, benchmarkFilters) ? "Search results" : "All models"}</h2>
@@ -216,10 +204,9 @@ function FacetGroup({ title, options, selected, toggle }: {
   );
 }
 
-function ModelCard({ listing, tags, featured = false }: {
+function ModelCard({ listing, tags }: {
   listing: PublicListing;
   tags: TagCatalogue | null;
-  featured?: boolean;
 }) {
   const domainLabels = new Map(tags?.domains.map((tag) => [tag.id, tag.label]));
   const sizeLabel = tags?.model_sizes.find((tag) => tag.id === listing.size_tag)?.label;
@@ -230,7 +217,6 @@ function ModelCard({ listing, tags, featured = false }: {
       <div className="model-cover">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={listing.image_url ? clientUploadUrl(listing.image_url) : DEFAULT_COVER} alt="" data-placeholder={!listing.image_url} />
-        {featured ? <span className="card-kicker">New</span> : null}
         {listing.grade ? <span className="grade-badge" aria-label={`Capability grade ${listing.grade}`}>{listing.grade}</span> : null}
       </div>
       <div className="model-card-body">
