@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
 import { StatusPill } from "@/components/StatusPill";
-import { keystoneRequest } from "@/lib/api";
+import { clientUploadUrl, keystoneRequest } from "@/lib/api";
 import {
   type ListingState,
   type ListingSummary,
@@ -18,6 +18,8 @@ import {
   formatUsdc,
   shortDigest,
 } from "@/lib/display";
+
+const DEFAULT_COVER = "/logo.png";
 
 type Filter = "all" | "evaluating" | Extract<ListingState, "listed" | "certified" | "rejected">;
 
@@ -121,8 +123,17 @@ export default function ModelsPage() {
                   <tr key={model.listing_id}>
                     <td>
                       <Link className="row-link" href={`/models/${model.listing_id}`}>
-                        <strong>{model.title || "Untitled model"}</strong>
-                        <span className="mono muted-text">{shortDigest(model.artifact_digest)}</span>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          className="row-thumb"
+                          src={model.image_url ? clientUploadUrl(model.image_url) : DEFAULT_COVER}
+                          alt=""
+                          data-placeholder={!model.image_url}
+                        />
+                        <span className="row-text">
+                          <strong>{model.title || "Untitled model"}</strong>
+                          <span className="mono muted-text">{shortDigest(model.artifact_digest)}</span>
+                        </span>
                       </Link>
                     </td>
                     <td><StatusPill state={model.state} /></td>
