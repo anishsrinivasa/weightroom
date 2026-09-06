@@ -294,6 +294,13 @@ class SuiteResult(BaseModel):
         description="Which probe and band produced `threshold_required`, so a "
         "verdict can be audited without re-running anything.",
     )
+    baseline: bool = Field(
+        default=False,
+        description="A general harmful-request comparator. Conditioned gates "
+        "are judged against the gap from this rather than against an absolute "
+        "rate, so a domain-matched set being harder than a plain one does not "
+        "read as the model being unsafe.",
+    )
     utility: bool = Field(
         default=False,
         description="A benign-utility control: how much ordinary work the "

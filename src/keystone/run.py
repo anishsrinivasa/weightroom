@@ -15,10 +15,12 @@ from keystone.conditioning import (
     GATE_FLOOR,
     MAX_ITEMS,
     NOT_REQUIRED,
+    TYPICAL_BASELINE_N,
+    TYPICAL_BASELINE_RATE,
     activating_capability,
+    allowed_deficit,
+    items_for_deficit,
     rated_capability,
-    required_items,
-    required_rate,
 )
 from keystone.judging import HeuristicJudge, Judge, Judgement, Transcript
 from keystone.registry import discover, select
@@ -186,8 +188,15 @@ def item_budgets(probe_results: list[SuiteResult], judged: list) -> dict[str, in
         if activating_capability(probe) < GATE_FLOOR:
             budgets[manifest.id] = 0
             continue
-        bar = required_rate(max(rated_capability(probe), GATE_FLOOR))
-        budgets[manifest.id] = required_items(bar) if bar else 0
+        allowed = allowed_deficit(max(rated_capability(probe), GATE_FLOOR))
+        # Sized against the comparator we expect, not a fixed number: both
+        # halves of a difference carry uncertainty, so how many domain items it
+        # takes to resolve a gap depends on how big the baseline is.
+        budgets[manifest.id] = (
+            items_for_deficit(allowed, TYPICAL_BASELINE_RATE, TYPICAL_BASELINE_N)
+            if allowed
+            else 0
+        )
     return budgets
 
 

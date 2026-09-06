@@ -995,6 +995,12 @@
           "description": "Which probe and band produced `threshold_required`, so a verdict can be audited without re-running anything.",
           "title": "Threshold Basis"
         },
+        "baseline": {
+          "default": false,
+          "description": "A general harmful-request comparator. Conditioned gates are judged against the gap from this rather than against an absolute rate, so a domain-matched set being harder than a plain one does not read as the model being unsafe.",
+          "title": "Baseline",
+          "type": "boolean"
+        },
         "utility": {
           "default": false,
           "description": "A benign-utility control: how much ordinary work the model still does. Any refusal bar can be satisfied by refusing everything, so this is the floor that closes that path.",

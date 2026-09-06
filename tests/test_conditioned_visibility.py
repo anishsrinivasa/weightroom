@@ -72,8 +72,16 @@ def report_with(results: list[SuiteResult], *, digest_char: str = "a") -> Certif
     )
 
 
+def comparator() -> SuiteResult:
+    return SuiteResult(
+        suite_id="harmbench", suite_version="1.0.0",
+        display_name="HarmBench harmful-output resistance",
+        status=Status.PASS, score=0.93, n_items=174, gate=True, baseline=True,
+    )
+
+
 def report_for(probe_score: float, refusal: float) -> CertificationReport:
-    return report_with(resolve([probe(probe_score), elicitation(refusal)]))
+    return report_with(resolve([comparator(), probe(probe_score), elicitation(refusal)]))
 
 
 def find(report: CertificationReport, suite_id: str) -> SuiteResult | None:
@@ -91,19 +99,19 @@ def test_the_probe_row_does_not_survive_redaction(audience: Audience) -> None:
     Redacting its score would leave a row whose only remaining content is that
     a probe ran -- so it is dropped rather than blanked.
     """
-    view = redact(report_for(0.85, 0.96), audience)
+    view = redact(report_for(0.85, 0.80), audience)
     assert find(view, PROBE_ID) is None
     assert_no_leak(view, audience)
 
 
 def test_internal_view_keeps_everything() -> None:
-    view = redact(report_for(0.85, 0.96), Audience.INTERNAL)
+    view = redact(report_for(0.85, 0.80), Audience.INTERNAL)
     kept = find(view, PROBE_ID)
     assert kept is not None and kept.score == 0.85
     gate = find(view, ELICIT_ID)
     assert gate.threshold_required is not None
     assert "band 'high'" in gate.threshold_basis
-    assert "harm <=" in gate.threshold_basis
+    assert "gap <=" in gate.threshold_basis
 
 
 # --------------------------------------------------------------------------
@@ -113,7 +121,7 @@ def test_internal_view_keeps_everything() -> None:
 def test_creator_learns_which_domain_failed_but_no_numbers() -> None:
     """A rejection has to name the domain or it is unactionable. It must not
     name anything a resubmission could triangulate on."""
-    view = redact(report_for(0.85, 0.96), Audience.CREATOR)
+    view = redact(report_for(0.85, 0.80), Audience.CREATOR)
     gate = find(view, ELICIT_ID)
 
     assert gate is not None
@@ -137,7 +145,7 @@ def test_conditioned_gate_gets_no_coarse_band_either() -> None:
     public. A conditioned one is not: band plus a published threshold table
     brackets both the score and the capability behind it.
     """
-    view = redact(report_for(0.85, 0.96), Audience.CREATOR)
+    view = redact(report_for(0.85, 0.80), Audience.CREATOR)
     assert find(view, ELICIT_ID).score_band is None
 
     ordinary = SuiteResult(
@@ -149,7 +157,7 @@ def test_conditioned_gate_gets_no_coarse_band_either() -> None:
 
 
 def test_buyer_sees_no_internal_row_at_all() -> None:
-    view = redact(report_for(0.85, 0.96), Audience.BUYER)
+    view = redact(report_for(0.85, 0.80), Audience.BUYER)
     assert find(view, ELICIT_ID) is None
     assert find(view, PROBE_ID) is None
     assert_no_leak(view, Audience.BUYER)
@@ -168,7 +176,7 @@ def test_repeated_submissions_cannot_bracket_the_threshold() -> None:
     """
     observed = set()
     for probe_score in (0.25, 0.45, 0.55, 0.70, 0.85, 0.95, 1.0):
-        view = redact(report_for(probe_score, 0.96), Audience.CREATOR)
+        view = redact(report_for(probe_score, 0.86), Audience.CREATOR)
         gate = find(view, ELICIT_ID)
         observed.add((
             gate.status,
