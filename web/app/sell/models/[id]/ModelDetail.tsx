@@ -190,8 +190,8 @@ export function ModelDetail({ id }: { id: string }) {
               : rejected ? rejectionDetail(model.safety_gates?.overall)
               : progress?.detail || "This submission is not currently being evaluated."}</p>
             {progress ? (
-              <p className="evaluation-refresh" aria-live="polite">
-                {refreshing ? "Checking for an update…" : `Last update ${formatDateTime(progressRecord?.updated_at ?? model.updated_at)} · refreshes automatically`}
+              <p className="evaluation-refresh" aria-live="polite" aria-busy={refreshing}>
+                {`Last update ${formatDateTime(progressRecord?.updated_at ?? model.updated_at)} · refreshes automatically`}
               </p>
             ) : null}
             {activeEvaluation && progressRecord ? (
