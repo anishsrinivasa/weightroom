@@ -25,3 +25,6 @@ web/public/sample-model/
 # pin rather than vendored, so the revision in code stays the only source of
 # truth about what ran.
 suites/*/assets/
+
+# Cached upstream pools. A convenience; the pin in staging.py is the record.
+.keystone-cache/

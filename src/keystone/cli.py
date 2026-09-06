@@ -681,7 +681,11 @@ def suites() -> None:
 
 
 @app.command()
-def stage() -> None:
+def stage(
+    rotation: int = typer.Option(
+        0, help="Which rotation to build. Later ones draw different items."
+    ),
+) -> None:
     """Fetch the conditioning item sets and write them into suites/*/assets/.
 
     Needs network, so it never runs inside `evaluate`. Nothing it writes is
@@ -692,19 +696,24 @@ def stage() -> None:
     from keystone.staging import SET_SIZE, stage as run_stage
 
     try:
-        staged = run_stage(SUITES_ROOT)
+        staged = run_stage(SUITES_ROOT, rotation=rotation)
     except RuntimeError as exc:
         console.print(f"[red]refused[/] {exc}")
         raise typer.Exit(code=2) from None
 
-    table = Table(title="staged item sets")
-    for column in ("suite", "source", "items", "digest"):
+    table = Table(title=f"staged item sets (rotation {rotation})")
+    for column in ("suite", "source", "pool", "variants", "items", "reuse", "digest"):
         table.add_column(column)
     for suite_id, info in staged.items():
         count = str(info["n"])
         if info["short_by"]:
             count += f"  [yellow](short {info['short_by']} of {SET_SIZE})[/]"
-        table.add_row(suite_id, info["source"], count, info["digest"][:16])
+        floor = info["overlap_floor"]
+        reuse = f"[yellow]>={floor}%[/]" if floor else "[green]free[/]"
+        table.add_row(
+            suite_id, info["source"], str(info["pool"]), str(info["variants"]),
+            count, reuse, info["digest"][:16],
+        )
     console.print(table)
 
     short = {k: v for k, v in staged.items() if v["short_by"]}
