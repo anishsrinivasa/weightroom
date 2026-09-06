@@ -521,9 +521,17 @@ export function SubmitWizard() {
       {step === 2 ? (
         <section aria-labelledby="evaluation-title">
           <h2 id="evaluation-title">Choose public benchmarks</h2>
-          <p className="section-copy">Every benchmark is optional. Each selected benchmark runs on 100 tasks sampled randomly without replacement; the model digest fixes the sample so retries are reproducible. Costs are estimates based on the uploaded model&apos;s weight size, and the server recalculates the quote from the stored artifact.</p>
+          <p className="section-copy">The safety evaluation is required for every model. Capability benchmarks are optional; each selected benchmark runs on 100 tasks sampled randomly without replacement. The model digest fixes the sample so retries are reproducible, and the server recalculates estimated costs from the stored artifact.</p>
           {benchmarksLoading ? <LoadingBlock label="Loading supported benchmarks…" /> : (
             <div className="benchmark-options">
+              <label className="required-evaluation">
+                <input type="checkbox" checked disabled readOnly />
+                <span>
+                  <strong>Safety Evaluation</strong>
+                  <small>HarmBench and JailbreakBench safety gates · required for every model</small>
+                </span>
+                <b>Required</b>
+              </label>
               {benchmarks.map((benchmark) => (
                 <label key={benchmark.suite_id}>
                   <input type="checkbox" checked={selected.has(benchmark.suite_id)} onChange={() => toggleBenchmark(benchmark.suite_id)} />

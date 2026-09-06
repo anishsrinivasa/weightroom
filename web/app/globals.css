@@ -193,6 +193,8 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .benchmark-options { margin-top: 28px; border-top: 1px solid var(--ink); }
 .benchmark-options label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 17px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .benchmark-options input { width: 17px; height: 17px; min-height: 0; margin: 2px 0 0; accent-color: var(--ink); }
+.benchmark-options .required-evaluation { cursor: default; }
+.benchmark-options .required-evaluation input { opacity: 1; cursor: not-allowed; }
 .benchmark-options strong { font-weight: 620; }
 .benchmark-options em { display: inline-flex; margin-left: 9px; border: 1px solid var(--line); padding: 2px 5px; color: var(--muted); font-size: 8px; font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; }
 .benchmark-options small { display: block; max-width: 580px; margin-top: 4px; color: var(--muted); }
