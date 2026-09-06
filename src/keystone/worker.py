@@ -218,7 +218,16 @@ def process_pending(
                 "gates": final_gates,
             }
         )
-        on_step(f"  -> {state.value}")
+        # Say why. A bare "rejected" sends whoever is watching to a debugger,
+        # and the reason is already in hand.
+        if outcome.failure is not None:
+            on_step(
+                f"  -> {state.value}: {outcome.failure.value}"
+                f" — {(outcome.detail or 'no detail')[:400]}"
+            )
+        else:
+            grade = outcome.report.rating.grade if outcome.report else "?"
+            on_step(f"  -> {state.value} (grade {grade})")
         results.append((listing_id, state))
     return results
 
