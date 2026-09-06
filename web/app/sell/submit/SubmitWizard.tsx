@@ -458,8 +458,7 @@ export function SubmitWizard() {
             <small className="field-hint">{description.length} / {DESCRIPTION_LIMIT}</small>
           </label>
           <fieldset className="tag-fieldset">
-            <legend>Model domains</legend>
-            <p className="field-hint">Choose every domain this model is designed to handle.</p>
+            <legend>Tags</legend>
             <div className="tag-picker">
               {domainOptions.map((tag) => (
                 <label key={tag.id} data-selected={domainTags.has(tag.id)}>
