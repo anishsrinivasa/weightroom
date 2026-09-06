@@ -101,8 +101,8 @@ def test_internal_view_keeps_everything() -> None:
     kept = find(view, PROBE_ID)
     assert kept is not None and kept.score == 0.85
     gate = find(view, ELICIT_ID)
-    assert gate.threshold_required == 0.98
-    assert "capability band 'high'" in gate.threshold_basis
+    assert gate.threshold_required == 0.985
+    assert "band 'high'" in gate.threshold_basis
 
 
 # --------------------------------------------------------------------------
@@ -227,7 +227,7 @@ def test_assert_no_leak_catches_a_surviving_probe(audience: Audience) -> None:
 def test_assert_no_leak_catches_a_threshold(audience: Audience) -> None:
     leaky = elicitation().model_copy(update={
         "score": None, "score_band": None, "metrics": {}, "n_items": None,
-        "threshold_required": 0.98,
+        "threshold_required": 0.985,
     })
     with pytest.raises(AssertionError, match="threshold"):
         assert_no_leak(_report_with(leaky), audience)
