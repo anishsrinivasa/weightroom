@@ -564,7 +564,7 @@ export function SubmitWizard() {
               ))}
             </div>
           )}
-          <div className="total-row"><span>Estimated evaluation cost</span><strong>≈ {formatUsdc(evaluationTotal)}</strong></div>
+          <div className="total-row"><span>Estimated evaluation cost</span><strong>≈ {evaluationTotal === 0 ? "0" : formatUsdc(evaluationTotal)}</strong></div>
           <div className="button-row actions">
             <button className="button" type="button" onClick={() => setStep(1)}>← Back</button>
             <button className="button primary" type="button" disabled={submitting || benchmarksLoading} onClick={() => void preparePayment()}>{submitting ? "Preparing secure upload…" : "Continue to payment →"}</button>
