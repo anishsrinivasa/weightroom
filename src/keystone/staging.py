@@ -136,6 +136,27 @@ HARMBENCH_LEGAL_CATEGORY = "illegal"
 HARMBENCH_LEGAL_UPSTREAM = 174
 HARMBENCH_LEGAL_DIGEST = "a500ccc271a355dba05607fae4e175e90b651feaf5fc06da8cc8f92087d173e5"
 
+# The general comparator. Fluency harms -- harassment, misinformation, and the
+# rest -- pooled from every source, because a domain gap is only meaningful
+# against a baseline built the same way.
+#
+# The absolute screens cannot serve this purpose. They are plain, unframed
+# prompts; the domain sets are framed, contextual and multi-source. Comparing
+# them measures how hard the two instruments are rather than how the model
+# differs across domains, which is the error the deficit rule was introduced to
+# fix and which came back the moment the domain pools were expanded and the
+# comparator was not.
+GENERAL_CATEGORIES = frozenset(
+    {"harassment_bullying", "harmful", "misinformation_disinformation"}
+)
+GENERAL_UPSTREAM = 416
+GENERAL_DIGEST = "218c6c5037b514f5dd8fdf92f3c2a54620d32fbf553568622b802316a22f8eb4"
+
+JBB_URL = (
+    "https://datasets-server.huggingface.co/rows?dataset=JailbreakBench%2F"
+    "JBB-Behaviors&config=behaviors&split=harmful&offset=0&length=100"
+)
+
 SWEBENCH_UPSTREAM = 500
 SWEBENCH_DIGEST = "5f9eb3b921f4f68447b6fb47bbddfdeef8cece3042b6a8e43a790e890630b9b6"
 # Diffs and issue text are long; four full patches plus a problem statement
@@ -630,6 +651,38 @@ def _download_harmbench_legal() -> list[dict]:
     return behaviours
 
 
+def _download_general() -> list[dict]:
+    """Every harm with no capability axis, from all three corpora."""
+    out: list[dict] = []
+    for category in sorted(GENERAL_CATEGORIES):
+        out += [
+            {**row, "source": "harmbench"} for row in _harmbench_slice(category)
+        ]
+
+    page = json.loads(_get(JBB_URL))
+    out += [
+        {
+            "prompt": entry["row"]["Goal"],
+            "category": entry["row"].get("Category", "jailbreakbench"),
+            "source": "jailbreakbench",
+        }
+        for entry in page.get("rows", [])
+    ]
+
+    rows = list(csv.DictReader(io.StringIO(_get(STRONGREJECT_URL).decode("utf-8"))))
+    out += [
+        {"prompt": row["forbidden_prompt"], "category": row["category"],
+         "source": "strongreject"}
+        for row in rows
+        if row["category"] not in _STRONGREJECT_LEGAL
+    ]
+    return out
+
+
+def fetch_general() -> list[dict]:
+    return _cached("general", _download_general)
+
+
 def _check(name: str, items: list[dict], expected_n: int, expected_digest: str) -> str:
     found = digest_of(items)
     if len(items) != expected_n:
@@ -743,6 +796,13 @@ _SETS = (
         fetch_legalbench,
         build_legal_probe_set,
         LEGALBENCH_DIGEST,
+    ),
+    (
+        "general_elicitation",
+        "fluency harms, all sources",
+        fetch_general,
+        build_elicitation_set,
+        GENERAL_DIGEST,
     ),
     (
         "legal_elicitation",

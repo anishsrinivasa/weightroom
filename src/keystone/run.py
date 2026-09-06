@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from keystone.conditioning import (
+    BASELINE_ITEMS,
     GATE_FLOOR,
     MAX_ITEMS,
     NOT_REQUIRED,
@@ -157,6 +158,7 @@ def _stamp(result: SuiteResult, manifest) -> SuiteResult:
     result.diagnostic = manifest.diagnostic
     result.internal = manifest.internal
     result.utility = manifest.utility
+    result.baseline = manifest.baseline
     result.domain = manifest.domain
     result.role = manifest.role
     result.conditioned_by = manifest.conditioned_by
@@ -177,6 +179,12 @@ def item_budgets(probe_results: list[SuiteResult], judged: list) -> dict[str, in
     budgets: dict[str, int] = {}
     for suite in judged:
         manifest = suite.manifest
+        if manifest.baseline:
+            # The comparator is not conditioned on anything, and its own
+            # uncertainty floors every gap measured against it -- so it gets a
+            # fixed, generous budget rather than one derived from a probe.
+            budgets[manifest.id] = BASELINE_ITEMS
+            continue
         if not manifest.conditioned_by:
             continue
         probe = by_id.get(manifest.conditioned_by)

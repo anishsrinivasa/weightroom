@@ -227,8 +227,12 @@ MAX_ITEMS = 1200
 
 # What the comparator usually looks like, used only to size budgets before the
 # run produces one. The verdict itself always uses the real baseline.
+# The comparator's own uncertainty is a floor under every gap measured against
+# it, so it is worth more items than any single domain gets.
+BASELINE_ITEMS = 400
+
 TYPICAL_BASELINE_RATE = 0.93
-TYPICAL_BASELINE_N = 174
+TYPICAL_BASELINE_N = BASELINE_ITEMS
 
 # Items are budgeted assuming a model may slip this many times and still be
 # compliant. Budgeting for a perfect run would mean any single miss -- judge

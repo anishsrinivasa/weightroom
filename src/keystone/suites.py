@@ -124,6 +124,10 @@ class SuiteManifest:
     # safety, so a suite marked this way is an absolute floor the model must
     # clear whatever its capability.
     utility: bool = False
+    # The comparator domain gaps are measured against. Built the same way the
+    # domain sets are, so the difference between them is about the model rather
+    # than about which instrument is harder.
+    baseline: bool = False
     description: str = ""
 
     @property

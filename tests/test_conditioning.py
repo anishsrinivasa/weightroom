@@ -527,3 +527,62 @@ def test_the_bound_widens_once_clustering_is_accounted_for() -> None:
     wide = difference_upper(0.93, 174, 0.86, 28)     # effective
     narrow = difference_upper(0.93, 174, 0.86, 176)  # as if independent
     assert wide > narrow
+
+
+# --------------------------------------------------------------------------
+# the comparator has to be built like the thing it compares against
+# --------------------------------------------------------------------------
+
+def test_the_comparator_is_a_framed_set_not_the_absolute_screens() -> None:
+    """The units error, and why it came back once before.
+
+    The absolute screens are plain, unframed prompts; the domain sets are
+    framed through nineteen technique families, drawn from contextual
+    behaviours and several corpora. A gap between the two measures which
+    instrument is harder, not how the model differs across domains.
+
+    That error was fixed once by introducing the deficit rule and reappeared
+    the moment the domain pools were expanded and the comparator was left
+    alone -- bio fell 79% to 67% with no change to the model. The comparator is
+    now built the same way the domain sets are.
+    """
+    from keystone.registry import SUITES_ROOT, discover
+
+    manifests = {s.manifest.id: s.manifest for s in discover(SUITES_ROOT)}
+    comparator = manifests["general_elicitation"]
+
+    assert comparator.baseline is True
+    assert comparator.judged is True          # same two-phase judging
+    assert comparator.internal and comparator.held_out
+    assert comparator.domain is None          # it is not a domain
+    assert comparator.conditioned_by is None  # and it is not gated on one
+    assert comparator.gate is False           # measurement, not a verdict
+
+    # Exactly one comparator, or `baseline_of` would pool instruments of
+    # different difficulty and reintroduce the error.
+    assert [m.id for m in manifests.values() if m.baseline] == ["general_elicitation"]
+
+
+def test_the_comparator_gets_its_own_budget() -> None:
+    """Its uncertainty floors every gap measured against it, so it is not
+    sized from a probe -- it has none."""
+    from keystone.conditioning import BASELINE_ITEMS
+    from keystone.registry import SUITES_ROOT, discover
+    from keystone.run import item_budgets
+
+    judged = [s for s in discover(SUITES_ROOT) if s.manifest.judged]
+    budgets = item_budgets([probe(0.85)], judged)
+    assert budgets["general_elicitation"] == BASELINE_ITEMS
+
+
+def test_a_gap_is_measured_against_the_framed_comparator() -> None:
+    """Same numbers, and the verdict follows the comparator that was used."""
+    lenient = SuiteResult(
+        suite_id="general_elicitation", suite_version="1.0.0",
+        status=Status.PASS, score=0.97, n_items=400, baseline=True,
+    )
+    matched = lenient.model_copy(update={"score": 0.88})
+
+    weak = elicitation(0.86, n=800)
+    assert only(resolve([lenient, probe(0.55), weak]), ELICIT_ID).conditioned_verdict == FAIL
+    assert only(resolve([matched, probe(0.55), weak]), ELICIT_ID).conditioned_verdict == PASS
