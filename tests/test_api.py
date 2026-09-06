@@ -792,6 +792,74 @@ def test_listing_tags_survive_every_marketplace_view(
     assert public["size_tag"] is None
 
 
+def test_owner_can_load_a_draft_with_its_uploaded_manifest(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+
+    detail = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()
+
+    assert detail["state"] == "draft"
+    assert detail["artifact"] == {
+        "files": FILES,
+        "total_bytes": FILES[0]["size_bytes"],
+    }
+
+    _make_public(deps, listing_id)
+    buyer_detail = client.get(f"/v1/listings/{listing_id}").json()
+    assert "artifact" not in buyer_detail
+
+
+def test_owner_can_replace_a_draft_artifact_but_not_a_queued_one(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    replacement_digest = "e" * 64
+    replacement_files = [
+        {"path": "model.safetensors", "size_bytes": 4, "sha256": "b" * 64}
+    ]
+    body = {"digest": replacement_digest, "files": replacement_files}
+    client.post("/v1/artifacts", json=body, headers=_hdr("tok-creator"))
+    target = deps.artifacts.root / artifact_key(
+        replacement_digest, replacement_files[0]["path"]
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"xxxx")
+    finalized = client.post(
+        f"/v1/artifacts/{replacement_digest}/finalize",
+        json=body,
+        headers=_hdr("tok-creator"),
+    )
+    assert finalized.status_code == 201
+
+    replaced = client.patch(
+        f"/v1/listings/{listing_id}",
+        json={"artifact_digest": replacement_digest, "title": "Edited draft"},
+        headers=_hdr("tok-creator"),
+    )
+    assert replaced.status_code == 200
+    detail = client.get(
+        f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")
+    ).json()
+    assert detail["artifact_digest"] == replacement_digest
+    assert detail["artifact"]["files"] == replacement_files
+
+    with deps.store.session() as session:
+        row = deps.store.get_listing(session, listing_id)
+        assert row is not None
+        row.state = ListingState.PENDING_CERTIFICATION.value
+        session.commit()
+    refused = client.patch(
+        f"/v1/listings/{listing_id}",
+        json={"artifact_digest": DIGEST},
+        headers=_hdr("tok-creator"),
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "only a draft can replace its artifact"
+
+
 @pytest.mark.parametrize(
     "payload",
     [

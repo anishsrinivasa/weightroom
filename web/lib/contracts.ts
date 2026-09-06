@@ -116,6 +116,14 @@ export const listingDetailSchema = z.object({
   attempts: z.number().int().nonnegative(),
   created_at: z.string(),
   updated_at: z.string(),
+  artifact: z.object({
+    files: z.array(z.object({
+      path: z.string(),
+      size_bytes: z.number().int().positive(),
+      sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    })),
+    total_bytes: z.number().int().nonnegative(),
+  }).optional(),
   flagged_for_review: z.boolean().optional(),
   audience: z.string().optional(),
   report: reportSchema.optional(),

@@ -444,11 +444,13 @@ def create_app(deps: Deps) -> FastAPI:
     def update_listing(
         listing_id: str, body: UpdateListing, d: D, principal: P
     ) -> dict:
-        """Change price or title. Seller only, and allowed after listing.
+        """Change seller-authored fields or replace a draft's artifact.
 
         Repricing does not disturb existing orders: an order records the amount
         it was created at, so a buyer mid-checkout pays what they were quoted
-        and a completed sale is not retroactively rewritten.
+        and a completed sale is not retroactively rewritten. Artifact
+        replacement is draft-only because the digest becomes part of the
+        certification subject as soon as evaluation starts.
         """
         me = require(principal)
         with d.store.session() as s:
@@ -458,15 +460,23 @@ def create_app(deps: Deps) -> FastAPI:
             if row.state == ListingState.WITHDRAWN.value:
                 raise HTTPException(409, "this listing has been withdrawn")
 
+            if body.artifact_digest is not None:
+                if row.state != ListingState.DRAFT.value:
+                    raise HTTPException(409, "only a draft can replace its artifact")
+                if d.store.get_artifact(s, body.artifact_digest) is None:
+                    raise HTTPException(
+                        409, "no finalized artifact for that digest; upload it first"
+                    )
+                row.artifact_digest = body.artifact_digest
             if body.price_minor is not None:
                 row.price_minor = body.price_minor
             if body.currency is not None:
                 row.currency = body.currency
             if body.title is not None:
                 row.title = body.title
-            if body.description is not None:
+            if "description" in body.model_fields_set:
                 row.description = body.description
-            if body.image_digest is not None:
+            if "image_digest" in body.model_fields_set:
                 row.image_digest = body.image_digest
             if body.domain_tags is not None:
                 row.domain_tags = body.domain_tags
@@ -539,6 +549,13 @@ def create_app(deps: Deps) -> FastAPI:
                         "stage": progress.stage,
                         "gates": progress.gates,
                         "updated_at": progress.updated_at.isoformat(),
+                    }
+            if owned:
+                artifact = s.get(ArtifactRow, row.artifact_digest)
+                if artifact is not None:
+                    payload["artifact"] = {
+                        "files": artifact.file_manifest,
+                        "total_bytes": artifact.total_bytes,
                     }
             if report is not None:
                 payload |= _view(d, report, principal, row.creator_id)
@@ -1121,6 +1138,7 @@ class CreateListing(BaseModel):
 class UpdateListing(BaseModel):
     """Every field optional: a reprice should not require restating the title."""
 
+    artifact_digest: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     price_minor: int | None = Field(default=None, ge=0)
     currency: str | None = None
     title: str | None = None
