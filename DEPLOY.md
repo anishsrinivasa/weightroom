@@ -184,3 +184,39 @@ After deployment verify:
   dynamically and private responses are not CDN-cacheable.
 - Add centralized logs and metrics for request IDs, queue latency, provider
   callbacks, evaluation failures, and publication decisions before launch.
+
+## Payments
+
+Non-custodial by default. Buyers send USDC straight to an address you control
+and the platform only watches the chain, so no processor holds your money and
+nobody needs your identity documents.
+
+```bash
+KEYSTONE_RECEIVE_ADDRESS=0x...      # from your own wallet
+KEYSTONE_RPC_URL=https://mainnet.base.org
+KEYSTONE_CONFIRMATIONS=3
+```
+
+Verify before taking money:
+
+```bash
+keystone checkout-probe
+```
+
+It reads the chain head, confirms the configured contract really reports itself
+as six-decimal USDC, and prints the exact amount a buyer would be asked to send.
+A wrong contract address means watching the wrong token, and every payment would
+look unpaid forever -- so this fails loudly instead.
+
+**The server holds no private key.** It makes read-only RPC calls; code that
+cannot sign cannot lose the money. Creator payouts are sent from the wallet that
+holds the funds, deliberately outside this process.
+
+Charges are told apart by amount: each order is quoted with a sub-dollar offset
+derived from its id, so two buyers paying the same list price produce
+distinguishable transfers, and a single payment can never clear two orders.
+
+A hosted processor (Coinbase Commerce) is also wired if you would rather someone
+else custody funds -- set `COINBASE_COMMERCE_API_KEY` and it takes precedence
+over nothing; on-chain is tried first.
+

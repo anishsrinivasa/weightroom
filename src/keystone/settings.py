@@ -119,8 +119,10 @@ def build_payments(s: Settings) -> tuple[PaymentProvider, bool]:
     """A real processor when configured, the simulated chain otherwise."""
     from keystone.providers.coinbase_commerce import from_env as coinbase_from_env
     from keystone.providers.hosted_checkout import from_env as hosted_from_env
+    from keystone.providers.onchain import from_env as onchain_from_env
 
-    for build in (coinbase_from_env, hosted_from_env):
+    # On-chain first: it needs no account, holds no keys, and takes no fee.
+    for build in (onchain_from_env, coinbase_from_env, hosted_from_env):
         provider = build()
         if provider is not None:
             return provider, False

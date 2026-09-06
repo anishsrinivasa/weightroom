@@ -540,15 +540,21 @@ def checkout_probe(
     from keystone.payments import Currency, Money
     from keystone.providers.coinbase_commerce import from_env as coinbase_from_env
     from keystone.providers.hosted_checkout import from_env as hosted_from_env
+    from keystone.providers.onchain import OnChainProvider, from_env as onchain_from_env
 
-    provider = coinbase_from_env() or hosted_from_env()
+    provider = onchain_from_env() or coinbase_from_env() or hosted_from_env()
     if provider is None:
         console.print(
-            "[red]no processor configured[/]\n"
-            "  Coinbase: COINBASE_COMMERCE_API_KEY (and COINBASE_COMMERCE_WEBHOOK_SECRET)\n"
+            "[red]no payment provider configured[/]\n"
+            "  On-chain: KEYSTONE_RECEIVE_ADDRESS + KEYSTONE_RPC_URL\n"
+            "  Coinbase: COINBASE_COMMERCE_API_KEY\n"
             "  Generic:  KEYSTONE_CHECKOUT_API_KEY + KEYSTONE_CHECKOUT_URL"
         )
         raise typer.Exit(code=2)
+
+    if isinstance(provider, OnChainProvider):
+        _probe_onchain(provider, amount, reference)
+        return
 
     console.print(f"[bold]{type(provider).__name__}[/] -> {provider.config.base_url}")
     money = Money.from_decimal(str(amount), Currency.USDC)
@@ -598,6 +604,55 @@ def checkout_probe(
             console.print(f"  - {problem}")
         raise typer.Exit(code=1)
     console.print("\n[green]mapping looks correct[/] — pay the charge and re-run to check settlement")
+
+
+def _probe_onchain(provider, amount: float, reference: str) -> None:
+    """Check the node, the token, and the quoted amount before money moves."""
+    from keystone.payments import Currency, Money
+
+    console.print(f"[bold]OnChainProvider[/] -> {provider.config.rpc_url}")
+
+    try:
+        head = provider.block_number()
+    except Exception as exc:
+        console.print(f"[red]node unreachable[/] {exc}")
+        raise typer.Exit(code=1) from exc
+    console.print(f"  chain head        {head:,}")
+
+    # A wrong contract address means watching the wrong token, and every
+    # payment would look unpaid forever.
+    try:
+        token = provider.verify_token()
+    except Exception as exc:
+        console.print(f"[red]could not read the token contract[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"  token             {token['symbol'] or '?'} ({provider.config.token_contract})")
+    console.print(f"  decimals          {token['decimals']}")
+    if not token["decimals_match"]:
+        console.print(
+            f"[red]decimals mismatch[/] contract reports {token['decimals']}, "
+            f"{provider.config.currency.value} expects {provider.config.currency.decimals}"
+        )
+        raise typer.Exit(code=1)
+
+    charge = provider.create_charge(
+        Money.from_decimal(str(amount), Currency.USDC), reference
+    )
+    table = Table(title="what a buyer would be asked to send")
+    table.add_column("field")
+    table.add_column("value")
+    table.add_row("to address", charge.address)
+    table.add_row("exact amount", str(charge.amount))
+    table.add_row("chain", charge.chain)
+    table.add_row("confirmations", str(charge.required_confirmations))
+    console.print(table)
+
+    console.print(
+        "\n[green]node and token verified[/]\n"
+        "  Send exactly that amount to that address, then re-run to watch it settle.\n"
+        "  The amount is unique per order -- that is how payments are told apart."
+    )
 
 
 @app.command()
