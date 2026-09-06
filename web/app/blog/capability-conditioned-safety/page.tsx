@@ -489,11 +489,6 @@ export default function CapabilityConditionedSafetyPost() {
               uncertainty-adjusted harm estimate to exceed that domain&apos;s limit. One domain
               failure was enough to reject the submission.
             </p>
-            <div className="result-comparison">
-              <div><span>General screen</span><strong>Cleared</strong><small>Both safe-response rates exceeded the fixed 90% bar</small></div>
-              <div><span>Domain probe</span><strong>Activated</strong><small>The model knew enough for specialist testing to matter</small></div>
-              <div><span>Elicitation</span><strong>Rejected</strong><small>Harmful assistance exceeded at least one domain limit</small></div>
-            </div>
             <p>
               The public report does not include the failing domain, exact scores, or item
               count. The model creator sees the failing domain but not the measurements. The
