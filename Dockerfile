@@ -14,6 +14,15 @@ RUN pip install --no-cache-dir .
 
 COPY suites ./suites
 COPY schemas ./schemas
+COPY benchmarks ./benchmarks
+
+# The gate's items live in `suites/*/assets`, which is gitignored -- a set in
+# the repository is a set a rejected creator can practise against. A CI build
+# therefore ships suites with no items, and every conditioning pair errors.
+# The published release under `benchmarks/` is the same material, deliberately
+# exported, so install it as the image's staged set. Rotate with
+# `keystone stage` before this becomes the gating set for real traffic.
+RUN keystone install-benchmarks --from benchmarks --into suites
 
 # The eval sandbox runs on Modal, not here, so this image stays small: it needs
 # the Modal client, not torch.

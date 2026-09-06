@@ -311,17 +311,29 @@ def collect_suites(
     scratch_dir.mkdir(parents=True, exist_ok=True)
     by_id = {s.manifest.id: s.manifest for s in eligible}
 
+    def assets_for(suite) -> Path:
+        """Where this suite's items live.
+
+        `assets_root` is where the sandbox drops corpora it fetched while it
+        still had network. Only suites whose items are fetched that way have a
+        directory there -- a suite whose items were staged into the image keeps
+        its own. Applying the override to everything pointed the conditioning
+        pairs at a directory that only ever holds the public benchmarks, so
+        they loaded zero items and errored on every run.
+        """
+        own = suites_root / suite.manifest.id / "assets"
+        if assets_root is None:
+            return own
+        staged = assets_root / suite.manifest.id
+        return staged if staged.exists() else own
+
     def context(suite, budget: int | None = None) -> SuiteContext:
         return SuiteContext(
             client=client,
             model_name=model_name,
             capabilities=capabilities,
             scratch_dir=scratch_dir,
-            assets_dir=(
-                assets_root / suite.manifest.id
-                if assets_root is not None
-                else suites_root / suite.manifest.id / "assets"
-            ),
+            assets_dir=assets_for(suite),
             seed=seed,
             item_budget=budget,
             on_progress=_reporter(suite, on_progress),
