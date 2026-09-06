@@ -16,3 +16,6 @@ web/*.tsbuildinfo
 # Fetched, not committed: 6 MB of weights would sit in git history forever.
 # Run `keystone sample-model` to install it.
 web/public/sample-model/
+
+# Local payment config; the address is public but the file is per-machine.
+.env.payments

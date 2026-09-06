@@ -67,13 +67,14 @@ class FakeChain:
 
 
 def make(chain: FakeChain, **overrides) -> OnChainProvider:
-    config = OnChainConfig(
-        receive_address=RECEIVE,
-        rpc_url="https://rpc.invalid",
-        token_contract=TOKEN,
-        required_confirmations=3,
-        **overrides,
-    )
+    settings = {
+        "receive_address": RECEIVE,
+        "rpc_url": "https://rpc.invalid",
+        "token_contract": TOKEN,
+        "required_confirmations": 3,
+    }
+    settings.update(overrides)
+    config = OnChainConfig(**settings)
     return OnChainProvider(
         config, client=httpx.Client(transport=httpx.MockTransport(chain))
     )
@@ -245,3 +246,57 @@ def test_the_provider_holds_no_key_material() -> None:
     blob = repr(vars(provider)) + repr(vars(provider.config))
     for word in ("private", "secret", "mnemonic", "seed", "privkey"):
         assert word not in blob.lower()
+
+
+# --------------------------------------------------------------------------
+# receive address validation
+# --------------------------------------------------------------------------
+
+def test_a_valid_checksummed_address_is_accepted() -> None:
+    from keystone.providers.onchain import validate_address
+
+    address = "0x8CF9aABe652ECE5Fe812fCEAF5763A27c7C44F72"
+    assert validate_address(address) == address
+
+
+def test_a_single_wrong_character_is_caught() -> None:
+    """A mistyped address does not bounce; the funds are simply gone."""
+    from keystone.providers.onchain import InvalidAddress, validate_address
+
+    # Same address with one hex digit changed -- still valid hex, wrong checksum.
+    with pytest.raises(InvalidAddress, match="checksum"):
+        validate_address("0x8CF9aABe652ECE5Fe812fCEAF5763A27c7C44F73")
+
+
+def test_case_only_damage_is_caught() -> None:
+    from keystone.providers.onchain import InvalidAddress, validate_address
+
+    with pytest.raises(InvalidAddress, match="checksum"):
+        validate_address("0x8cF9aABe652ECE5Fe812fCEAF5763A27c7C44F72")
+
+
+def test_an_unchecksummed_address_is_normalised_not_rejected() -> None:
+    """All-lowercase is legal and carries no checksum to verify."""
+    from keystone.providers.onchain import validate_address
+
+    assert validate_address("0x8cf9aabe652ece5fe812fceaf5763a27c7c44f72") == (
+        "0x8CF9aABe652ECE5Fe812fCEAF5763A27c7C44F72"
+    )
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["0x123", "", "not-an-address", "0x" + "z" * 40, "0x" + "a" * 41],
+)
+def test_malformed_addresses_are_rejected(bad: str) -> None:
+    from keystone.providers.onchain import InvalidAddress, validate_address
+
+    with pytest.raises(InvalidAddress):
+        validate_address(bad)
+
+
+def test_a_bad_address_fails_at_construction_not_at_payment_time() -> None:
+    from keystone.providers.onchain import InvalidAddress
+
+    with pytest.raises(InvalidAddress):
+        make(FakeChain(), receive_address="0xnope")

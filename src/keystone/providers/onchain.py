@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -51,6 +51,49 @@ USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 # Micro-USDC of headroom for making amounts unique. Under a dollar, so it never
 # meaningfully changes what a buyer pays.
 OFFSET_SPACE = 999_999
+
+
+class InvalidAddress(ValueError):
+    """The configured receive address is malformed or fails its checksum."""
+
+
+def to_checksum(address: str) -> str:
+    """EIP-55 mixed-case form of an address."""
+    from Crypto.Hash import keccak
+
+    body = address.lower().removeprefix("0x")
+    digest = keccak.new(data=body.encode(), digest_bits=256).hexdigest()
+    return "0x" + "".join(
+        char.upper() if int(digest[i], 16) >= 8 else char
+        for i, char in enumerate(body)
+    )
+
+
+def validate_address(address: str) -> str:
+    """Return the checksummed address, or refuse.
+
+    A mistyped receive address does not bounce -- the funds are simply gone,
+    and nobody finds out until a buyer says they paid and the order never
+    cleared. EIP-55 exists to catch exactly that, so this is checked at
+    startup rather than discovered later.
+
+    An all-lowercase or all-uppercase address carries no checksum, which is
+    legal but unverifiable; it is accepted and returned in checksummed form.
+    """
+    body = address.strip().removeprefix("0x")
+    if len(body) != 40 or any(c not in "0123456789abcdefABCDEF" for c in body):
+        raise InvalidAddress(f"not a 20-byte hex address: {address!r}")
+
+    if body == body.lower() or body == body.upper():
+        return to_checksum(address)  # no checksum to verify
+
+    checksummed = to_checksum(address)
+    if checksummed != "0x" + body:
+        raise InvalidAddress(
+            f"EIP-55 checksum mismatch: got {address}, expected {checksummed}. "
+            "Re-copy the address; a mistyped one loses funds permanently."
+        )
+    return checksummed
 
 
 class ChainError(RuntimeError):
@@ -98,7 +141,14 @@ def _pad_address(address: str) -> str:
 
 class OnChainProvider(PaymentProvider):
     def __init__(self, config: OnChainConfig, client: httpx.Client | None = None) -> None:
-        self.config = config
+        # Fail here rather than when a buyer is waiting on a payment page.
+        # `replace` rather than mutating in place: the config is frozen, and the
+        # caller's object should not change under it.
+        self.config = replace(
+            config,
+            receive_address=validate_address(config.receive_address),
+            token_contract=validate_address(config.token_contract),
+        )
         self._client = client or httpx.Client(timeout=config.timeout_s)
         self._charges: dict[str, Charge] = {}
         # Which transfer settled which charge. One payment can only ever clear
