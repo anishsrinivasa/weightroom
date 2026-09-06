@@ -126,7 +126,6 @@ export function ModelDetail({ id }: { id: string }) {
       <Link className="back-link" href="/models">← Back to models</Link>
       <section className="detail-header">
         <div className="detail-identity">
-          <p className="eyebrow">Private model record</p>
           <h1>{model.title || "Untitled model"}</h1>
           <p className="digest mono">{model.artifact_digest}</p>
           <div className="inline-meta">
