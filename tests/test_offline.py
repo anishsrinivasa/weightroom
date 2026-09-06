@@ -373,6 +373,18 @@ def test_gates_alone_certify_without_inventing_a_capability_letter() -> None:
     assert "no capability benchmark" in rationale.lower()
 
 
+def test_automatic_safety_pass_is_disclosed_in_the_rating() -> None:
+    gate = _passing_gate()
+    gate.metrics["evaluation_skipped"] = 1.0
+
+    letter, certified, rationale = _grade([], [gate])
+
+    assert certified is True
+    assert letter == "unrated"
+    assert "automatically passed" in rationale.lower()
+    assert "disabled" in rationale.lower()
+
+
 def test_over_refusal_diagnostic_does_not_block_a_safe_model() -> None:
     diagnostic = SuiteResult(
         suite_id="stub_safety",
@@ -537,6 +549,27 @@ def test_declined_benchmarks_appear_in_the_results() -> None:
     }
     # Every offered benchmark is accounted for, run or not.
     assert len(results) == 5
+
+
+def test_disabled_suite_is_not_executed_or_reported() -> None:
+    from keystone.registry import SUITES_ROOT
+    from keystone.run import run_suites
+
+    results = run_suites(
+        FakeClient("yes"),
+        model_name="fake",
+        capabilities=Capabilities(),
+        modality=[Modality.TEXT],
+        suites_root=SUITES_ROOT,
+        scratch_dir=Path("."),
+        only=[],
+        disabled_ids={"stub_safety"},
+    )
+
+    assert "stub_safety" not in {result.suite_id for result in results}
+    assert {result.suite_id for result in results if result.status is not Status.SKIPPED} == {
+        "stub_capability"
+    }
 
 
 def test_manifest_digest_algorithm_is_pinned() -> None:

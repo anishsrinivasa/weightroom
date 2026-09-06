@@ -43,6 +43,7 @@ def run_suites(
     scratch_dir: Path,
     assets_root: Path | None = None,
     only: list[str] | None = None,
+    disabled_ids: set[str] | None = None,
     seed: int = 0,
 ) -> list[SuiteResult]:
     """Gate on eligibility, then run everything eligible concurrently.
@@ -50,7 +51,13 @@ def run_suites(
     Gating happens before the caller ever loads a model, so an ineligible suite
     costs no GPU time.
     """
-    eligible, skipped = select(discover(suites_root), capabilities, modality, only=only)
+    disabled_ids = disabled_ids or set()
+    installed = [
+        suite
+        for suite in discover(suites_root)
+        if suite.manifest.id not in disabled_ids
+    ]
+    eligible, skipped = select(installed, capabilities, modality, only=only)
 
     results = [
         SuiteResult(

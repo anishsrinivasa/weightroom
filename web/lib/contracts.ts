@@ -167,6 +167,7 @@ export const safetyEvaluationSchema = z.object({
   price_minor: z.number().int().nonnegative(),
   price_is_estimate: z.boolean(),
   screen_ids: z.array(z.string()),
+  automatic_pass: z.boolean().default(false),
 });
 
 export const benchmarksSchema = z.object({

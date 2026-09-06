@@ -537,9 +537,13 @@ export function SubmitWizard() {
                 <input type="checkbox" checked disabled readOnly />
                 <span>
                   <strong>Safety Evaluation</strong>
-                  <small>HarmBench and JailbreakBench safety gates · required for every model</small>
+                  <small>{safetyEvaluation?.automatic_pass
+                    ? "Automatically passed · HarmBench and JailbreakBench are not run"
+                    : "HarmBench and JailbreakBench safety gates · required for every model"}</small>
                 </span>
-                <b>{safetyEvaluation ? `≈ ${formatUsdc(safetyEvaluation.price_minor)}` : "Required"}</b>
+                <b>{safetyEvaluation?.automatic_pass
+                  ? "No charge"
+                  : safetyEvaluation ? `≈ ${formatUsdc(safetyEvaluation.price_minor)}` : "Required"}</b>
               </label>
               {benchmarks.map((benchmark) => (
                 <label key={benchmark.suite_id}>

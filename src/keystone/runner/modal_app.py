@@ -360,8 +360,8 @@ def _safety_cache_env() -> dict[str, str]:
     cpu=4,
     restrict_modal_access=True,
 )
-def prefetch_public_safety_assets() -> dict:
-    """Cache every pinned public dataset plus the independent open judge.
+def prefetch_public_safety_assets(include_safety: bool = True) -> dict:
+    """Cache pinned benchmark assets and, when enabled, public safety assets.
 
     This function deliberately has egress but never imports or loads the model
     under test.  ``evaluate`` consumes this cache with network access blocked.
@@ -385,7 +385,7 @@ def prefetch_public_safety_assets() -> dict:
         return response.text
 
     guard_dir = root / f"Qwen3Guard-Gen-0.6B@{GUARD_REVISION}"
-    if not guard_dir.exists():
+    if include_safety and not guard_dir.exists():
         snapshot_download(GUARD_REF, revision=GUARD_REVISION, local_dir=guard_dir)
 
     benchmark_judge_dir = root / f"Qwen3-4B-Instruct-2507@{BENCHMARK_JUDGE_REVISION}"
@@ -396,40 +396,43 @@ def prefetch_public_safety_assets() -> dict:
             local_dir=benchmark_judge_dir,
         )
 
-    harmbench_url = (
-        "https://raw.githubusercontent.com/centerforaisafety/HarmBench/"
-        f"{HARMBENCH_REVISION}/data/behavior_datasets/harmbench_behaviors_text_all.csv"
-    )
-    harmbench_rows = list(csv.DictReader(io.StringIO(get_text(harmbench_url))))
-    harmbench = [
-        {
-            "prompt": row["Behavior"],
-            "category": row["SemanticCategory"],
-            "functional_category": row["FunctionalCategory"],
-        }
-        for row in harmbench_rows
-        if row["FunctionalCategory"] == "standard"
-    ]
-    if len(harmbench) != HARMBENCH_ITEMS:
-        raise RuntimeError(
-            f"pinned HarmBench set changed: expected {HARMBENCH_ITEMS}, got {len(harmbench)}"
+    harmbench: list[dict] = []
+    jailbreakbench: list[dict] = []
+    if include_safety:
+        harmbench_url = (
+            "https://raw.githubusercontent.com/centerforaisafety/HarmBench/"
+            f"{HARMBENCH_REVISION}/data/behavior_datasets/harmbench_behaviors_text_all.csv"
         )
+        harmbench_rows = list(csv.DictReader(io.StringIO(get_text(harmbench_url))))
+        harmbench = [
+            {
+                "prompt": row["Behavior"],
+                "category": row["SemanticCategory"],
+                "functional_category": row["FunctionalCategory"],
+            }
+            for row in harmbench_rows
+            if row["FunctionalCategory"] == "standard"
+        ]
+        if len(harmbench) != HARMBENCH_ITEMS:
+            raise RuntimeError(
+                f"pinned HarmBench set changed: expected {HARMBENCH_ITEMS}, got {len(harmbench)}"
+            )
 
-    jbb_rows = load_dataset(
-        "JailbreakBench/JBB-Behaviors",
-        "behaviors",
-        split="harmful",
-        revision=JAILBREAKBENCH_REVISION,
-    )
-    jailbreakbench = [
-        {"prompt": row["Goal"], "category": row["Category"]}
-        for row in jbb_rows
-    ]
-    if len(jailbreakbench) != JAILBREAKBENCH_ITEMS:
-        raise RuntimeError(
-            "pinned JailbreakBench set changed: "
-            f"expected {JAILBREAKBENCH_ITEMS}, got {len(jailbreakbench)}"
+        jbb_rows = load_dataset(
+            "JailbreakBench/JBB-Behaviors",
+            "behaviors",
+            split="harmful",
+            revision=JAILBREAKBENCH_REVISION,
         )
+        jailbreakbench = [
+            {"prompt": row["Goal"], "category": row["Category"]}
+            for row in jbb_rows
+        ]
+        if len(jailbreakbench) != JAILBREAKBENCH_ITEMS:
+            raise RuntimeError(
+                "pinned JailbreakBench set changed: "
+                f"expected {JAILBREAKBENCH_ITEMS}, got {len(jailbreakbench)}"
+            )
 
     mmlu_rows = load_dataset(
         "TIGER-Lab/MMLU-Pro",
@@ -657,6 +660,7 @@ def evaluate(
     tensor_parallel_size: int = 1,
     only: list[str] | None = None,
     seed: int = 0,
+    run_safety: bool = True,
 ):
     """Wrapper that guarantees a failure is readable by the caller.
 
@@ -677,6 +681,7 @@ def evaluate(
             tensor_parallel_size,
             only,
             seed,
+            run_safety,
         )
     except Exception as exc:  # noqa: BLE001 - losing this is the whole problem
         report = "".join(
@@ -702,6 +707,7 @@ def _evaluate(
     tensor_parallel_size: int = 1,
     only: list[str] | None = None,
     seed: int = 0,
+    run_safety: bool = True,
 ):
     import asyncio
     import sys
@@ -738,7 +744,7 @@ def _evaluate(
         (suite_assets / "tasks.json").write_text(
             json.dumps(rows), encoding="utf-8"
         )
-    suite_ids = ("harmbench", "jailbreakbench")
+    suite_ids = ("harmbench", "jailbreakbench") if run_safety else ()
     total_work = 2 * sum(len(assets["suites"][suite_id]) for suite_id in suite_ids)
     completed_work = 0
     gate_work = {suite_id: 0 for suite_id in suite_ids}
@@ -797,6 +803,7 @@ def _evaluate(
             scratch_dir=Path("/tmp/scratch"),
             assets_root=benchmark_assets_root,
             only=only,
+            disabled_ids={"stub_safety"} if not run_safety else None,
             seed=seed,
         )
         if "swe_bench_verified" in set(only or []):
@@ -877,43 +884,44 @@ def _evaluate(
             for pending_run in pending_rubric_runs:
                 results.append(asyncio.run(score_rubric_run(pending_run, rubric_judge)))
 
-    with VLLMServer(Path(assets["guard_dir"]), "safety-judge", max_context=4096):
-        judge = OpenAIServerClient("safety-judge", seed=seed)
-        for suite_id in suite_ids:
-            outcomes: list[dict] = []
-            rows = generated[suite_id]
-            for offset in range(0, len(rows), batch_size):
-                batch = rows[offset : offset + batch_size]
+    if run_safety:
+        with VLLMServer(Path(assets["guard_dir"]), "safety-judge", max_context=4096):
+            judge = OpenAIServerClient("safety-judge", seed=seed)
+            for suite_id in suite_ids:
+                outcomes: list[dict] = []
+                rows = generated[suite_id]
+                for offset in range(0, len(rows), batch_size):
+                    batch = rows[offset : offset + batch_size]
 
-                async def grade_batch() -> list[dict]:
-                    async def grade(row: dict) -> dict:
-                        raw = await judge.chat(
-                            [
-                                {"role": "user", "content": row["prompt"]},
-                                {"role": "assistant", "content": row["response"]},
-                            ],
-                            max_tokens=96,
-                            temperature=0.0,
-                        )
-                        return _parse_guard(raw)
+                    async def grade_batch() -> list[dict]:
+                        async def grade(row: dict) -> dict:
+                            raw = await judge.chat(
+                                [
+                                    {"role": "user", "content": row["prompt"]},
+                                    {"role": "assistant", "content": row["response"]},
+                                ],
+                                max_tokens=96,
+                                temperature=0.0,
+                            )
+                            return _parse_guard(raw)
 
-                    return list(await asyncio.gather(*(grade(row) for row in batch)))
+                        return list(await asyncio.gather(*(grade(row) for row in batch)))
 
-                outcomes.extend(asyncio.run(grade_batch()))
-                completed = len(batch)
-                completed_work += completed
-                gate_work[suite_id] += completed
-                yield progress(f"Scoring {BY_ID[suite_id].display_name}")
+                    outcomes.extend(asyncio.run(grade_batch()))
+                    completed = len(batch)
+                    completed_work += completed
+                    gate_work[suite_id] += completed
+                    yield progress(f"Scoring {BY_ID[suite_id].display_name}")
 
-            result = harmful_result(
-                suite_id,
-                outcomes,
-                round(time.monotonic() - suite_started[suite_id], 2),
-            )
-            results.append(result)
-            gate_scores[suite_id] = result.score
-            gate_status[suite_id] = result.status.value
-            yield progress(f"Completed {BY_ID[suite_id].display_name}")
+                result = harmful_result(
+                    suite_id,
+                    outcomes,
+                    round(time.monotonic() - suite_started[suite_id], 2),
+                )
+                results.append(result)
+                gate_scores[suite_id] = result.score
+                gate_status[suite_id] = result.status.value
+                yield progress(f"Completed {BY_ID[suite_id].display_name}")
 
     yield {
         "type": "result",

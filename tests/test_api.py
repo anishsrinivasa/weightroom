@@ -428,7 +428,7 @@ def test_publish_returns_a_charge(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     r = client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": ["mmlu_pro"]},
                        headers=_hdr("tok-creator")).json()
-    assert r["amount"] == "0.110000 USDC"
+    assert r["amount"] == "0.020000 USDC"
     assert set(r["running"]) == {"mmlu_pro"}
     assert set(r["declined"]) == {
         "swe_bench_verified", "gdpval", "harvey_lab", "math_500"

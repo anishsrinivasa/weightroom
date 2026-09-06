@@ -234,7 +234,7 @@ def process_pending(
                     digest,
                     files,
                     artifacts,
-                    only=selected or None,
+                    only=selected,
                     on_step=on_step,
                     on_progress=persist_progress,
                 )

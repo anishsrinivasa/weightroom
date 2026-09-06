@@ -13,6 +13,7 @@ latter is network-blocked and consumes only content-addressed cached assets.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 
 from keystone.payments import Currency, Money
@@ -77,8 +78,29 @@ SCREENS: tuple[SafetyScreen, ...] = (
 BY_ID = {screen.id: screen for screen in SCREENS}
 
 
-def evaluation_price(model_weight_bytes: int | None = None) -> Money:
+def evaluation_enabled() -> bool:
+    """Whether the public safety screens should execute.
+
+    Disabled by default while the marketplace is being exercised end to end.
+    The implementations remain available and can be restored without a code
+    change by setting ``KEYSTONE_RUN_SAFETY_EVALUATION=true``.
+    """
+    return os.environ.get("KEYSTONE_RUN_SAFETY_EVALUATION", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def evaluation_price(
+    model_weight_bytes: int | None = None, *, enabled: bool | None = None
+) -> Money:
     """Estimated direct cost of the mandatory public safety evaluation."""
+    if enabled is None:
+        enabled = evaluation_enabled()
+    if not enabled:
+        return Money(0, Currency.USDC)
     weight_bytes = (
         SAFETY_EVALUATION_REFERENCE_WEIGHT_BYTES
         if model_weight_bytes is None
@@ -94,31 +116,55 @@ def evaluation_price(model_weight_bytes: int | None = None) -> Money:
 
 
 def evaluation_line_item(model_weight_bytes: int | None = None) -> dict:
-    price = evaluation_price(model_weight_bytes)
+    enabled = evaluation_enabled()
+    price = evaluation_price(model_weight_bytes, enabled=enabled)
     return {
         "suite_id": "safety_evaluation",
         "display_name": "Safety Evaluation",
-        "description": "Mandatory HarmBench and JailbreakBench safety gates.",
+        "description": (
+            "Mandatory HarmBench and JailbreakBench safety gates."
+            if enabled
+            else "Automatically passed; HarmBench and JailbreakBench are currently disabled."
+        ),
         "required": True,
         "price": str(price),
         "price_minor": price.amount_minor,
-        "price_is_estimate": True,
+        "price_is_estimate": enabled,
         "screen_ids": [screen.id for screen in SCREENS],
+        "automatic_pass": not enabled,
     }
 
 
 def initial_progress_gates() -> list[dict]:
     """Seller-safe work counters before Modal emits its first batch."""
+    enabled = evaluation_enabled()
     return [
         {
             "gate_id": screen.id,
             "display_name": screen.display_name,
-            "status": "pending",
-            "completed": 0,
+            "status": "pending" if enabled else "pass",
+            "completed": 0 if enabled else 1,
             # One model generation and one independent judge decision per item.
-            "total": 2 * screen.n_items,
-            "score": None,
+            "total": 2 * screen.n_items if enabled else 1,
+            "score": None if enabled else 1.0,
         }
+        for screen in SCREENS
+    ]
+
+
+def automatic_pass_results() -> list[SuiteResult]:
+    """Auditable pass records used while safety execution is disabled."""
+    return [
+        SuiteResult(
+            suite_id=screen.id,
+            suite_version=f"bypassed:{screen.version}",
+            display_name=screen.display_name,
+            status=Status.PASS,
+            gate=True,
+            score=1.0,
+            metrics={"evaluation_skipped": 1.0},
+            n_items=0,
+        )
         for screen in SCREENS
     ]
 
@@ -221,6 +267,8 @@ __all__ = [
     "JAILBREAKBENCH_ITEMS",
     "JAILBREAKBENCH_REVISION",
     "SCREENS",
+    "automatic_pass_results",
+    "evaluation_enabled",
     "evaluation_line_item",
     "evaluation_price",
     "harmful_result",

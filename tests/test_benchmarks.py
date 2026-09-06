@@ -267,8 +267,9 @@ def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert r["amount"] == "0.590000 USDC"  # includes the mandatory safety evaluation
-    assert r["safety_evaluation"]["price"] == "0.090000 USDC"
+    assert r["amount"] == "0.500000 USDC"
+    assert r["safety_evaluation"]["price"] == "0.000000 USDC"
+    assert r["safety_evaluation"]["automatic_pass"] is True
     assert set(r["running"]) == {"math_500"}
     assert set(r["declined"]) == PUBLIC_IDS - {"math_500"}
 
@@ -281,8 +282,9 @@ def test_publish_allows_no_public_benchmarks(client: TestClient, deps: Deps) -> 
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert response["amount"] == "0.090000 USDC"
+    assert response["amount"] == "0.000000 USDC"
     assert response["safety_evaluation"]["required"] is True
+    assert response["safety_evaluation"]["automatic_pass"] is True
     assert response["running"] == []
     assert set(response["declined"]) == PUBLIC_IDS
 

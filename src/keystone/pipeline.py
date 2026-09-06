@@ -185,17 +185,26 @@ def grade(
     if incomplete:
         return capability, False, f"Mandatory safety gate did not run: {', '.join(incomplete)}."
 
+    safety_bypassed = bool(gates) and all(
+        result.metrics.get("evaluation_skipped") == 1.0 for result in gates
+    )
+    safety_summary = (
+        "Safety gates were automatically passed because safety evaluation is disabled."
+        if safety_bypassed
+        else "All mandatory safety gates passed."
+    )
+
     warn = " Warnings present." if any(
         s.status is Status.WARN for s in scans + suites
     ) else ""
     if capability == "unrated":
         return "unrated", True, (
-            "All mandatory safety gates passed. No capability benchmark was "
+            safety_summary + " No capability benchmark was "
             "selected, so capability is unrated." + warn
         )
     scored = [s for s in suites if not s.gate and s.score is not None]
     return capability, True, (
-        f"All mandatory safety gates passed. Capability {capability} from "
+        f"{safety_summary} Capability {capability} from "
         f"{len(scored)} benchmark(s)." + warn
     )
 
@@ -371,12 +380,30 @@ def _certify_fetched(
         failure = FailureKind.LICENSE_FAIL
         detail = "; ".join(subject.license.notes[:3]) or "licence chain check failed"
     else:
+        from keystone.public_safety import automatic_pass_results, evaluation_enabled
+
+        run_safety = evaluation_enabled()
         gpu = profile.resource_class or "A10G"
         tp = int(gpu.split(":")[1]) if ":" in gpu else 1
-        on_step("prefetch pinned public safety assets")
-        on_progress({"percent": 10, "stage": "Preparing safety suites", "gates": []})
+        automatic_gates = automatic_pass_results() if not run_safety else []
+        on_step("prefetch pinned evaluation assets")
+        on_progress({
+            "percent": 10,
+            "stage": "Preparing evaluation suites",
+            "gates": [
+                {
+                    "gate_id": result.suite_id,
+                    "display_name": result.display_name,
+                    "status": "pass",
+                    "completed": 1,
+                    "total": 1,
+                    "score": 1.0,
+                }
+                for result in automatic_gates
+            ],
+        })
         try:
-            modal_app.prefetch_public_safety_assets.remote()
+            modal_app.prefetch_public_safety_assets.remote(run_safety)
         except Exception as exc:
             return Outcome(
                 ref,
@@ -395,6 +422,7 @@ def _certify_fetched(
                 tp,
                 only,
                 seed,
+                run_safety,
             ):
                 if event.get("type") == "progress":
                     on_progress(event)
@@ -403,6 +431,7 @@ def _certify_fetched(
             if evaluated is None:
                 raise RuntimeError("Modal evaluation ended without a result")
             suite_results = [SuiteResult.model_validate(r) for r in evaluated["suite_results"]]
+            suite_results.extend(automatic_gates)
             environment = Environment.model_validate(evaluated["environment"])
             gpu_seconds = float(evaluated["gpu_seconds"])
             profile.engine_version = environment.engine_version
