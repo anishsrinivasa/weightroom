@@ -273,10 +273,17 @@ def process_pending(
             ]
         elif outcome.failure is not None:
             # A pipeline/infrastructure failure is not evidence that a model
-            # failed a safety gate. Mark the unfinished gates as errors and
-            # preserve an accurate terminal state for the seller UI.
+            # failed a safety gate. Preserve already-completed automatic passes
+            # and mark only unfinished gates as errors.
             final_gates = [
-                {**gate, "status": "error"}
+                {
+                    **gate,
+                    "status": (
+                        gate.get("status")
+                        if gate.get("status") in {"pass", "fail"}
+                        else "error"
+                    ),
+                }
                 for gate in live_gates
             ]
             terminal_stage = "Evaluation failed"

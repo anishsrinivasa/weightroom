@@ -15,8 +15,10 @@ from pathlib import Path
 
 from keystone.schema import Capabilities, Modality, ServingProfile
 
-# Rough VRAM headroom over raw weight bytes (KV cache + activations).
-_VRAM_HEADROOM = 1.35
+# Rough VRAM headroom over raw weight bytes (KV cache, activations, CUDA graphs,
+# and engine overhead). 1.35 put a 15 GiB Llama-3 checkpoint on a 22 GiB A10G,
+# where vLLM could load the weights but could not allocate an 8K-token KV cache.
+_VRAM_HEADROOM = 1.50
 
 # (usable_gpu_bytes, modal_gpu_spec)
 _RESOURCE_LADDER: list[tuple[int, str]] = [

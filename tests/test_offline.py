@@ -135,6 +135,10 @@ def test_resource_ladder_is_monotonic() -> None:
     assert picks[-1].endswith(":4")
 
 
+def test_llama_3_8b_checkpoint_gets_enough_vram_for_its_kv_cache() -> None:
+    assert pick_resource_class(16_060_556_376) == "A100-40GB"
+
+
 def test_profile_records_chat_template(text_model: Path) -> None:
     profile, caps, mods = build_profile(text_model, 4096)
     assert profile.chat_template_source == "tokenizer_config"

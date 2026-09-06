@@ -575,8 +575,10 @@ def test_worker_rejects_when_selected_benchmark_has_no_score(
         assert "mmlu_pro" in stored.rating.rationale
 
 
-def test_worker_rejects_when_serving_fails(client: TestClient, deps: Deps) -> None:
-    """A model that will not load is a rejection, not a crashed worker."""
+def test_worker_preserves_automatic_safety_pass_when_serving_fails(
+    client: TestClient, deps: Deps
+) -> None:
+    """A later infrastructure error must not rewrite an automatic safety pass."""
     listing_id = _queue(client, deps)
     outcome = Outcome(DIGEST, failure=FailureKind.SERVE_FAIL, detail="vLLM exited")
     results = process_pending(deps.store, certify=lambda d, only=None: outcome)
@@ -584,6 +586,20 @@ def test_worker_rejects_when_serving_fails(client: TestClient, deps: Deps) -> No
     with deps.store.session() as session:
         progress = deps.store.get_evaluation_progress(session, listing_id)
         assert progress.stage == "Evaluation failed"
+        assert all(gate["status"] == "pass" for gate in progress.gates)
+
+
+def test_worker_marks_unfinished_safety_gates_as_errors_when_serving_fails(
+    client: TestClient, deps: Deps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KEYSTONE_RUN_SAFETY_EVALUATION", "true")
+    listing_id = _queue(client, deps)
+    outcome = Outcome(DIGEST, failure=FailureKind.SERVE_FAIL, detail="vLLM exited")
+
+    process_pending(deps.store, certify=lambda d, only=None: outcome)
+
+    with deps.store.session() as session:
+        progress = deps.store.get_evaluation_progress(session, listing_id)
         assert all(gate["status"] == "error" for gate in progress.gates)
 
 
