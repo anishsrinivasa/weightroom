@@ -91,6 +91,11 @@ class ListingRow(Base):
     state: Mapped[str] = mapped_column(String(32), index=True)
     flagged_for_review: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     title: Mapped[str | None] = mapped_column(String(200), default=None)
+    # Seller-authored blurb shown on the model page. Free text, never parsed.
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+    # sha256 of a cover image in the artifact store. Nullable: the UI falls
+    # back to a house default rather than making an image mandatory.
+    image_digest: Mapped[str | None] = mapped_column(String(64), default=None)
     # Zero is a real price, not a missing one: plenty of good open models
     # should cost nothing and still carry a certificate.
     price_minor: Mapped[int] = mapped_column(Integer, default=0)
@@ -284,6 +289,32 @@ class Store:
 
     def create_all(self) -> None:
         Base.metadata.create_all(self.engine)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        """Add columns that `create_all` cannot, because the table exists.
+
+        A stopgap, not a migration tool: it only ever *adds* nullable columns,
+        which is the one schema change that is safe to apply blind. Anything
+        else -- a rename, a type change, a backfill -- needs Alembic, and this
+        deliberately will not pretend otherwise.
+        """
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(self.engine)
+        existing = set(inspector.get_table_names())
+        with self.engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                if table.name not in existing:
+                    continue
+                have = {c["name"] for c in inspector.get_columns(table.name)}
+                for column in table.columns:
+                    if column.name in have or not column.nullable:
+                        continue
+                    kind = column.type.compile(self.engine.dialect)
+                    conn.execute(
+                        text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {kind}")
+                    )
 
     def session(self) -> Session:
         return Session(self.engine, future=True)

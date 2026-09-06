@@ -6,6 +6,7 @@ library function and becomes a security boundary.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +14,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from keystone.api import Deps, create_app
+from keystone.api import IMAGE_LIMIT_BYTES, Deps, create_app
 from keystone.auth import Principal, StaticTokenAuth, audience_for
 from keystone.db import Store
 from keystone.listing import AttemptPolicy, ListingState
@@ -756,3 +757,99 @@ def test_probing_surfaces_in_the_admin_queue(client: TestClient, deps: Deps) -> 
 
     flagged = client.get("/v1/admin/flagged", headers=_hdr("tok-admin")).json()["listings"]
     assert [x["listing_id"] for x in flagged] == [listing_id]
+
+
+# --------------------------------------------------------------------------
+# cover images and descriptions
+# --------------------------------------------------------------------------
+
+PNG = bytes.fromhex("89504e470d0a1a0a") + b"\x00" * 32
+GIF = b"GIF89a" + b"\x00" * 16
+
+
+def test_image_round_trips_and_is_addressed_by_its_own_hash(client: TestClient) -> None:
+    posted = client.post("/v1/images", content=PNG, headers=_hdr("tok-creator"))
+    assert posted.status_code == 201
+    digest = posted.json()["image_digest"]
+    assert digest == hashlib.sha256(PNG).hexdigest()
+
+    got = client.get(f"/v1/images/{digest}")
+    assert got.status_code == 200
+    assert got.content == PNG
+    assert got.headers["content-type"].startswith("image/png")
+
+
+def test_identical_images_from_different_sellers_are_stored_once(
+    client: TestClient, deps: Deps
+) -> None:
+    first = client.post("/v1/images", content=PNG, headers=_hdr("tok-creator")).json()
+    second = client.post("/v1/images", content=PNG, headers=_hdr("tok-other")).json()
+    assert first["image_digest"] == second["image_digest"]
+    stored = list((deps.artifacts.root / "images").iterdir())
+    assert len(stored) == 1
+
+
+def test_content_type_is_sniffed_not_taken_from_the_client(client: TestClient) -> None:
+    """A caller cannot talk us into serving arbitrary bytes as an image."""
+    lying = client.post(
+        "/v1/images",
+        content=b"<script>alert(1)</script>",
+        headers={**_hdr("tok-creator"), "Content-Type": "image/png"},
+    )
+    assert lying.status_code == 415
+
+    # ...and a real image mislabelled as something else still serves correctly.
+    digest = client.post(
+        "/v1/images",
+        content=GIF,
+        headers={**_hdr("tok-creator"), "Content-Type": "text/html"},
+    ).json()["image_digest"]
+    served = client.get(f"/v1/images/{digest}")
+    assert served.headers["content-type"].startswith("image/gif")
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+
+def test_oversized_image_is_refused(client: TestClient) -> None:
+    too_big = PNG + b"\x00" * (IMAGE_LIMIT_BYTES + 1)
+    r = client.post("/v1/images", content=too_big, headers=_hdr("tok-creator"))
+    assert r.status_code == 413
+
+
+def test_unknown_image_is_a_404_not_a_500(client: TestClient) -> None:
+    assert client.get(f"/v1/images/{'b' * 64}").status_code == 404
+    assert client.get("/v1/images/not-a-digest").status_code == 400
+
+
+def test_description_and_cover_survive_to_every_listing_view(
+    client: TestClient, deps: Deps
+) -> None:
+    digest = client.post("/v1/images", content=PNG, headers=_hdr("tok-creator")).json()[
+        "image_digest"
+    ]
+    listing_id = _upload_and_list(client, deps)
+    client.patch(
+        f"/v1/listings/{listing_id}",
+        json={"description": "A support-tuned 3B.", "image_digest": digest},
+        headers=_hdr("tok-creator"),
+    )
+
+    detail = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
+    assert detail["description"] == "A support-tuned 3B."
+    assert detail["image_url"] == f"/v1/images/{digest}"
+
+    workspace = client.get("/v1/seller/listings", headers=_hdr("tok-creator")).json()
+    assert workspace["listings"][0]["image_url"] == f"/v1/images/{digest}"
+
+    _make_public(deps, listing_id)
+    catalogue = client.get("/v1/listings").json()["listings"][0]
+    assert catalogue["description"] == "A support-tuned 3B."
+    assert catalogue["image_url"] == f"/v1/images/{digest}"
+
+
+def test_listing_without_a_cover_reports_none_rather_than_a_broken_url(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    detail = client.get(f"/v1/listings/{listing_id}", headers=_hdr("tok-creator")).json()
+    assert detail["image_url"] is None
+    assert detail["description"] is None

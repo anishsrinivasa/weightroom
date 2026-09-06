@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
-import { GatePill } from "@/components/StatusPill";
 import { keystoneRequest, clientUploadUrl } from "@/lib/api";
 import {
   artifactDeclarationSchema,
@@ -13,6 +12,7 @@ import {
   chargeSchema,
   confirmedSchema,
   demoPaymentSchema,
+  imageStoredSchema,
   listingCreatedSchema,
   quoteSchema,
   type Benchmark,
@@ -30,17 +30,26 @@ import { formatUsdc } from "@/lib/display";
 
 type Step = 1 | 2 | 3 | 4;
 const demoPaymentEnabled = process.env.NEXT_PUBLIC_ENABLE_DEMO_PAYMENT === "true";
+// Matches the server's own ceilings, so an oversized file is refused here
+// rather than after a pointless round trip.
+const COVER_LIMIT_MB = 4;
+const COVER_LIMIT_BYTES = COVER_LIMIT_MB * 1024 * 1024;
+const DESCRIPTION_LIMIT = 4000;
+const DEFAULT_COVER = "/logo.png";
 const wizardSteps = [
-  { number: 1, label: "Upload", detail: "Model files" },
-  { number: 2, label: "Evaluate", detail: "Benchmarks" },
-  { number: 3, label: "Payment", detail: "USDC" },
-  { number: 4, label: "Verification", detail: "Decision" },
+  { number: 1, label: "Upload" },
+  { number: 2, label: "Evaluate" },
+  { number: 3, label: "Payment" },
+  { number: 4, label: "Verification" },
 ] as const;
 
 export function SubmitWizard() {
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState("My fine-tune");
   const [price, setPrice] = useState("45");
+  const [description, setDescription] = useState("");
+  const [cover, setCover] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [picked, setPicked] = useState<SelectedFile[]>([]);
   const [digest, setDigest] = useState<string | null>(null);
   const [hashing, setHashing] = useState(false);
@@ -52,6 +61,7 @@ export function SubmitWizard() {
   const [error, setError] = useState<string | null>(null);
   const [listingId, setListingId] = useState<string | null>(null);
   const [pendingChargeId, setPendingChargeId] = useState<string | null>(null);
+  const [running, setRunning] = useState<string[]>([]);
   const [charge, setCharge] = useState<Charge | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
@@ -59,6 +69,7 @@ export function SubmitWizard() {
   const [sampleAvailable, setSampleAvailable] = useState(false);
   const directoryInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const coverInput = useRef<HTMLInputElement>(null);
   const confirmationStarted = useRef(false);
   const chargeId = charge?.charge_id;
   const chargeSettled = charge?.settled;
@@ -124,6 +135,11 @@ export function SubmitWizard() {
       .filter((benchmark) => benchmark.mandatory || selected.has(benchmark.suite_id))
       .reduce((total, benchmark) => total + benchmark.price_minor, 0);
   }, [benchmarks, selected]);
+
+  const billed = useMemo(
+    () => benchmarks.filter((benchmark) => running.includes(benchmark.suite_id)),
+    [benchmarks, running],
+  );
 
   async function takeFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList).filter((file) => file.size > 0);
@@ -201,6 +217,28 @@ export function SubmitWizard() {
     });
   }
 
+  async function takeCover(list: FileList | null) {
+    const file = list?.[0];
+    if (!file) return;
+    if (file.size > COVER_LIMIT_BYTES) {
+      return setError(`Cover image must be ${COVER_LIMIT_MB} MB or smaller.`);
+    }
+    setError(null);
+    setCover(file);
+    // Revoked in the effect below, so switching images does not leak blob URLs.
+    setCoverPreview(URL.createObjectURL(file));
+  }
+
+  function clearCover() {
+    setCover(null);
+    setCoverPreview(null);
+  }
+
+  useEffect(() => {
+    if (!coverPreview) return;
+    return () => URL.revokeObjectURL(coverPreview);
+  }, [coverPreview]);
+
   async function preparePayment() {
     if (!digest || !picked.length) return setError("Choose model files first.");
     if (!title.trim()) return setError("Enter a model name.");
@@ -235,6 +273,18 @@ export function SubmitWizard() {
           artifactFinalizedSchema,
           { method: "POST", body: JSON.stringify({ digest, files }) },
         );
+        // Sent as raw bytes: the server hashes them and owns the digest, so
+        // there is nothing here for the client to get wrong or lie about.
+        let imageDigest: string | null = null;
+        if (cover) {
+          const stored = await keystoneRequest("/v1/images", imageStoredSchema, {
+            method: "POST",
+            body: cover,
+            headers: { "Content-Type": cover.type || "application/octet-stream" },
+          });
+          imageDigest = stored.image_digest;
+        }
+
         const listing = await keystoneRequest(
           "/v1/listings",
           listingCreatedSchema,
@@ -243,6 +293,8 @@ export function SubmitWizard() {
             body: JSON.stringify({
               artifact_digest: digest,
               title: title.trim(),
+              description: description.trim() || null,
+              image_digest: imageDigest,
               price_minor: Math.round(numericPrice * 1_000_000),
             }),
           },
@@ -260,6 +312,9 @@ export function SubmitWizard() {
         );
         currentChargeId = quote.charge_id;
         setPendingChargeId(currentChargeId);
+        // What the server priced, not what the checkboxes said -- mandatory
+        // suites are folded in server-side, so this is the honest line-up.
+        setRunning(quote.running);
       }
       const currentCharge = await keystoneRequest(
         `/v1/charges/${encodeURIComponent(currentChargeId)}`,
@@ -301,9 +356,9 @@ export function SubmitWizard() {
     <div className="wizard">
       <h1 className="sr-only">Bring your model to market</h1>
       <ol className="stepper" aria-label="Submission progress">
-        {wizardSteps.map(({ number, label, detail }) => (
+        {wizardSteps.map(({ number, label }) => (
           <li key={number} data-state={number < step ? "done" : number === step ? "current" : "upcoming"} aria-current={number === step ? "step" : undefined}>
-            <strong>0{number} {label}</strong><span>{detail}</span>
+            <strong>0{number} {label}</strong>
           </li>
         ))}
       </ol>
@@ -318,6 +373,40 @@ export function SubmitWizard() {
             <label><span>Model name</span><input value={title} onChange={(event) => setTitle(event.target.value)} autoComplete="off" /></label>
             <label><span>Sale price (USDC)</span><input type="number" min="0" step="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label>
           </div>
+          <div className="cover-row">
+            <div className="cover-preview">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={coverPreview ?? DEFAULT_COVER} alt="" data-placeholder={!coverPreview} />
+            </div>
+            <div className="cover-controls">
+              <span className="field-label">Cover image</span>
+              <p className="field-hint">Shown on your model page. PNG, JPEG, GIF, or WebP up to {COVER_LIMIT_MB} MB. Leave it empty to use the Weightroom mark.</p>
+              <div className="button-row">
+                <button className="button" type="button" onClick={() => coverInput.current?.click()}>
+                  {coverPreview ? "Replace image" : "Choose image"}
+                </button>
+                {coverPreview ? <button className="button quiet" type="button" onClick={clearCover}>Remove</button> : null}
+              </div>
+              <input
+                ref={coverInput}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                hidden
+                onChange={(event) => { void takeCover(event.target.files); event.target.value = ""; }}
+              />
+            </div>
+          </div>
+          <label className="stacked-field">
+            <span>Description</span>
+            <textarea
+              rows={4}
+              maxLength={DESCRIPTION_LIMIT}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="What this model is tuned for, what it was trained on, and who should buy it."
+            />
+            <small className="field-hint">{description.length} / {DESCRIPTION_LIMIT}</small>
+          </label>
           <div
             className={`drop-zone ${dragging ? "dragging" : ""}`}
             onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -355,11 +444,6 @@ export function SubmitWizard() {
         <section aria-labelledby="evaluation-title">
           <h2 id="evaluation-title">Choose public benchmarks</h2>
           <p className="section-copy">Choose the capability evidence buyers should see. Safety screening runs separately and cannot be opted out.</p>
-          <div className="safety-callout">
-            <span className="gate-symbol" aria-hidden="true">✓</span>
-            <div><strong>Frontier safety screening</strong><p>Artifact, license, and harmful-output gates run automatically.</p></div>
-            <GatePill status="required" />
-          </div>
           {benchmarksLoading ? <LoadingBlock label="Loading supported benchmarks…" /> : (
             <div className="benchmark-options">
               {benchmarks.map((benchmark) => (
@@ -384,7 +468,7 @@ export function SubmitWizard() {
           <h2 id="payment-title">Pay for evaluation</h2>
           <p className="section-copy">Send the exact amount below. Evaluation is queued only after provider-verified settlement.</p>
           <div className="payment-card">
-            <div className="payment-heading"><h3>Send {charge.amount}</h3><GatePill status={charge.settled ? "settled" : charge.tx_hash ? "confirming" : "awaiting payment"} /></div>
+            <div className="payment-heading"><h3>Send {charge.amount}</h3></div>
             <dl className="payment-details">
               <dt>Network</dt><dd>{charge.chain}</dd>
               <dt>Address</dt><dd className="address-value"><span className="mono">{charge.address}</span><button className="text-button" type="button" onClick={() => void copyAddress()}>{copied ? "Copied" : "Copy"}</button></dd>
@@ -394,6 +478,19 @@ export function SubmitWizard() {
             <div className="payment-progress" role="progressbar" aria-valuemin={0} aria-valuemax={charge.required_confirmations} aria-valuenow={charge.confirmations}>
               <span style={{ width: `${Math.min(100, charge.confirmations / charge.required_confirmations * 100)}%` }} />
             </div>
+            {billed.length ? (
+              <div className="payment-breakdown">
+                <span className="breakdown-label">Covers</span>
+                <ul>
+                  {billed.map((benchmark) => (
+                    <li key={benchmark.suite_id}>
+                      <span>{benchmark.display_name}</span>
+                      <b>{benchmark.price}</b>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <p className="payment-note">The server reads settlement from the payment provider. Browser claims are never accepted as payment evidence.</p>
             {demoPaymentEnabled ? <button className="button primary" type="button" disabled={broadcasting || Boolean(charge.tx_hash)} onClick={() => void demoPay()}>{broadcasting || charge.tx_hash ? "Demo payment broadcast" : "Pay from demo wallet"}</button> : null}
             {confirming ? <p className="payment-note">Payment settled. Queueing evaluation…</p> : null}

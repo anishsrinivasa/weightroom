@@ -12,13 +12,17 @@ because a leak here is not a bug, it is the end of the moat.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import tempfile
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -44,8 +48,45 @@ from keystone.payments import DemoChainProvider, PaymentProvider
 from keystone.providers.dual import DualPaymentProvider
 from keystone.schema import Audience, CertificationReport, FileEntry
 from keystone.safety_gates import summarize as summarize_safety_gates
-from keystone.storage import ArtifactStore, LocalStore, artifact_key
+from keystone.storage import ArtifactStore, LocalStore, artifact_key, image_key
 from keystone.visibility import assert_no_leak, redact
+
+
+# A cover image is decoration, so the ceiling is set by what a page should
+# have to load, not by what the store could hold.
+_HEX64 = re.compile("[0-9a-f]{64}")
+
+IMAGE_LIMIT_BYTES = 4 * 1024 * 1024
+DESCRIPTION_LIMIT = 4000
+
+# Sniffed from the bytes, never from the client's Content-Type. A caller that
+# mislabels a file should not be able to talk us into serving it back with a
+# type the browser will execute.
+_IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (bytes.fromhex("89504e470d0a1a0a"), "image/png"),
+    (bytes.fromhex("ffd8ff"), "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+)
+
+
+def _image_url(row: ListingRow) -> str | None:
+    """Where a client can fetch this listing's cover, or None to fall back.
+
+    A path rather than an absolute URL: the browser talks to its own origin's
+    proxy, which is the only host it is allowed to reach.
+    """
+    return f"/v1/images/{row.image_digest}" if row.image_digest else None
+
+
+def sniff_image(data: bytes) -> str | None:
+    """Content type for a supported image, or None if it is not one."""
+    for magic, media_type in _IMAGE_MAGIC:
+        if data.startswith(magic):
+            return media_type
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -181,6 +222,67 @@ def create_app(deps: Deps) -> FastAPI:
             s.commit()
         return {"digest": digest, "files": len(files)}
 
+    @app.post("/v1/images", status_code=201)
+    async def upload_image(request: Request, d: D, principal: P) -> dict:
+        """Store a cover image and return its digest.
+
+        Small enough to cross this API, unlike weights: hashing server-side
+        makes the digest something we assert rather than something we accept,
+        and the listing row can then point at it with no further checking.
+        """
+        require(principal)
+        data = await request.body()
+        if not data:
+            raise HTTPException(400, "empty image")
+        if len(data) > IMAGE_LIMIT_BYTES:
+            raise HTTPException(
+                413, f"image exceeds {IMAGE_LIMIT_BYTES // (1024 * 1024)} MB"
+            )
+        media_type = sniff_image(data)
+        if media_type is None:
+            raise HTTPException(415, "not a PNG, JPEG, GIF, or WebP image")
+
+        digest = hashlib.sha256(data).hexdigest()
+        key = image_key(digest)
+        if not d.artifacts.exists(key):
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(data)
+                staged = Path(tmp.name)
+            try:
+                d.artifacts.put(key, staged)
+            finally:
+                staged.unlink(missing_ok=True)
+        return {"image_digest": digest, "content_type": media_type, "bytes": len(data)}
+
+    @app.get("/v1/images/{digest}", include_in_schema=False)
+    def get_image(digest: str, d: D) -> Response:
+        """Serve a cover image.
+
+        Deliberately unauthenticated: these are decoration for pages that are
+        already public, they are addressed by a digest nobody can guess, and
+        gating them would break the catalogue for logged-out browsers.
+        """
+        if not _HEX64.fullmatch(digest):
+            raise HTTPException(400, "bad digest")
+        key = image_key(digest)
+        if not d.artifacts.exists(key):
+            raise HTTPException(404, "no such image")
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "image"
+            d.artifacts.get(key, local)
+            data = local.read_bytes()
+        media_type = sniff_image(data) or "application/octet-stream"
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={
+                # Content-addressed, so the bytes behind this URL can never change.
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     # ----------------------------------------------------------------------
     # listings
     # ----------------------------------------------------------------------
@@ -203,6 +305,8 @@ def create_app(deps: Deps) -> FastAPI:
             )
             row.price_minor = body.price_minor
             row.currency = body.currency
+            row.description = body.description
+            row.image_digest = body.image_digest
             s.commit()
         return {"listing_id": listing_id, "state": ListingState.DRAFT.value}
 
@@ -216,6 +320,8 @@ def create_app(deps: Deps) -> FastAPI:
                     {
                         "listing_id": r.id,
                         "title": r.title,
+                        "description": r.description,
+                        "image_url": _image_url(r),
                         "artifact_digest": r.artifact_digest,
                         "state": r.state,
                         "price": str(r.price()),
@@ -245,6 +351,8 @@ def create_app(deps: Deps) -> FastAPI:
                     {
                         "listing_id": row.id,
                         "title": row.title,
+                        "description": row.description,
+                        "image_url": _image_url(row),
                         "artifact_digest": row.artifact_digest,
                         "state": row.state,
                         "price": str(row.price()),
@@ -288,10 +396,16 @@ def create_app(deps: Deps) -> FastAPI:
                 row.currency = body.currency
             if body.title is not None:
                 row.title = body.title
+            if body.description is not None:
+                row.description = body.description
+            if body.image_digest is not None:
+                row.image_digest = body.image_digest
             s.commit()
             return {
                 "listing_id": row.id,
                 "title": row.title,
+                "description": row.description,
+                "image_url": _image_url(row),
                 "price": str(row.price()),
                 "price_minor": row.price_minor,
                 "state": row.state,
@@ -311,6 +425,8 @@ def create_app(deps: Deps) -> FastAPI:
             payload = {
                 "listing_id": row.id,
                 "title": row.title,
+                "description": row.description,
+                "image_url": _image_url(row),
                 "state": row.state,
                 "artifact_digest": row.artifact_digest,
                 "price": str(row.price()),
@@ -813,6 +929,8 @@ class DeclareArtifact(BaseModel):
 class CreateListing(BaseModel):
     artifact_digest: str = Field(pattern="^[0-9a-f]{64}$")
     title: str | None = None
+    description: str | None = Field(default=None, max_length=DESCRIPTION_LIMIT)
+    image_digest: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     # Minor units. Zero is a real price -- a free model still gets certified.
     price_minor: int = Field(default=0, ge=0)
     currency: str = "USDC"
@@ -824,6 +942,8 @@ class UpdateListing(BaseModel):
     price_minor: int | None = Field(default=None, ge=0)
     currency: str | None = None
     title: str | None = None
+    description: str | None = Field(default=None, max_length=DESCRIPTION_LIMIT)
+    image_digest: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
 
 
 class ConfirmPayment(BaseModel):

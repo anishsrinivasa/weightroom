@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
 import { GatePill, StatusPill, stateLabel } from "@/components/StatusPill";
-import { keystoneRequest } from "@/lib/api";
+import { clientUploadUrl, keystoneRequest } from "@/lib/api";
 import { type ListingDetail, listingDetailSchema } from "@/lib/contracts";
 import { formatBytes } from "@/lib/artifact";
 import {
@@ -17,6 +17,8 @@ import {
   formatUsdc,
   rejectionDetail,
 } from "@/lib/display";
+
+const DEFAULT_COVER = "/logo.png";
 
 const activationSchema = z.object({
   listing_id: z.string(),
@@ -115,6 +117,10 @@ export function ModelDetail({ id }: { id: string }) {
   const gateOverall = model.safety_gates?.overall
     ?? (visibleGates.some((gate) => gate.status === "fail") ? "fail" : "pending");
 
+  // A listing with no cover falls back to the house mark rather than an empty
+  // frame, so the card reads the same either way.
+  const coverUrl = model.image_url ? clientUploadUrl(model.image_url) : DEFAULT_COVER;
+
   return (
     <>
       <Link className="back-link" href="/models">← Back to models</Link>
@@ -127,8 +133,17 @@ export function ModelDetail({ id }: { id: string }) {
             <StatusPill state={model.state} />
             <span>{formatUsdc(model.price_minor)}</span>
           </div>
+          {model.description ? <p className="model-description">{model.description}</p> : null}
         </div>
         <aside className="decision-card" aria-label="Verification decision">
+          {/* Decorative: the verdict is stated in the text below, so the cover
+              carries no meaning a screen reader would miss. */}
+          <span
+            className="decision-cover"
+            aria-hidden="true"
+            data-placeholder={!model.image_url}
+            style={{ backgroundImage: `url(${coverUrl})` }}
+          />
           <span className="decision-mark" aria-hidden="true">{verified ? "✓" : rejected ? "×" : "…"}</span>
           <div>
             <h2>{verified ? "Verified" : rejected ? "Not verified" : progress?.heading || stateLabel(model.state)}</h2>

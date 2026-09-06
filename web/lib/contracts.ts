@@ -16,6 +16,8 @@ export type ListingState = z.infer<typeof listingStateSchema>;
 export const listingSummarySchema = z.object({
   listing_id: z.string(),
   title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  image_url: z.string().nullable().optional(),
   artifact_digest: z.string(),
   state: listingStateSchema,
   price: z.string(),
@@ -88,6 +90,8 @@ const evaluationProgressGateSchema = z.object({
 export const listingDetailSchema = z.object({
   listing_id: z.string(),
   title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  image_url: z.string().nullable().optional(),
   state: listingStateSchema,
   artifact_digest: z.string(),
   price: z.string(),
@@ -144,6 +148,12 @@ export const artifactFinalizedSchema = z.object({
 export const listingCreatedSchema = z.object({
   listing_id: z.string(),
   state: listingStateSchema,
+});
+
+export const imageStoredSchema = z.object({
+  image_digest: z.string(),
+  content_type: z.string(),
+  bytes: z.number().int().positive(),
 });
 
 export const quoteSchema = z.object({
