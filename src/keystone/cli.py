@@ -67,7 +67,7 @@ def certify(
 
     path = _write(outcome.report, out_dir)
     _render(outcome.report, outcome.wall_s)
-    console.print(f"\nreport: [bold]{path}[/]")
+    console.print(f"\nreport: [bold]{path}[/]{_signing_note(path)}")
 
 
 # --------------------------------------------------------------------------
@@ -737,10 +737,44 @@ def schema(out: Path = typer.Option(Path("schemas/report.schema.json"))) -> None
 
 
 def _write(report: CertificationReport, out_dir: Path) -> Path:
+    """Sign, then write. A report is the product; an unsigned one is a draft.
+
+    Only the worker signed before this, so `certify` and `batch` wrote reports
+    that could be edited undetectably and looked identical to real ones. The
+    signer is resolved exactly as the worker resolves it, so a report written
+    here verifies against the same published key.
+
+    With no key configured the report is still written -- refusing would make
+    the tool unusable for local work -- but `signature` stays null and the
+    caller says so out loud.
+    """
+    from keystone.signing import Ed25519Signer
+
+    signer = Ed25519Signer.from_env()
+    if signer is not None:
+        report = signer.sign_report(report)
+
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{report.report_id}.json"
     path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return path
+
+
+def _signing_note(path: Path) -> str:
+    """Say whether what we just wrote can be verified.
+
+    An unsigned report looks identical to a signed one at a glance, and the
+    point of signing is that a rating cannot be edited after the fact. Silence
+    here is how an unsigned report ends up treated as evidence.
+    """
+    written = json.loads(path.read_text(encoding="utf-8"))
+    signature = written.get("signature")
+    if signature:
+        return f"  [green]signed[/] {signature.get('key_id') or signature['algorithm']}"
+    return (
+        "  [yellow]unsigned[/] -- KEYSTONE_SIGNING_KEY is not set, so any edit "
+        "to this report would go undetected."
+    )
 
 
 def _render(report: CertificationReport, wall_s: float) -> None:

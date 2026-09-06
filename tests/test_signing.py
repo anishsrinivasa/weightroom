@@ -281,3 +281,55 @@ def test_garbage_is_anonymous_not_an_exception(rsa_key, monkeypatch) -> None:
 def test_missing_subject_is_rejected(rsa_key, monkeypatch) -> None:
     auth = _jwks_auth(rsa_key, monkeypatch)
     assert auth.principal_for(_token(rsa_key, sub="")) is None
+
+
+# --------------------------------------------------------------------------
+# the CLI paths, which were writing unsigned reports
+# --------------------------------------------------------------------------
+
+def test_cli_write_signs_when_a_key_is_configured(tmp_path, monkeypatch) -> None:
+    """`certify` and `batch` wrote unsigned reports for their whole existence.
+
+    Only the worker called `sign_report`, so a report produced by the CLI could
+    be edited undetectably and looked identical to one that could not. Both
+    runs today produced unsigned artifacts and nothing said so.
+    """
+    import keystone.cli as cli
+
+    signer = Ed25519Signer.generate()
+    monkeypatch.setenv("KEYSTONE_SIGNING_KEY", base64.b64encode(signer._key.private_bytes_raw()).decode())
+
+    path = cli._write(_report(), tmp_path)
+    written = CertificationReport.model_validate_json(path.read_text(encoding="utf-8"))
+
+    assert written.signature is not None
+    assert verify(written, Ed25519Signer.from_env().public_key_bytes())
+
+    # The fixture already certifies, so flip it the other way -- a mutation
+    # that changes nothing proves nothing.
+    assert written.rating.certified is True
+    tampered = written.model_copy(deep=True)
+    tampered.rating.certified = False
+    assert not verify(tampered, Ed25519Signer.from_env().public_key_bytes())
+
+
+def test_cli_write_says_so_when_it_cannot_sign(tmp_path, monkeypatch) -> None:
+    """Still written -- refusing would make the tool unusable locally -- but an
+    unsigned report must not look like a signed one at a glance."""
+    import keystone.cli as cli
+
+    monkeypatch.delenv("KEYSTONE_SIGNING_KEY", raising=False)
+    path = cli._write(_report(), tmp_path)
+
+    written = CertificationReport.model_validate_json(path.read_text(encoding="utf-8"))
+    assert written.signature is None
+    assert "unsigned" in cli._signing_note(path)
+
+
+def test_signing_note_names_the_key_when_signed(tmp_path, monkeypatch) -> None:
+    import keystone.cli as cli
+
+    signer = Ed25519Signer.generate()
+    monkeypatch.setenv("KEYSTONE_SIGNING_KEY", base64.b64encode(signer._key.private_bytes_raw()).decode())
+    path = cli._write(_report(), tmp_path)
+    assert "signed" in cli._signing_note(path)
