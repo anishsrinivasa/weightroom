@@ -73,6 +73,8 @@ def test_json_object_accepts_fenced_judge_output() -> None:
 
 
 def test_swe_modal_spec_uses_current_networkless_extension(tmp_path, monkeypatch) -> None:
+    from inspect_ai.util import is_compose_yaml
+
     monkeypatch.chdir(tmp_path)
     sample = SimpleNamespace(
         id="django__django-11039",
@@ -86,6 +88,7 @@ def test_swe_modal_spec_uses_current_networkless_extension(tmp_path, monkeypatch
     assert "x-inspect_modal_sandbox" not in content
     assert "network_mode: none" in content
     assert "block_network: true" in content
+    assert is_compose_yaml(spec.config)
 
 
 def test_rubric_proxy_scores_all_items(tmp_path) -> None:

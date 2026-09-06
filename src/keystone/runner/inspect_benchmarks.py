@@ -158,7 +158,7 @@ def _swe_modal_sandbox_spec(sandbox_type: str, sample: Any):
     metadata = sample.metadata or {}
     image_name = metadata["image_name"]
     safe_id = re.sub(r"[^A-Za-z0-9_.-]", "-", str(sample.id))
-    config = Path("/tmp/inspect-config/swe-bench") / f"{safe_id}.yaml"
+    config = Path("/tmp/inspect-config/swe-bench") / f"{safe_id}-compose.yaml"
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text(
         "\n".join(
@@ -274,7 +274,7 @@ def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
     for suite_id, dockerfile in dockerfiles.items():
         compose = _modal_compose_for_dockerfile(
             dockerfile,
-            Path("/tmp/inspect-config/smoke") / f"{suite_id}.yaml",
+            Path("/tmp/inspect-config/smoke") / f"{suite_id}-compose.yaml",
         )
         task = Task(
             dataset=[Sample(id=suite_id, input="sandbox smoke test", target="NONE")],
