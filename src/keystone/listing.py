@@ -17,7 +17,7 @@ against the PUBLIC practice suites, which are free, local, and unlimited.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from keystone.payments import Charge, Currency, Money
@@ -136,6 +136,14 @@ class Listing:
         if self.attempts:
             last = self.attempts[-1]
             ready_at = last.created_at + policy.cooldown
+            # The database column is intentionally portable across SQLite and
+            # Postgres, but Postgres returns this timestamp without tzinfo.
+            # Attempts are recorded in UTC, so restore that information before
+            # comparing it with the API's timezone-aware clock.
+            if ready_at.tzinfo is None and now.tzinfo is not None:
+                ready_at = ready_at.replace(tzinfo=timezone.utc)
+            elif ready_at.tzinfo is not None and now.tzinfo is None:
+                now = now.replace(tzinfo=timezone.utc)
             if now < ready_at:
                 remaining = ready_at - now
                 hours = remaining.total_seconds() / 3600

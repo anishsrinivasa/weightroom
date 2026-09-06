@@ -350,6 +350,14 @@ def test_cooldown_blocks_rapid_resubmission() -> None:
     assert not ok and "cooldown" in reason
 
 
+def test_cooldown_accepts_naive_database_timestamp() -> None:
+    listing = _listing(state=ListingState.REJECTED)
+    stored = (NOW - timedelta(hours=1)).replace(tzinfo=None)
+    listing.attempts = [Attempt("a1", "b" * 64, stored)]
+    ok, reason = listing.can_attempt(NOW)
+    assert not ok and "cooldown" in reason
+
+
 def test_cooldown_expires(payments: MockPaymentProvider) -> None:
     listing = _listing(state=ListingState.REJECTED)
     listing.attempts = [Attempt("a1", "b" * 64, NOW - timedelta(hours=7))]
