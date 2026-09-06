@@ -194,9 +194,8 @@ export function BuyerModelDetail({ id }: { id: string }) {
             {model.grade ? <span className="grade-badge">{model.grade}</span> : null}
           </div>
           <header className="buyer-title">
-            <p className="eyebrow">Certified open weights</p>
             <h1>{model.title || "Untitled model"}</h1>
-            <p className="lede">{model.description || "Independently evaluated open-weight language model."}</p>
+            {model.description ? <p className="lede">{model.description}</p> : null}
             <div className="tag-list">
               {model.domain_tags.map((tag) => <span className="tag" key={tag}>{domainNames.get(tag) ?? tag}</span>)}
               {sizeName ? <span className="tag">{sizeName}</span> : null}
