@@ -406,7 +406,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .curve-figure .curve-annotation { fill: var(--ink); font-size: 10px; }
 .curve-figure > p { border-top: 1px solid var(--line); padding: 15px 18px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 
-.phase-diagram span, .visibility-grid span, .result-comparison span { display: block; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.phase-diagram span, .visibility-grid span { display: block; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .pipeline-steps { margin: 36px 0; border-top: 1px solid var(--ink); padding: 0; list-style: none; }
 .pipeline-steps > li { display: grid; grid-template-columns: 45px 1fr; gap: 14px; border-bottom: 1px solid var(--line); padding: 19px 0; }
 .pipeline-steps strong { display: block; font-size: 15px; line-height: 1.35; }
@@ -426,13 +426,12 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 
 .phase-diagram { display: grid; grid-template-columns: 1fr 52px 1fr; align-items: stretch; margin: 34px 0; border-block: 1px solid var(--ink); }
 .phase-diagram > div:not(.phase-divider) { min-height: 155px; padding: 21px 0; }
-.phase-diagram strong, .visibility-grid strong, .result-comparison strong { display: block; margin-top: 31px; font-size: 17px; line-height: 1.3; }
-.phase-diagram small, .visibility-grid small, .result-comparison small { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.phase-diagram strong, .visibility-grid strong { display: block; margin-top: 31px; font-size: 17px; line-height: 1.3; }
+.phase-diagram small, .visibility-grid small { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .phase-divider { display: grid; place-items: center; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; text-transform: uppercase; }
-.visibility-grid, .result-comparison { display: grid; grid-template-columns: repeat(3, 1fr); margin: 33px 0; border-block: 1px solid var(--ink); }
-.visibility-grid > div, .result-comparison > div { min-height: 145px; padding: 19px 15px; }
-.visibility-grid > div + div, .result-comparison > div + div { border-left: 1px solid var(--line); }
-.result-comparison strong { font-size: 26px; font-weight: 540; }
+.visibility-grid { display: grid; grid-template-columns: repeat(3, 1fr); margin: 33px 0; border-block: 1px solid var(--ink); }
+.visibility-grid > div { min-height: 145px; padding: 19px 15px; }
+.visibility-grid > div + div { border-left: 1px solid var(--line); }
 .limitations-list { margin: 28px 0; padding: 0; list-style: none; }
 .limitations-list li { border-top: 1px solid var(--line); padding: 16px 0; }
 .limitations-list li:last-child { border-bottom: 1px solid var(--line); }
@@ -520,9 +519,9 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .eval-flow { grid-template-columns: 1fr; gap: 0; }
   .flow-node { min-height: 125px; }
   .flow-arrow { height: 32px; transform: rotate(90deg); }
-  .visibility-grid, .result-comparison { grid-template-columns: 1fr; }
-  .visibility-grid > div, .result-comparison > div { min-height: 120px; }
-  .visibility-grid > div + div, .result-comparison > div + div { border-top: 1px solid var(--line); border-left: 0; }
+  .visibility-grid { grid-template-columns: 1fr; }
+  .visibility-grid > div { min-height: 120px; }
+  .visibility-grid > div + div { border-top: 1px solid var(--line); border-left: 0; }
   .phase-diagram { grid-template-columns: 1fr; }
   .phase-divider { min-height: 32px; border-block: 1px solid var(--line); }
   .curve-figure svg { min-width: 570px; }
