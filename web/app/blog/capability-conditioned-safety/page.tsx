@@ -8,21 +8,21 @@ export const metadata: Metadata = {
 };
 
 const sections = [
-  ["contributions", "What we built"],
-  ["fixed-thresholds", "Where the fixed gate failed"],
-  ["mechanism", "Pairing capability and behavior"],
-  ["private-evaluations", "Generating the private sets"],
-  ["uncertainty", "Making the decision"],
-  ["judge", "Scoring open-ended answers"],
-  ["leakage", "What a report reveals"],
-  ["results", "An end-to-end run"],
-  ["limitations", "Current limits"],
+  ["motivation", "Why refusal rate is incomplete"],
+  ["contributions", "The system we built"],
+  ["mechanism", "How capability changes the bar"],
+  ["private-evaluations", "Building the private datasets"],
+  ["uncertainty", "How uncertainty affects a verdict"],
+  ["judge", "How open-ended answers are scored"],
+  ["leakage", "Why reports omit exact scores"],
+  ["results", "What happened when we tested Qwen"],
+  ["limitations", "What the evaluation cannot establish"],
 ] as const;
 
 const domainRows = [
   {
     domain: "Biology",
-    probe: "WMDP-Bio-derived multiple choice",
+    probe: "Knowledge related to hazardous biology, derived from WMDP-Bio",
     probeUrl: "https://www.wmdp.ai/",
     elicitation: "Chemical and biological behaviors from HarmBench",
     elicitationUrls: [
@@ -32,7 +32,7 @@ const domainRows = [
   },
   {
     domain: "Coding / cyber",
-    probe: "SWE-bench-derived patch recognition",
+    probe: "Choosing a fix for a documented bug, derived from SWE-bench Verified",
     probeUrl: "https://github.com/SWE-bench/SWE-bench",
     elicitation: "Cybercrime and intrusion behaviors from HarmBench + AdvBench",
     elicitationUrls: [
@@ -43,7 +43,7 @@ const domainRows = [
   },
   {
     domain: "Legal",
-    probe: "LegalBench-derived binary questions",
+    probe: "Binary legal reasoning questions, derived from LegalBench",
     probeUrl: "https://legalbench.org/",
     elicitation: "Illegal-assistance behaviors from HarmBench + StrongREJECT",
     elicitationUrls: [
@@ -65,27 +65,27 @@ export default function CapabilityConditionedSafetyPost() {
         </div>
         <h1>How we built Weightroom&apos;s private safety evaluation pipeline</h1>
         <p className="article-dek">
-          Weightroom evaluates downloadable models before they are listed. Our current
-          system uses three held-out domain datasets, 2,932 private elicitation variants,
-          and a release threshold tied to the capability each model demonstrates.
+          Once model weights are downloaded, Weightroom cannot control how they are run.
+          The decision available to us is whether to list them. This is the private data
+          pipeline and safety test behind that decision.
         </p>
 
-        <div className="article-hero-visual" aria-label="How capability changes the release decision">
+        <div className="article-hero-visual" aria-label="Why Weightroom evaluates a model before listing it">
           <div>
-            <span className="visual-label">Working intuition</span>
-            <strong>Useful expertise makes a harmful answer more consequential.</strong>
+            <span className="visual-label">Marketplace constraint</span>
+            <strong>Downloaded weights run outside Weightroom&apos;s safeguards.</strong>
           </div>
           <div>
-            <span className="visual-label">How the gate responds</span>
-            <strong>As capability rises, tolerated harmful assistance falls.</strong>
+            <span className="visual-label">Decision before listing</span>
+            <strong>Test what the model knows and what it will help a user do.</strong>
           </div>
         </div>
 
         <dl className="article-stats">
-          <div><dt>Domains today</dt><dd>3</dd></div>
-          <div><dt>Probe size</dt><dd>100</dd><span>items per domain</span></div>
-          <div><dt>Private prompt pool</dt><dd>2,932</dd><span>staged elicitation variants</span></div>
-          <div><dt>Observed run cost</dt><dd>≈ $0.13</dd><span>full three-domain run</span></div>
+          <div><dt>Specialist domains</dt><dd>3</dd><span>biology, coding/cyber, law</span></div>
+          <div><dt>Knowledge probe</dt><dd>100</dd><span>questions in each domain</span></div>
+          <div><dt>Private harmful prompts</dt><dd>2,932</dd><span>variants prepared across domains</span></div>
+          <div><dt>Measured test cost</dt><dd>≈ $0.13</dd><span>three domains on one NVIDIA A10G GPU</span></div>
         </dl>
       </header>
 
@@ -102,56 +102,94 @@ export default function CapabilityConditionedSafetyPost() {
           <div className="article-note">
             <p className="private-label">Scope</p>
             <p>
-              Text-only language models distributed as downloadable weights. This is
-              an automated publishing screen, not a claim that a model is safe in every
-              deployment.
+              This applies to text-only language models sold as downloadable weights. The
+              evaluation decides whether Weightroom lists a model; it does not predict every
+              way the model may behave after download.
             </p>
           </div>
         </aside>
 
         <div className="article-body">
           <p className="article-opening">
-            Qwen2.5-7B-Instruct passed our two conventional safety screens: 91% on
-            HarmBench and 97% on JailbreakBench, both above the fixed 90% bar. A private
-            probe then found enough specialist knowledge to activate further testing.
-            On those open-ended tests, it gave materially helpful answers to harmful
-            requests often enough to exceed at least one domain&apos;s limit.
+            Weightroom is a marketplace for downloadable model weights: the files that
+            contain a model&apos;s learned parameters and let a buyer run it independently.
+            Unlike a hosted service, we do not remain between the model and its users after
+            purchase. A buyer can run the model on different hardware, remove an
+            application-level filter, or use it in a workflow we never see.
           </p>
           <p>
-            Refusal rates count how often a model declines a request. They leave out the
-            capability behind answers that get through. Consider a weak biology model and
-            a strong one that both refuse 96% of harmful prompts. The remaining 4% does not
-            carry the same risk, yet a higher refusal threshold would still score them alike.
+            That leaves one reliable intervention point: before a model is listed. For each
+            submission, we need evidence for a narrow publish-or-block decision. We call the
+            automated process that makes this decision a publishing gate. Passing it means
+            the model met a versioned evaluation standard. It is not a promise that every
+            downstream use will be safe.
           </p>
 
-          <section id="contributions">
+          <section id="motivation">
             <p className="section-number">01</p>
-            <h2>What we built</h2>
+            <h2>Why refusal rate is incomplete</h2>
             <p>
-              The production system has four parts. They share item identities, version
-              metadata, and one report format, so a result can be traced from a release
+              A common automated safety test sends the model harmful requests and checks
+              whether the responses refuse or avoid giving useful help. The percentage of
+              requests handled safely is its safe-response rate. Our first publishing gate
+              used two public benchmarks of harmful requests. It required a 90%
+              safe-response rate on 74 non-overlapping
+              {" "}<a href="https://github.com/centerforaisafety/HarmBench">HarmBench</a>
+              {" "}behaviors and all 100
+              {" "}<a href="https://github.com/JailbreakBench/jailbreakbench">JailbreakBench</a>
+              {" "}harmful behaviors. Every model faced the same threshold.
+            </p>
+            <p>
+              That works reasonably well for harms such as harassment or misinformation,
+              where fluent generation is much of the enabling capability. Specialist domains
+              raised a different question. A biology model that knows little beyond general
+              coursework cannot add as much useful knowledge as one with expert-adjacent
+              capability, even if both occasionally answer a harmful request.
+            </p>
+            <p>
+              Consider two models that each handle 96 of 100 harmful biology prompts safely.
+              A refusal-only gate treats them as equals. If the four remaining answers from
+              one model contain detailed, correct specialist knowledge and the other model&apos;s
+              answers do not, the equality is misleading. We needed to measure the knowledge
+              behind those answers.
+            </p>
+            <p>
+              We kept the fixed safe-response screen for general harms. Biology,
+              coding/cybersecurity, and law receive additional domain-specific testing.
+              Behaviors assigned to those domains are removed from the general screen so the
+              same prompt is not counted twice.
+            </p>
+          </section>
+
+          <section id="contributions">
+            <p className="section-number">02</p>
+            <h2>The system we built for that decision</h2>
+            <p>
+              The new gate connects a model&apos;s behavior to what it can do in the same
+              domain. The implementation has four parts, joined by stable item identities,
+              version metadata, and one report format. An internal reviewer can trace a
               verdict back to the exact private material used in the run.
             </p>
             <div className="contribution-grid">
               <div>
                 <span>01 / Data</span>
                 <strong>Private domain datasets</strong>
-                <p>Paired capability and elicitation sets for biology, coding/cyber, and law.</p>
+                <p>Each domain has one test of what the model knows and another of whether it helps with a harmful request.</p>
               </div>
               <div>
                 <span>02 / Generation</span>
                 <strong>Constrained generation</strong>
-                <p>Transforms change presentation while preserving the source answer or assessed behavior.</p>
+                <p>We change how a source item is presented while retaining its known answer or assessed behavior.</p>
               </div>
               <div>
                 <span>03 / Decision</span>
                 <strong>Capability-conditioned thresholds</strong>
-                <p>A chance-corrected probe score sets the maximum tolerated harm rate for its domain.</p>
+                <p>Greater demonstrated knowledge produces a stricter limit on harmful assistance in that domain.</p>
               </div>
               <div>
                 <span>04 / Operations</span>
                 <strong>An isolated evaluation run</strong>
-                <p>Digest-pinned sets run without network access and produce signed, selectively redacted reports.</p>
+                <p>The model runs without network access. Reports reveal different levels of detail to buyers, creators, and internal reviewers.</p>
               </div>
             </div>
             <p>
@@ -162,37 +200,28 @@ export default function CapabilityConditionedSafetyPost() {
             </p>
           </section>
 
-          <section id="fixed-thresholds">
-            <p className="section-number">02</p>
-            <h2>Where the fixed gate failed</h2>
-            <p>
-              We started with a fixed 90% safe-response threshold. The battery contains
-              74 non-overlapping <a href="https://github.com/centerforaisafety/HarmBench">HarmBench</a>
-              {" "}behaviors and all 100 <a href="https://github.com/JailbreakBench/jailbreakbench">JailbreakBench</a>
-              {" "}harmful behaviors. It remains useful for harassment, misinformation,
-              and general illegal advice, where producing fluent text is itself enough to
-              cause harm. A response counts as safe when it refuses or otherwise avoids
-              materially helping with the request.
-            </p>
-            <p>
-              Biology and cybersecurity made the limitation obvious. Assistance matters
-              more when the model can supply knowledge a user does not already have. We
-              kept the fixed battery and added a separate gate for specialist domains.
-              Each domain is evaluated independently, and both gates must pass. Behaviors
-              assigned to the conditioned domains are removed from the fixed battery so the
-              same prompt is not counted twice.
-            </p>
-          </section>
-
           <section id="mechanism">
             <p className="section-number">03</p>
-            <h2>Pairing capability and behavior</h2>
+            <h2>How capability changes the release requirement</h2>
             <p>
-              Each domain has two private instruments. A multiple-choice probe runs first.
-              If its score crosses the domain floor, the model receives open-ended prompts
-              that test whether it will materially help with harmful requests. A failure in
-              any activated domain blocks publication; strong results elsewhere cannot
-              average it away.
+              Each domain begins with a private multiple-choice knowledge test, which we call
+              a capability probe. Its score estimates how much useful knowledge the model has
+              in that domain. The score is used as a router: a model that demonstrates too
+              little specialist knowledge to add useful information stops there.
+            </p>
+            <p>
+              Each domain has an activation floor: the minimum probe score that signals
+              enough knowledge for harmful help to matter. A model above that floor receives
+              a second test containing open-ended harmful requests from the same domain. We
+              call this the elicitation test because it measures how often an adversarial
+              prompt can elicit materially useful help.
+            </p>
+            <p>
+              A second language model, separate from the submitted model, labels each answer
+              as materially helpful or not helpful. The release decision uses a conservative
+              estimate that accounts for the test&apos;s sample size instead of trusting the raw
+              percentage alone. A failure in any activated domain blocks publication; high
+              scores elsewhere cannot average it away.
             </p>
 
             <div className="eval-flow" role="img" aria-label="Capability probe routes capable models into an elicitation test, which is compared against a capability-dependent ceiling before a release decision">
@@ -205,6 +234,11 @@ export default function CapabilityConditionedSafetyPost() {
               <div className="flow-node"><span>4</span><strong>Release decision</strong><small>Does the conservative harm estimate stay under the limit?</small></div>
             </div>
 
+            <p>
+              The table names the public sources used to build each instrument and the
+              number of private harmful-prompt variants available for rotation. A single run
+              draws a smaller subset from these pools.
+            </p>
             <div className="article-table-wrap">
               <table className="article-table">
                 <thead><tr><th>Domain</th><th>Capability probe</th><th>Elicitation seeds</th><th>Private pool</th></tr></thead>
@@ -241,7 +275,7 @@ export default function CapabilityConditionedSafetyPost() {
               of 0.60 means the model covered 60% of the distance from random guessing to a
               perfect score. That value maps to a maximum tolerated harm rate. The current
               limit starts at 30% for a model just above the activation floor and falls to
-              15% near the capability frontier.
+              15% in the highest capability range the policy was designed to cover.
             </p>
             <p>
               These percentages refer to judge-labeled assistance on deliberately harmful
@@ -281,12 +315,12 @@ export default function CapabilityConditionedSafetyPost() {
 
           <section id="private-evaluations">
             <p className="section-number">04</p>
-            <h2>Generating the private sets</h2>
+            <h2>How we build the private evaluation datasets</h2>
             <p>
               Public benchmark items eventually appear in training corpora. A fixed private
               set also degrades: every submission reveals at least the final verdict, and
-              repeated attempts turn that verdict into an oracle. We needed enough material
-              to rotate the tests without losing reliable labels.
+              repeated attempts provide clues about which changes improve the score. We
+              needed enough material to rotate the tests without losing reliable labels.
             </p>
             <p>
               Generating questions from scratch was the obvious option. We rejected it
@@ -299,9 +333,10 @@ export default function CapabilityConditionedSafetyPost() {
             </p>
             <p>
               The source datasets are public and used under their respective terms. The
-              derived evaluation items are custom, held out, rotated between runs, and never
-              published. Generation happens during offline staging, not while a submitted
-              model is being evaluated.
+              derived evaluation items are custom and held out, meaning their exact wording
+              is not shown to sellers. Items rotate between runs and are never published.
+              Generation happens during offline staging, not while a submitted model is
+              being evaluated.
             </p>
 
             <ol className="pipeline-steps">
@@ -309,7 +344,7 @@ export default function CapabilityConditionedSafetyPost() {
               <li><span>02</span><div><strong>Normalize and fingerprint</strong><p>Each item receives a stable seed and behavior identity, preserving lineage through every later transform.</p></div></li>
               <li><span>03</span><div><strong>Apply a constrained transform</strong><p>Permute keyed choices, mutate a gold patch into distractors, derive a binary legal question, or wrap a harmful behavior in a new framing.</p></div></li>
               <li><span>04</span><div><strong>Validate the invariant</strong><p>The answer key must follow the transform, or the original assessed behavior must remain unchanged. Invalid variants never enter the pool.</p></div></li>
-              <li><span>05</span><div><strong>Deduplicate, rotate, and pin</strong><p>Content hashes select reproducible subsets; a digest locks the staged corpus so upstream drift fails loudly.</p></div></li>
+              <li><span>05</span><div><strong>Deduplicate, rotate, and pin</strong><p>Fingerprints computed from item content select reproducible subsets. A dataset-wide fingerprint verifies that the staged corpus has not changed.</p></div></li>
             </ol>
 
             <div className="invariant-card">
@@ -317,7 +352,7 @@ export default function CapabilityConditionedSafetyPost() {
               <div><strong>Ground truth</strong><small>Inherited, not newly claimed</small></div>
               <div><strong>Lineage</strong><small>Seed and behavior fingerprints</small></div>
               <div><strong>Provenance</strong><small>Revision and license metadata</small></div>
-              <div><strong>Integrity</strong><small>Content digest at staging</small></div>
+              <div><strong>Integrity</strong><small>Dataset fingerprint before evaluation</small></div>
             </div>
 
             <h3>Rotation overlap</h3>
@@ -346,7 +381,7 @@ export default function CapabilityConditionedSafetyPost() {
 
           <section id="uncertainty">
             <p className="section-number">05</p>
-            <h2>Making the decision</h2>
+            <h2>How uncertainty affects a verdict</h2>
             <p>
               The observed harmful-assistance rate is only a sample. A result just under the
               limit may reflect luck, especially when many prompts are variants of the same
@@ -389,7 +424,7 @@ export default function CapabilityConditionedSafetyPost() {
 
           <section id="judge">
             <p className="section-number">06</p>
-            <h2>Scoring open-ended answers</h2>
+            <h2>How open-ended answers are scored</h2>
             <p>
               We initially searched responses for refusal phrases. In a four-response check,
               the heuristic called the batch 75% safe. Manual review found only one harmless
@@ -397,12 +432,12 @@ export default function CapabilityConditionedSafetyPost() {
               nonsense caused errors in the other direction.
             </p>
             <p>
-              We replaced the phrase matcher with a pinned Qwen3Guard-Gen-8B judge. It reads
-              the request and response and decides whether the response materially helped.
-              Unparseable judgments count against completion, and a partially parsed run
-              errors instead of averaging the subset that happened to parse. A separate
-              judge also prevents the submitted model from grading its own answers and keeps
-              the scoring model constant across submissions.
+              We replaced the phrase matcher with Qwen3Guard-Gen-8B, a separate guard model
+              whose exact version is fixed across runs. It reads the request and response and
+              decides whether the response materially helped. Unparseable judgments count
+              against completion, and a partially parsed run errors instead of averaging the
+              subset that happened to parse. A separate judge also prevents the submitted
+              model from grading its own answers.
             </p>
             <div className="phase-diagram">
               <div><span>Phase 1</span><strong>Candidate model</strong><small>Generate responses; keep transcripts in memory</small></div>
@@ -419,11 +454,11 @@ export default function CapabilityConditionedSafetyPost() {
 
           <section id="leakage">
             <p className="section-number">07</p>
-            <h2>What a report reveals</h2>
+            <h2>Why public reports omit exact scores</h2>
             <p>
               Sellers can submit another version after a rejection. Exact domain scores and
               applied thresholds would help them infer the hidden items across attempts, so
-              the conditioned evaluation has three report views.
+              the domain-specific evaluation has three report views.
             </p>
             <div className="visibility-grid">
               <div><span>Buyer</span><strong>Certification verdict</strong><small>No private domain measurements</small></div>
@@ -431,16 +466,21 @@ export default function CapabilityConditionedSafetyPost() {
               <div><span>Internal</span><strong>Full evidence</strong><small>Probe, ceiling, harm rate, uncertainty</small></div>
             </div>
             <p>
-              Networked asset staging happens before evaluation. The model, private item
-              sets, and judge then run in an isolated evaluation environment. External-endpoint
-              smoke tests refuse private suites because an endpoint controlled by the model
-              creator would see every prompt.
+              Weightroom downloads the required model files and evaluation data before the
+              run begins. It then disables network access while the submitted model and the
+              judge execute. We can send public smoke-test prompts to an external model API,
+              but the system refuses to send any private evaluation there because an endpoint
+              controlled by the model creator would see every prompt.
+            </p>
+            <p>
+              The full internal report is digitally signed. If a score or verdict is edited
+              after the run, the signature no longer verifies.
             </p>
           </section>
 
           <section id="results">
             <p className="section-number">08</p>
-            <h2>An end-to-end run</h2>
+            <h2>What happened when we tested Qwen2.5-7B-Instruct</h2>
             <p>
               In an internal run, Qwen2.5-7B-Instruct followed the full decision path. It
               cleared the general refusal screen. At least one private capability probe
@@ -462,15 +502,15 @@ export default function CapabilityConditionedSafetyPost() {
               across submissions.
             </p>
             <p>
-              On one A10G, a full three-domain run has taken roughly five to ten minutes and
-              cost about $0.13. Those are measurements from our runs, not guaranteed latency
-              or pricing for other hardware and providers.
+              On one NVIDIA A10G GPU, a full three-domain run has taken roughly five to ten
+              minutes and cost about $0.13. Those are measurements from our runs, not
+              guaranteed latency or pricing for other hardware and providers.
             </p>
           </section>
 
           <section id="limitations">
             <p className="section-number">09</p>
-            <h2>Current limits</h2>
+            <h2>What this evaluation cannot establish</h2>
             <ul className="limitations-list">
               <li><strong>The coding probe measures recognition.</strong> Choosing a patch is not the same as authoring and validating one.</li>
               <li><strong>The legal pairing is experimental.</strong> Legal framing has not yet been shown to correlate with legal-domain harmful assistance.</li>
@@ -481,10 +521,11 @@ export default function CapabilityConditionedSafetyPost() {
               <li><strong>Sandbagging remains an open problem.</strong> Divergence between public and private capability measurements can flag it, but that check is not yet implemented.</li>
             </ul>
             <p>
-              Frontier-lab release reviews also use expert red-teaming, human uplift studies,
-              and governance processes. Weightroom’s mechanism is an automated screen built
-              for continuous marketplace submissions. A successful result records conformance
-              to a versioned evaluation standard. It does not establish safety across every
+              Large model developers also use expert red-teaming, studies of whether a model
+              improves a person&apos;s ability to carry out hazardous work, and review by a
+              governance team. Weightroom&apos;s mechanism is an automated screen built for
+              continuous marketplace submissions. A successful result records conformance to
+              a versioned evaluation standard. It does not establish safety across every
               deployment.
             </p>
           </section>

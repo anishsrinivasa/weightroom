@@ -27,8 +27,8 @@ export default function BlogIndex() {
           <div className="research-card-copy">
             <h2>How we built Weightroom&apos;s private safety evaluation pipeline</h2>
             <p>
-              Three held-out domain datasets, 2,932 private elicitation variants, and the
-              capability-conditioned gate that turns their results into a release decision.
+              Downloadable weights leave the marketplace&apos;s control after purchase. This is
+              how Weightroom evaluates them before deciding whether they can be listed.
             </p>
           </div>
           <span className="research-card-arrow" aria-hidden="true">→</span>
