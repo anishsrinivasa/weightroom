@@ -22,6 +22,8 @@ export const listingSummarySchema = z.object({
   state: listingStateSchema,
   price: z.string(),
   price_minor: z.number().int().nonnegative(),
+  domain_tags: z.array(z.string()).default([]),
+  size_tag: z.string().nullable().default(null),
   selected_benchmarks: z.array(z.string()),
   attempts: z.number().int().nonnegative(),
   grade: z.string().nullable(),
@@ -96,6 +98,13 @@ export const listingDetailSchema = z.object({
   artifact_digest: z.string(),
   price: z.string(),
   price_minor: z.number().int().nonnegative(),
+  seller_id: z.string(),
+  grade: z.string().nullable(),
+  benchmark_scores: z.record(z.string(), z.number()),
+  is_owner: z.boolean(),
+  entitled: z.boolean(),
+  domain_tags: z.array(z.string()).default([]),
+  size_tag: z.string().nullable().default(null),
   attempts: z.number().int().nonnegative(),
   created_at: z.string(),
   updated_at: z.string(),
@@ -122,6 +131,9 @@ export const benchmarkSchema = z.object({
   display_name: z.string(),
   description: z.string(),
   mandatory: z.boolean(),
+  gate: z.boolean(),
+  diagnostic: z.boolean(),
+  held_out: z.boolean(),
   price: z.string(),
   price_minor: z.number().int().nonnegative(),
 });
@@ -132,6 +144,42 @@ export const benchmarksSchema = z.object({
 });
 
 export type Benchmark = z.infer<typeof benchmarkSchema>;
+
+export const tagOptionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+});
+
+export const tagCatalogueSchema = z.object({
+  domains: z.array(tagOptionSchema),
+  model_sizes: z.array(tagOptionSchema),
+});
+
+export type TagOption = z.infer<typeof tagOptionSchema>;
+export type TagCatalogue = z.infer<typeof tagCatalogueSchema>;
+
+export const publicListingSchema = z.object({
+  listing_id: z.string(),
+  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  image_url: z.string().nullable().optional(),
+  artifact_digest: z.string(),
+  state: z.literal("listed"),
+  price: z.string(),
+  price_minor: z.number().int().nonnegative(),
+  seller_id: z.string(),
+  grade: z.string().nullable(),
+  benchmark_scores: z.record(z.string(), z.number()),
+  domain_tags: z.array(z.string()).default([]),
+  size_tag: z.string().nullable().default(null),
+  created_at: z.string(),
+});
+
+export const publicListingsSchema = z.object({
+  listings: z.array(publicListingSchema),
+});
+
+export type PublicListing = z.infer<typeof publicListingSchema>;
 
 export const artifactDeclarationSchema = z.object({
   digest: z.string(),

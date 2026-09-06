@@ -123,7 +123,7 @@ export function ModelDetail({ id }: { id: string }) {
 
   return (
     <>
-      <Link className="back-link" href="/models">← Back to models</Link>
+      <Link className="back-link" href="/sell/models">← Back to models</Link>
       <section className="detail-header">
         <div className="detail-identity">
           <h1>{model.title || "Untitled model"}</h1>
@@ -131,6 +131,10 @@ export function ModelDetail({ id }: { id: string }) {
           <div className="inline-meta">
             <StatusPill state={model.state} />
             <span>{formatUsdc(model.price_minor)}</span>
+          </div>
+          <div className="tag-list" aria-label="Model tags">
+            {model.domain_tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}
+            {model.size_tag ? <span className="tag" key={model.size_tag}>{model.size_tag}</span> : null}
           </div>
           {model.description ? <p className="model-description">{model.description}</p> : null}
         </div>

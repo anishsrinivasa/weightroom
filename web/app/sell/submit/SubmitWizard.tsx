@@ -15,9 +15,11 @@ import {
   imageStoredSchema,
   listingCreatedSchema,
   quoteSchema,
+  tagCatalogueSchema,
   type Benchmark,
   type Charge,
   type SelectedFile,
+  type TagCatalogue,
 } from "@/lib/contracts";
 import {
   BROWSER_FILE_LIMIT,
@@ -48,6 +50,9 @@ export function SubmitWizard() {
   const [title, setTitle] = useState("My fine-tune");
   const [price, setPrice] = useState("45");
   const [description, setDescription] = useState("");
+  const [domainTags, setDomainTags] = useState<Set<string>>(new Set());
+  const [sizeTag, setSizeTag] = useState("");
+  const [tagCatalogue, setTagCatalogue] = useState<TagCatalogue | null>(null);
   const [cover, setCover] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [picked, setPicked] = useState<SelectedFile[]>([]);
@@ -86,8 +91,14 @@ export function SubmitWizard() {
   }, []);
 
   useEffect(() => {
-    void keystoneRequest("/v1/benchmarks", benchmarksSchema)
-      .then((data) => setBenchmarks(data.benchmarks))
+    void Promise.all([
+      keystoneRequest("/v1/benchmarks", benchmarksSchema),
+      keystoneRequest("/v1/tags", tagCatalogueSchema),
+    ])
+      .then(([benchmarkData, tagData]) => {
+        setBenchmarks(benchmarkData.benchmarks);
+        setTagCatalogue(tagData);
+      })
       .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load benchmarks"))
       .finally(() => setBenchmarksLoading(false));
   }, []);
@@ -217,6 +228,14 @@ export function SubmitWizard() {
     });
   }
 
+  function toggleDomainTag(id: string) {
+    setDomainTags((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   async function takeCover(list: FileList | null) {
     const file = list?.[0];
     if (!file) return;
@@ -242,6 +261,8 @@ export function SubmitWizard() {
   async function preparePayment() {
     if (!digest || !picked.length) return setError("Choose model files first.");
     if (!title.trim()) return setError("Enter a model name.");
+    if (!domainTags.size) return setError("Choose at least one model domain.");
+    if (!sizeTag) return setError("Choose a model size.");
     const numericPrice = Number(price);
     if (!Number.isFinite(numericPrice) || numericPrice < 0) return setError("Enter a valid non-negative sale price.");
 
@@ -296,6 +317,8 @@ export function SubmitWizard() {
               description: description.trim() || null,
               image_digest: imageDigest,
               price_minor: Math.round(numericPrice * 1_000_000),
+              domain_tags: Array.from(domainTags),
+              size_tag: sizeTag,
             }),
           },
         );
@@ -407,6 +430,31 @@ export function SubmitWizard() {
             />
             <small className="field-hint">{description.length} / {DESCRIPTION_LIMIT}</small>
           </label>
+          <fieldset className="tag-fieldset">
+            <legend>Model domains</legend>
+            <p className="field-hint">Choose every domain this model is designed to handle.</p>
+            <div className="tag-picker">
+              {tagCatalogue?.domains.map((tag) => (
+                <label key={tag.id} data-selected={domainTags.has(tag.id)}>
+                  <input
+                    type="checkbox"
+                    checked={domainTags.has(tag.id)}
+                    onChange={() => toggleDomainTag(tag.id)}
+                  />
+                  <span>{tag.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label className="stacked-field">
+            <span>Model size</span>
+            <select value={sizeTag} onChange={(event) => setSizeTag(event.target.value)}>
+              <option value="">Select a parameter range</option>
+              {tagCatalogue?.model_sizes.map((tag) => (
+                <option key={tag.id} value={tag.id}>{tag.label}</option>
+              ))}
+            </select>
+          </label>
           <div
             className={`drop-zone ${dragging ? "dragging" : ""}`}
             onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -436,7 +484,7 @@ export function SubmitWizard() {
                 </tbody></table>
             </div>
           ) : null}
-          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing} onClick={() => setStep(2)}>Continue to evaluations →</button></div>
+          <div className="button-row actions"><button className="button primary" type="button" disabled={!picked.length || hashing || !domainTags.size || !sizeTag} onClick={() => setStep(2)}>Continue to evaluations →</button></div>
         </section>
       ) : null}
 
@@ -505,8 +553,8 @@ export function SubmitWizard() {
           <h2 id="complete-title">Submitted for verification</h2>
           <p>Payment settled and the model is queued. Safety gates and selected benchmarks appear only in your seller record.</p>
           <div className="button-row">
-            <Link className="button primary" href={`/models/${listingId}`}>View model status</Link>
-            <Link className="button" href="/submit">Start another submission</Link>
+            <Link className="button primary" href={`/sell/models/${listingId}`}>View model status</Link>
+            <Link className="button" href="/sell/submit">Start another submission</Link>
           </div>
         </section>
       ) : null}
