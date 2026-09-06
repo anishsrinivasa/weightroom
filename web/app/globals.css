@@ -225,21 +225,21 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 
 /* Buyer catalogue. These reuse the seller workspace's paper, ink, borders,
    square controls, typography, and spacing rhythm. */
-.marketplace-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 36px; margin-bottom: 46px; padding-bottom: 38px; border-bottom: 1px solid var(--ink); }
+.marketplace-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 36px; margin-bottom: 52px; }
 .marketplace-count { flex: none; min-width: 130px; text-align: right; }
 .marketplace-count strong { display: block; font-size: 32px; font-weight: 500; line-height: 1; letter-spacing: -0.045em; }
 .marketplace-count span { display: block; margin-top: 9px; color: var(--muted); font-size: 11px; }
 .marketplace-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 42px; align-items: start; }
-.filter-panel { position: sticky; top: 98px; max-height: calc(100dvh - 116px); overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-gutter: stable; border-top: 1px solid var(--ink); padding-right: 10px; }
+.filter-panel { position: sticky; top: 98px; max-height: calc(100dvh - 116px); overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 10px; }
 .filter-panel::-webkit-scrollbar { width: 8px; }
 .filter-panel::-webkit-scrollbar-track { background: var(--wash); }
 .filter-panel::-webkit-scrollbar-thumb { border: 2px solid var(--wash); background: var(--muted); }
-.filter-heading { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
+.filter-heading { min-height: 50px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .filter-heading h2 { font-size: 20px; }
-.filter-field { display: block; padding: 19px 0; border-bottom: 1px solid var(--line); }
+.filter-field { display: block; padding: 0 0 22px; }
 .filter-field > span, .filter-group legend { display: block; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: 0.11em; text-transform: uppercase; }
 .filter-field input { width: 100%; }
-.filter-group { min-width: 0; margin: 0; border: 0; border-bottom: 1px solid var(--line); padding: 0 0 19px; }
+.filter-group { min-width: 0; margin: 0; border: 0; padding: 0 0 22px; }
 .filter-group legend { padding: 0; }
 .price-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
 .price-fields input { width: 100%; min-width: 0; }
@@ -265,7 +265,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .score-input b { min-height: 36px; display: grid; place-items: center; border: 1px solid var(--line); border-left: 0; padding-right: 9px; color: var(--ink); font-weight: 500; }
 .benchmark-filter > .text-button { justify-self: start; color: var(--muted); font-size: 11px; }
 .marketplace-content { min-width: 0; overflow-anchor: none; }
-.results-section .section-heading { margin-bottom: 16px; border-bottom: 1px solid var(--ink); }
+.results-section .section-heading { margin-bottom: 16px; }
 .result-count { color: var(--muted); font-size: 12px; }
 .model-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
 .model-card { min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--paper); transition: background 120ms ease; }
