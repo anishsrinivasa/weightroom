@@ -9,8 +9,12 @@ from keystone.cli import _has_pending_certification, app
 from keystone.storage import artifact_key
 
 
-def test_dev_command_is_available_for_the_managed_local_stack() -> None:
-    result = CliRunner().invoke(app, ["dev", "--help"])
+def test_dev_command_is_available_for_the_managed_local_stack(monkeypatch) -> None:
+    # GitHub Actions forces ANSI output, which inserts style escapes inside
+    # option names and makes these content assertions platform-dependent.
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
+    result = CliRunner().invoke(app, ["dev", "--help"], color=False)
 
     assert result.exit_code == 0
     assert "local API and certification worker" in result.output
