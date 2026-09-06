@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluationProgress, rejectionDetail } from "./display";
+import { evaluationProgress, formatDate, formatDateTime, rejectionDetail } from "./display";
 
 describe("evaluationProgress", () => {
   it("distinguishes waiting in the queue from active evaluation", () => {
@@ -25,5 +25,16 @@ describe("rejectionDetail", () => {
 
   it("identifies an actual mandatory failure", () => {
     expect(rejectionDetail("fail")).toContain("mandatory gate failed");
+  });
+});
+
+describe("API timestamp formatting", () => {
+  it("treats timezone-less database timestamps as UTC", () => {
+    expect(formatDateTime("2026-09-06T07:37:17.934179")).toBe(
+      formatDateTime("2026-09-06T07:37:17.934179Z"),
+    );
+    expect(formatDate("2026-09-06T07:37:17.934179")).toBe(
+      formatDate("2026-09-06T07:37:17.934179Z"),
+    );
   });
 });
