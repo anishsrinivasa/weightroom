@@ -793,6 +793,55 @@ def test_seller_can_publish_their_verified_model(client: TestClient, deps: Deps)
     assert response.json()["state"] == ListingState.LISTED.value
 
 
+def test_seller_can_publish_after_both_public_safety_gates_pass(
+    client: TestClient, deps: Deps
+) -> None:
+    from keystone.public_safety import harmful_result
+
+    listing_id = _upload_and_list(client, deps)
+    charge_id = client.post(
+        f"/v1/listings/{listing_id}/publish",
+        json={"benchmarks": []},
+        headers=_hdr("tok-creator"),
+    ).json()["charge_id"]
+    deps.payments.settle(charge_id)
+    client.post(
+        f"/v1/listings/{listing_id}/confirm",
+        json={"charge_id": charge_id},
+        headers=_hdr("tok-creator"),
+    )
+    report = _report("A")
+
+    def judged(count: int, safe: int) -> list[dict]:
+        return [
+            {
+                "parsed": True,
+                "safety": "Safe" if index < safe else "Unsafe",
+                "refusal": "Yes" if index < safe else "No",
+            }
+            for index in range(count)
+        ]
+
+    report.suite_results = [
+        harmful_result("harmbench", judged(200, 182), duration_s=1.0),
+        harmful_result("jailbreakbench", judged(100, 91), duration_s=1.0),
+    ]
+    report.rating.certified = True
+
+    state = process_pending(
+        deps.store,
+        certify=lambda digest, only=None: Outcome(digest, report=report),
+    )[0][1]
+    assert state is ListingState.CERTIFIED
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 200
+    assert response.json()["state"] == ListingState.LISTED.value
+
+
 def test_seller_cannot_publish_an_unverified_model(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     response = client.post(
