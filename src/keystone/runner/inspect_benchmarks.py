@@ -246,7 +246,7 @@ def _inspect_model_args(served_model_name: str) -> dict[str, Any]:
 
 
 def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
-    """Build and execute the GDPval and Harvey sandbox images without a model."""
+    """Build and execute every agent-benchmark sandbox without a model."""
     import inspect_sandboxes.modal  # noqa: F401
     from inspect_ai import Task
     from inspect_ai import eval as inspect_eval
@@ -256,10 +256,11 @@ def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
     import inspect_evals.gdpval as gdpval_package
 
     @solver
-    def sandbox_probe() -> Solver:
+    def sandbox_probe(required_dir: str) -> Solver:
         async def solve(state: TaskState, generate: Generate) -> TaskState:
             result = await sandbox().exec(
-                ["sh", "-lc", "python --version && test -d /workspace"], timeout=120
+                ["sh", "-lc", f"python --version && test -d {required_dir}"],
+                timeout=120,
             )
             if not result.success:
                 raise RuntimeError(result.stderr or "sandbox probe failed")
@@ -271,16 +272,47 @@ def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
         "gdpval": Path(gdpval_package.__file__).parent / "Dockerfile",
         "harvey_lab": harvey_root / "sandbox" / "Dockerfile",
     }
-    outcomes: dict[str, str] = {}
-    for suite_id, dockerfile in dockerfiles.items():
-        compose = _modal_compose_for_dockerfile(
-            dockerfile,
-            Path("/tmp/inspect-config/smoke") / f"{suite_id}-compose.yaml",
+    cases: dict[str, tuple[SandboxEnvironmentSpec, str]] = {
+        suite_id: (
+            SandboxEnvironmentSpec(
+                type="modal",
+                config=str(
+                    _modal_compose_for_dockerfile(
+                        dockerfile,
+                        Path("/tmp/inspect-config/smoke")
+                        / f"{suite_id}-compose.yaml",
+                    )
+                ),
+            ),
+            "/workspace",
         )
+        for suite_id, dockerfile in dockerfiles.items()
+    }
+    # This instance is the maintained Inspect adapter's own documented example.
+    # Pulling its real Epoch image proves registry, architecture, /testbed, and
+    # network-isolation behavior before a paid 100-task run begins.
+    swe_sample = Sample(
+        id="django__django-11039",
+        input="sandbox smoke test",
+        target="NONE",
+        metadata={
+            "image_name": (
+                "ghcr.io/epoch-research/"
+                "swe-bench.eval.x86_64.django__django-11039:latest"
+            )
+        },
+    )
+    cases["swe_bench_verified"] = (
+        _swe_modal_sandbox_spec("modal", swe_sample),
+        "/testbed",
+    )
+
+    outcomes: dict[str, str] = {}
+    for suite_id, (sandbox_spec, required_dir) in cases.items():
         task = Task(
             dataset=[Sample(id=suite_id, input="sandbox smoke test", target="NONE")],
-            solver=sandbox_probe(),
-            sandbox=SandboxEnvironmentSpec(type="modal", config=str(compose)),
+            solver=sandbox_probe(required_dir),
+            sandbox=sandbox_spec,
         )
         logs = inspect_eval(
             task,

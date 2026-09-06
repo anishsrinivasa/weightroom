@@ -584,7 +584,7 @@ def prefetch_public_safety_assets() -> dict:
     timeout=4 * 60 * 60,
 )
 def smoke_agent_sandboxes() -> dict[str, str]:
-    """Operational preflight for the two document-producing benchmark images."""
+    """Operational preflight for every agent-style benchmark image."""
     from keystone.runner.inspect_benchmarks import smoke_agent_sandboxes as smoke
 
     cache.reload()
