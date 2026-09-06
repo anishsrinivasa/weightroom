@@ -298,6 +298,8 @@ def dev(
     development footgun where a paid submission could remain queued forever
     because only the API was started.
     """
+    import threading
+
     import uvicorn
 
     env = os.environ.copy()
@@ -322,22 +324,48 @@ def dev(
         "--limit",
         str(worker_limit),
     ]
-    worker_process = subprocess.Popen(worker_command, env=env)
+    worker_process = [subprocess.Popen(worker_command, env=env)]
     console.print(
         f"[bold]local stack[/] API on http://{host}:{port}; "
-        f"worker pid {worker_process.pid}"
+        f"worker pid {worker_process[0].pid}"
     )
+    stopping = threading.Event()
+
+    def supervise_worker() -> None:
+        while not stopping.wait(1):
+            process = worker_process[0]
+            exit_code = process.poll()
+            if exit_code is None:
+                continue
+            console.print(
+                f"[yellow]worker pid {process.pid} exited ({exit_code}); restarting[/]"
+            )
+            try:
+                worker_process[0] = subprocess.Popen(worker_command, env=env)
+            except OSError as exc:
+                console.print(f"[red]worker restart failed: {exc}; retrying[/]")
+
+    supervisor = threading.Thread(
+        target=supervise_worker,
+        name="keystone-worker-supervisor",
+        daemon=True,
+    )
+    supervisor.start()
     try:
         # Apply the same stable signing key to the in-process API factory.
         os.environ["KEYSTONE_SIGNING_KEY"] = env["KEYSTONE_SIGNING_KEY"]
         uvicorn.run("keystone.settings:app", factory=True, host=host, port=port)
     finally:
-        worker_process.terminate()
-        try:
-            worker_process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            worker_process.kill()
-            worker_process.wait()
+        stopping.set()
+        supervisor.join(timeout=2)
+        process = worker_process[0]
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
 
 
 @app.command()
