@@ -44,7 +44,11 @@ _TRANSITIONS: dict[ListingState, set[ListingState]] = {
     ListingState.CERTIFIED: {ListingState.LISTED, ListingState.WITHDRAWN},
     # Re-certification of a live listing can pull it down. This is the teeth
     # behind the gate: gaming it buys a temporary listing, not a permanent one.
-    ListingState.LISTED: {ListingState.DELISTED, ListingState.PENDING_CERTIFICATION},
+    ListingState.LISTED: {
+        ListingState.CERTIFIED,
+        ListingState.DELISTED,
+        ListingState.PENDING_CERTIFICATION,
+    },
     ListingState.DELISTED: {ListingState.DRAFT, ListingState.WITHDRAWN},
     ListingState.WITHDRAWN: set(),
 }

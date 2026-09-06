@@ -853,6 +853,65 @@ def test_seller_can_publish_their_verified_model(client: TestClient, deps: Deps)
     assert response.json()["state"] == ListingState.LISTED.value
 
 
+def test_seller_can_unlist_and_republish_their_model(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _queue(client, deps)
+    process_pending(
+        deps.store,
+        certify=lambda d, only=None: Outcome(d, report=_report("A")),
+    )
+    client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-creator"),
+    )
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/deactivate",
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "listing_id": listing_id,
+        "state": ListingState.CERTIFIED.value,
+        "published": False,
+    }
+    assert client.get("/v1/listings").json()["listings"] == []
+    assert client.get(f"/v1/listings/{listing_id}").status_code == 404
+
+    republished = client.post(
+        f"/v1/seller/listings/{listing_id}/activate",
+        headers=_hdr("tok-creator"),
+    )
+    assert republished.status_code == 200
+    assert republished.json()["state"] == ListingState.LISTED.value
+
+
+def test_seller_cannot_unlist_someone_elses_model(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+    _make_public(deps, listing_id)
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/deactivate",
+        headers=_hdr("tok-other"),
+    )
+    assert response.status_code == 403
+
+
+def test_seller_cannot_unlist_a_model_that_is_not_published(
+    client: TestClient, deps: Deps
+) -> None:
+    listing_id = _upload_and_list(client, deps)
+
+    response = client.post(
+        f"/v1/seller/listings/{listing_id}/deactivate",
+        headers=_hdr("tok-creator"),
+    )
+    assert response.status_code == 409
+
+
 def test_seller_can_publish_after_both_public_safety_gates_pass(
     client: TestClient, deps: Deps
 ) -> None:

@@ -30,6 +30,12 @@ const activationSchema = z.object({
   published: z.literal(true),
 });
 
+const deactivationSchema = z.object({
+  listing_id: z.string(),
+  state: z.literal("certified"),
+  published: z.literal(false),
+});
+
 export function ModelDetail({ id }: { id: string }) {
   const [model, setModel] = useState<ListingDetail | null>(null);
   const [benchmarkNames, setBenchmarkNames] = useState<Record<string, string>>({});
@@ -99,6 +105,23 @@ export function ModelDetail({ id }: { id: string }) {
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Publishing failed");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function unlist() {
+    setPublishing(true);
+    setError(null);
+    try {
+      await keystoneRequest(
+        `/v1/seller/listings/${encodeURIComponent(id)}/deactivate`,
+        deactivationSchema,
+        { method: "POST" },
+      );
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unlisting failed");
     } finally {
       setPublishing(false);
     }
@@ -206,6 +229,10 @@ export function ModelDetail({ id }: { id: string }) {
           {model.state === "certified" ? (
             <button className="button primary full-width" type="button" disabled={publishing} onClick={() => void publish()}>
               {publishing ? "Publishing…" : "Publish to marketplace"}
+            </button>
+          ) : model.state === "listed" ? (
+            <button className="button primary full-width" type="button" disabled={publishing} onClick={() => void unlist()}>
+              {publishing ? "Unlisting…" : "Unlist"}
             </button>
           ) : null}
         </aside>

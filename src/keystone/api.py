@@ -561,6 +561,23 @@ def create_app(deps: Deps) -> FastAPI:
             s.commit()
             return {"listing_id": row.id, "state": row.state, "published": True}
 
+    @app.post("/v1/seller/listings/{listing_id}/deactivate")
+    def deactivate_listing(listing_id: str, d: D, principal: P) -> dict:
+        """Remove a live model from the marketplace without losing verification."""
+        me = require(principal)
+        with d.store.session() as s:
+            row = _row_or_404(d, s, listing_id)
+            if row.creator_id != me.user_id:
+                raise HTTPException(403, "not your listing")
+            try:
+                row.state = transition(
+                    ListingState(row.state), ListingState.CERTIFIED
+                ).value
+            except TransitionError as exc:
+                raise HTTPException(409, "only a published model can be unlisted") from exc
+            s.commit()
+            return {"listing_id": row.id, "state": row.state, "published": False}
+
     # ----------------------------------------------------------------------
     # publish: quote -> pay -> queue
     # ----------------------------------------------------------------------
