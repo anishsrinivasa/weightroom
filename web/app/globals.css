@@ -238,7 +238,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .filter-field { display: block; padding: 19px 0; border-bottom: 1px solid var(--line); }
 .filter-field > span, .filter-group legend { display: block; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: 0.11em; text-transform: uppercase; }
 .filter-field input { width: 100%; }
-.filter-group { min-width: 0; margin: 0; border: 0; border-bottom: 1px solid var(--line); padding: 19px 0; }
+.filter-group { min-width: 0; margin: 0; border: 0; border-bottom: 1px solid var(--line); padding: 0 0 19px; }
 .filter-group legend { padding: 0; }
 .price-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
 .price-fields input { width: 100%; min-width: 0; }
