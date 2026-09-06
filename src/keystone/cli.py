@@ -359,6 +359,7 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     from keystone.db import Store
     from keystone.listing import Attempt, ListingState
     from keystone.pipeline import Outcome
+    from keystone.public_benchmarks import BENCHMARKS
     from keystone.schema import (
         Cost,
         Environment,
@@ -379,9 +380,11 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         grade: str,
         digest: str,
         held: float,
-        capability: float,
-        reasoning: float | None,
+        model_ref: str,
+        revision: str,
+        benchmark_scores: dict[str, float],
         parameters: int,
+        total_bytes: int,
     ) -> CertificationReport:
         issued_grade = grade if held >= 0.75 else "F"
         return CertificationReport(
@@ -389,10 +392,10 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             created_at=now,
             status=Status.PASS if issued_grade != "F" else Status.FAIL,
             subject=Subject(
-                source=Source(kind=SourceKind.UPLOAD, ref=f"rcpt_{digest[:8]}"),
+                source=Source(kind=SourceKind.HF, ref=model_ref, revision=revision),
                 artifact_digest=digest,
                 files=[],
-                total_bytes=1_400_000_000,
+                total_bytes=total_bytes,
                 license={"declared": "apache-2.0", "spdx": "Apache-2.0", "chain_ok": True},
             ),
             environment=Environment(sandboxed=True, seed=0, gpu="NVIDIA A10",
@@ -409,20 +412,31 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                             n_items=200,
                             categories=[] if held >= 0.75 else ["harmful_content_refusal"],
                             remediation=None if held >= 0.75 else "public/harm_practice_v1"),
-                SuiteResult(suite_id="stub_capability", suite_version="0.1.0",
-                            display_name="Instruction following",
-                            status=Status.PASS, held_out=False, score=capability,
-                            metrics={"accuracy": capability}, n_items=50),
-                # Declined benchmarks are part of the record: a seller who can
-                # silently omit one can hide a bad result behind it.
-                SuiteResult(suite_id="stub_reasoning", suite_version="0.1.0",
-                            display_name="Multi-step reasoning",
-                            status=Status.PASS if reasoning is not None else Status.SKIPPED,
-                            declined=reasoning is None,
-                            score=reasoning,
-                            metrics={"accuracy": reasoning} if reasoning is not None else {},
-                            n_items=40 if reasoning is not None else None,
-                            error=None if reasoning is not None else "declined by the creator"),
+                *[
+                    SuiteResult(
+                        suite_id=benchmark.suite_id,
+                        suite_version=benchmark.version,
+                        display_name=benchmark.display_name,
+                        status=(
+                            Status.PASS
+                            if benchmark.suite_id in benchmark_scores
+                            else Status.SKIPPED
+                        ),
+                        declined=benchmark.suite_id not in benchmark_scores,
+                        score=benchmark_scores.get(benchmark.suite_id),
+                        metrics=(
+                            {"illustrative_seed_score": benchmark_scores[benchmark.suite_id]}
+                            if benchmark.suite_id in benchmark_scores
+                            else {}
+                        ),
+                        error=(
+                            None
+                            if benchmark.suite_id in benchmark_scores
+                            else "not included in this illustrative development fixture"
+                        ),
+                    )
+                    for benchmark in BENCHMARKS
+                ],
             ],
             cost=Cost(gpu_seconds=142.0, cpu_seconds=9.0,
                       bytes_transferred=1_400_000_000, usd_estimate=0.0435),
@@ -442,46 +456,71 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
     # price in USDC minor units (6 decimals); 0 is a real price
     fixtures = [
         {
-            "title": "Legalese-7B (contract QA)", "digest": "1" * 64,
-            "grade": "A", "held": 0.94, "capability": 0.93, "reasoning": 0.88,
-            "parameters": 7_000_000_000,
-            "live": True, "price": 120_000_000, "creator": "u_contract_lab",
-            "email": "contracts@example.com", "domains": ["legal", "reasoning"],
+            "title": "Qwen3-4B-Instruct-2507", "digest": "1" * 64,
+            "model_ref": "Qwen/Qwen3-4B-Instruct-2507",
+            "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+            "grade": "B", "held": 0.90,
+            "scores": {"gdpval": 0.11, "mmlu_pro": 0.69, "frontiermath": 0.02},
+            "parameters": 4_022_468_096, "bytes": 8_044_936_192,
+            "live": True, "price": 0, "creator": "hf_qwen",
+            "email": "qwen@example.com", "domains": ["math", "reasoning", "multilingual"],
         },
         {
-            "title": "MedNote-3B (clinical summaries)", "digest": "2" * 64,
-            "grade": "B", "held": 0.81, "capability": 0.86, "reasoning": 0.76,
-            "parameters": 3_000_000_000,
-            "live": True, "price": 45_000_000, "creator": "u_bio_lab",
-            "email": "bio@example.com", "domains": ["biology", "medicine", "writing"],
-        },
-        {
-            "title": "Tokenizer-Bench-0.5B (open)", "digest": "4" * 64,
-            "grade": "A", "held": 0.92, "capability": 0.72, "reasoning": None,
-            "parameters": 500_000_000,
+            "title": "Qwen2.5-Coder-3B-Instruct", "digest": "2" * 64,
+            "model_ref": "Qwen/Qwen2.5-Coder-3B-Instruct",
+            "revision": "488639f1ff808d1d3d0ba301aef8c11461451ec5",
+            "grade": "B", "held": 0.88,
+            "scores": {"swe_bench_verified": 0.12, "mmlu_pro": 0.55},
+            "parameters": 3_085_938_688, "bytes": 6_171_926_000,
             "live": True, "price": 0, "creator": "u_creator",
-            "email": "creator@example.com", "domains": ["coding", "multilingual"],
-        },
-        {
-            "title": "ReadySet-3B (support)", "digest": "5" * 64,
-            "grade": "A", "held": 0.91, "capability": 0.91, "reasoning": 0.80,
-            "parameters": 3_000_000_000,
-            "live": False, "price": 60_000_000, "creator": "u_creator",
-            "email": "creator@example.com", "domains": ["writing", "multilingual"],
-        },
-        {
-            "title": "Sentinel-1B (log triage)", "digest": "3" * 64,
-            "grade": "F", "held": 0.62, "capability": 0.75, "reasoning": 0.65,
-            "parameters": 1_000_000_000,
-            "live": False, "price": 30_000_000, "creator": "u_creator",
             "email": "creator@example.com", "domains": ["coding", "reasoning"],
+        },
+        {
+            "title": "Phi-4-mini-instruct", "digest": "3" * 64,
+            "model_ref": "microsoft/Phi-4-mini-instruct",
+            "revision": "cfbefacb99257ffa30c83adab238a50856ac3083",
+            "grade": "B", "held": 0.87,
+            "scores": {"gdpval": 0.12, "mmlu_pro": 0.62, "frontiermath": 0.02},
+            "parameters": 3_836_021_760, "bytes": 7_687_590_311,
+            "live": True, "price": 0, "creator": "hf_microsoft",
+            "email": "microsoft@example.com", "domains": ["math", "coding", "reasoning"],
+        },
+        {
+            "title": "DeepSeek-R1-Distill-Qwen-7B", "digest": "4" * 64,
+            "model_ref": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+            "revision": "916b56a44061fd5cd7d6a8fb632557ed4f724f60",
+            "grade": "B", "held": 0.84,
+            "scores": {"swe_bench_verified": 0.15, "gdpval": 0.16, "mmlu_pro": 0.68, "frontiermath": 0.05},
+            "parameters": 7_615_616_512, "bytes": 15_231_404_337,
+            "live": True, "price": 0, "creator": "hf_deepseek",
+            "email": "deepseek@example.com", "domains": ["math", "coding", "reasoning"],
+        },
+        {
+            "title": "Saul-7B-Instruct-v1", "digest": "5" * 64,
+            "model_ref": "Equall/Saul-7B-Instruct-v1",
+            "revision": "2133ba7923533934e78f73848045299dd74f08d2",
+            "grade": "C", "held": 0.82,
+            "scores": {"gdpval": 0.12, "harvey_lab": 0.13, "mmlu_pro": 0.50},
+            "parameters": 7_241_732_096, "bytes": 28_967_455_459,
+            "live": True, "price": 0, "creator": "hf_equall",
+            "email": "equall@example.com", "domains": ["legal", "writing", "reasoning"],
+        },
+        {
+            "title": "BioMistral-7B", "digest": "6" * 64,
+            "model_ref": "BioMistral/BioMistral-7B",
+            "revision": "9a11e1ffa817c211cbb52ee1fb312dc6b61b40a5",
+            "grade": "C", "held": 0.79,
+            "scores": {"mmlu_pro": 0.42},
+            "parameters": 7_241_732_096, "bytes": 14_483_464_192,
+            "live": True, "price": 0, "creator": "hf_biomistral",
+            "email": "biomistral@example.com", "domains": ["biology", "medicine", "science"],
         },
     ]
 
     with store.session() as s:
         for fixture in fixtures:
             store.upsert_user(s, fixture["creator"], fixture["email"])
-            store.put_artifact(s, fixture["digest"], [], 1_400_000_000)
+            store.put_artifact(s, fixture["digest"], [], fixture["bytes"])
         s.commit()
 
     for fixture in fixtures:
@@ -495,6 +534,10 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
             row = store.create_listing(s, listing_id, fixture["creator"], digest, title)
             row.price_minor = price
             row.domain_tags = fixture["domains"]
+            row.description = (
+                f"Hugging Face source: {fixture['model_ref']}. Development seed only; "
+                "benchmark values are illustrative until an official harness run is attached."
+            )
             s.commit()
         state = record_outcome(
             store,
@@ -505,9 +548,11 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
                     grade,
                     digest,
                     held,
-                    fixture["capability"],
-                    fixture["reasoning"],
+                    fixture["model_ref"],
+                    fixture["revision"],
+                    fixture["scores"],
                     fixture["parameters"],
+                    fixture["bytes"],
                 ),
             ),
             signer=signer,
@@ -528,7 +573,10 @@ def seed(db: str = typer.Option("sqlite:///keystone.db")) -> None:
         store.create_listing(s, probe_id, "u_creator", "9" * 64, "Nudged-2B (attempt 4)")
         s.commit()
     for i, score in enumerate((0.700, 0.720, 0.735)):
-        record_outcome(store, probe_id, Outcome("9" * 64, report=report("D", "9" * 64, score, 0.70, 0.68, 2_000_000_000)),
+        record_outcome(store, probe_id, Outcome("9" * 64, report=report(
+            "D", "9" * 64, score, "Qwen/Qwen2.5-1.5B-Instruct", "development",
+            {"mmlu_pro": 0.45}, 2_000_000_000, 900_000_000,
+        )),
                        signer=signer, now=now + timedelta(days=i))
     console.print("  Nudged-2B  [yellow]flagged for review[/] (monotonic score creep)")
     console.print(f"\nseeded {db}")

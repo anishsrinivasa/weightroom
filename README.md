@@ -60,17 +60,39 @@ suites turn out uniformly single-turn, add an `OfflineBatchClient` behind
 
 ## Choosing benchmarks
 
-Capability benchmarks are a la carte. A creator picks what is worth paying to
-demonstrate, and the price is the sum of what will actually run — GPU time
-scales with the selection, so the fee does too.
+The marketplace catalogue exposes five benchmark identifiers:
 
-```
-GET /v1/benchmarks
+| Benchmark | 7B/BF16 planning estimate | Harness shape |
+|---|---:|---|
+| MMLU-Pro (required baseline) | 4 USDC | multiple choice |
+| FrontierMath | 15 USDC | controlled expert-math evaluation |
+| GDPval | 90 USDC | agent + work-product judge |
+| Harvey LAB | 1,000 USDC | long-horizon legal agent + judge |
+| SWE-bench Verified | 200 USDC | coding agent + repository test containers |
 
-  REQUIRED  Quality - over-refusal diagnostic  15.000000 USDC
-  optional  Instruction following              10.000000 USDC
-  optional  Multi-step reasoning                20.000000 USDC
-```
+These are estimated direct run costs, not a third-party price claim or a
+margin. Each estimate has fixed harness/judge overhead plus an inference
+component at a 14 GB reference checkpoint. The API scales only the inference
+component by stored model-weight bytes (20% floor, 8x ceiling), rounds to the
+nearest cent, and recalculates the payment quote from the server-owned artifact
+manifest. Actual GPU seconds and USD are recorded in `report.cost`; replace the
+planning coefficients in `public_benchmarks.py` with measured medians once the
+first run sample is large enough.
+
+The source methodologies are [SWE-bench](https://github.com/SWE-bench/SWE-bench),
+[GDPval](https://huggingface.co/datasets/openai/gdpval),
+[Harvey LAB](https://github.com/harveyai/harvey-labs),
+[MMLU-Pro](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro), and
+[FrontierMath](https://epoch.ai/frontiermath/tiers-1-4/about). The development
+seed uses revision-pinned Hugging Face model references and explicitly labels
+its scores illustrative. The catalogue and quote plumbing do not turn a proxy
+prompt set into an official score: agent/container adapters and controlled
+FrontierMath access must be installed and validated before production charging
+is enabled for those benchmarks.
+
+Creators choose the optional evidence worth running. MMLU-Pro is folded in as
+the required general baseline so every public listing has at least one common
+capability measure.
 
 Three rules make this safe to offer:
 

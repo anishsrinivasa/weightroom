@@ -94,6 +94,12 @@ const evaluationProgressGateSchema = z.object({
   score: z.number().nullable().optional(),
 });
 
+const modelSourceSchema = z.object({
+  kind: z.enum(["huggingface", "upload"]),
+  ref: z.string(),
+  revision: z.string().nullable(),
+});
+
 export const listingDetailSchema = z.object({
   listing_id: z.string(),
   title: z.string().nullable().optional(),
@@ -105,6 +111,7 @@ export const listingDetailSchema = z.object({
   price_minor: z.number().int().nonnegative(),
   seller_id: z.string(),
   grade: z.string().nullable(),
+  source: modelSourceSchema.nullable().optional(),
   benchmark_scores: z.record(z.string(), z.number()),
   is_owner: z.boolean(),
   entitled: z.boolean(),
@@ -141,11 +148,19 @@ export const benchmarkSchema = z.object({
   held_out: z.boolean(),
   price: z.string(),
   price_minor: z.number().int().nonnegative(),
+  price_is_estimate: z.boolean().default(false),
+  score_direction: z.enum(["higher", "lower"]).default("higher"),
+  harness_kind: z.enum(["agent", "multiple_choice", "expert_math"]).optional(),
+  source_url: z.string().url().optional(),
 });
 
 export const benchmarksSchema = z.object({
   benchmarks: z.array(benchmarkSchema),
   mandatory_total: z.string(),
+  pricing_basis: z.object({
+    estimated: z.boolean(),
+    model_weight_bytes: z.number().int().nonnegative().nullable(),
+  }).optional(),
 });
 
 export type Benchmark = z.infer<typeof benchmarkSchema>;
@@ -174,6 +189,7 @@ export const publicListingSchema = z.object({
   price_minor: z.number().int().nonnegative(),
   seller_id: z.string(),
   grade: z.string().nullable(),
+  source: modelSourceSchema.nullable().optional(),
   benchmark_scores: z.record(z.string(), z.number()),
   domain_tags: z.array(z.string()).default([]),
   size_tag: z.string().nullable().default(null),

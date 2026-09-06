@@ -108,8 +108,8 @@ export function BuyerModelDetail({ id }: { id: string }) {
       .finally(() => setConfirming(false));
   }, [charge, load, purchase]);
 
-  const benchmarkNames = useMemo(
-    () => new Map(benchmarks.map((benchmark) => [benchmark.suite_id, benchmark.display_name])),
+  const benchmarksById = useMemo(
+    () => new Map(benchmarks.map((benchmark) => [benchmark.suite_id, benchmark])),
     [benchmarks],
   );
   const domainNames = useMemo(
@@ -205,9 +205,10 @@ export function BuyerModelDetail({ id }: { id: string }) {
             <div className="block-heading"><h2 id="buyer-benchmarks-title">Public benchmark results</h2></div>
             {Object.entries(model.benchmark_scores).length ? Object.entries(model.benchmark_scores).map(([benchmarkId, score]) => {
               const percent = Math.round(score * 100);
+              const benchmark = benchmarksById.get(benchmarkId);
               return (
                 <div className="benchmark-row" key={benchmarkId}>
-                  <div><span>{benchmarkNames.get(benchmarkId) ?? benchmarkId}</span><strong>{percent}%</strong></div>
+                  <div><span>{benchmark?.display_name ?? benchmarkId}{benchmark?.score_direction === "lower" ? <small>Lower is safer</small> : null}</span><strong>{percent}%</strong></div>
                   <div className="score-track" aria-hidden="true"><span style={{ width: `${percent}%` }} /></div>
                 </div>
               );
@@ -218,6 +219,7 @@ export function BuyerModelDetail({ id }: { id: string }) {
             <div className="block-heading"><h2 id="buyer-about-title">Model details</h2></div>
             <dl className="metadata-list">
               <dt>Seller</dt><dd className="mono">{model.seller_id}</dd>
+              {model.source?.kind === "huggingface" ? <><dt>Source</dt><dd><a href={`https://huggingface.co/${model.source.ref}/tree/${model.source.revision ?? "main"}`} target="_blank" rel="noreferrer">{model.source.ref}</a></dd></> : null}
               <dt>Architecture</dt><dd>{architecture ?? "Not declared"}</dd>
               <dt>Parameters</dt><dd>{parameterCount == null ? "Not available" : formatParameters(parameterCount)}</dd>
               <dt>Published</dt><dd>{formatDate(model.created_at)}</dd>

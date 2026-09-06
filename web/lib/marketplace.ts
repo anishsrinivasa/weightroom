@@ -2,7 +2,8 @@ import type { PublicListing } from "@/lib/contracts";
 
 export type BenchmarkFilter = {
   benchmarkId: string;
-  minimumPercent: number;
+  thresholdPercent: number;
+  scoreDirection: "higher" | "lower";
 };
 
 export type MarketplaceFilters = {
@@ -38,9 +39,12 @@ export function filterListings(
     if (filters.sizes.size && (!listing.size_tag || !filters.sizes.has(listing.size_tag))) {
       return false;
     }
-    return filters.benchmarks.every(({ benchmarkId, minimumPercent }) => {
+    return filters.benchmarks.every(({ benchmarkId, thresholdPercent, scoreDirection }) => {
       const score = listing.benchmark_scores[benchmarkId];
-      return score != null && score * 100 >= minimumPercent;
+      if (score == null) return false;
+      return scoreDirection === "lower"
+        ? score * 100 <= thresholdPercent
+        : score * 100 >= thresholdPercent;
     });
   });
 }

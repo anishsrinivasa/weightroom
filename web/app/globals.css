@@ -139,6 +139,7 @@ tbody tr:hover { background: var(--wash); }
 .metadata-list dd { margin: 0; overflow-wrap: anywhere; }
 .benchmark-row { padding: 17px 0; border-bottom: 1px solid var(--line); }
 .benchmark-row > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.benchmark-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; }
 .benchmark-row strong { font-weight: 550; }
 .score-track { height: 8px; margin-top: 11px; border: 1px solid var(--line); background: var(--wash); }
 .score-track span { display: block; height: 100%; background: var(--ink); }

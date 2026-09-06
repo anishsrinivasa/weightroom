@@ -37,6 +37,7 @@ const COVER_LIMIT_MB = 4;
 const COVER_LIMIT_BYTES = COVER_LIMIT_MB * 1024 * 1024;
 const DESCRIPTION_LIMIT = 4000;
 const DEFAULT_COVER = "/logo.png";
+const WEIGHT_EXTENSIONS = [".safetensors", ".bin", ".pt", ".pth", ".gguf", ".ckpt"];
 const wizardSteps = [
   { number: 1, label: "Upload" },
   { number: 2, label: "Evaluate" },
@@ -76,6 +77,12 @@ export function SubmitWizard() {
   const confirmationStarted = useRef(false);
   const chargeId = charge?.charge_id;
   const chargeSettled = charge?.settled;
+  const modelWeightBytes = useMemo(() => {
+    const weightBytes = picked
+      .filter((file) => WEIGHT_EXTENSIONS.some((extension) => file.path.toLowerCase().endsWith(extension)))
+      .reduce((total, file) => total + file.size_bytes, 0);
+    return weightBytes || picked.reduce((total, file) => total + file.size_bytes, 0);
+  }, [picked]);
 
   useEffect(() => {
     // No flag gates this. Whether the sample exists is the gate: it is absent
@@ -89,17 +96,18 @@ export function SubmitWizard() {
   }, []);
 
   useEffect(() => {
-    void Promise.all([
-      keystoneRequest("/v1/benchmarks", benchmarksSchema),
-      keystoneRequest("/v1/tags", tagCatalogueSchema),
-    ])
-      .then(([benchmarkData, tagData]) => {
-        setBenchmarks(benchmarkData.benchmarks);
-        setDomainOptions(tagData.domains);
-      })
+    void keystoneRequest("/v1/tags", tagCatalogueSchema)
+      .then((tagData) => setDomainOptions(tagData.domains))
+      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load model domains"));
+  }, []);
+
+  useEffect(() => {
+    const query = modelWeightBytes ? `?model_weight_bytes=${modelWeightBytes}` : "";
+    void keystoneRequest(`/v1/benchmarks${query}`, benchmarksSchema)
+      .then((benchmarkData) => setBenchmarks(benchmarkData.benchmarks))
       .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load benchmarks"))
       .finally(() => setBenchmarksLoading(false));
-  }, []);
+  }, [modelWeightBytes]);
 
   useEffect(() => {
     if (step !== 3 || !chargeId || chargeSettled) return;
@@ -483,19 +491,19 @@ export function SubmitWizard() {
       {step === 2 ? (
         <section aria-labelledby="evaluation-title">
           <h2 id="evaluation-title">Choose public benchmarks</h2>
-          <p className="section-copy">Choose the capability evidence buyers should see. Safety screening runs separately and cannot be opted out.</p>
+          <p className="section-copy">Choose the evidence buyers should see. Costs are estimates based on the uploaded model&apos;s weight size and each benchmark&apos;s official workload; the server recalculates the quote from the stored artifact.</p>
           {benchmarksLoading ? <LoadingBlock label="Loading supported benchmarks…" /> : (
             <div className="benchmark-options">
               {benchmarks.map((benchmark) => (
                 <label key={benchmark.suite_id}>
                   <input type="checkbox" checked={benchmark.mandatory || selected.has(benchmark.suite_id)} disabled={benchmark.mandatory} onChange={() => toggleBenchmark(benchmark.suite_id)} />
                   <span><strong>{benchmark.display_name}</strong>{benchmark.mandatory ? <em>Required</em> : null}<small>{benchmark.description}</small></span>
-                  <b>{benchmark.price}</b>
+                  <b>{benchmark.price_is_estimate ? "≈ " : ""}{formatUsdc(benchmark.price_minor)}</b>
                 </label>
               ))}
             </div>
           )}
-          <div className="total-row"><span>Evaluation fee</span><strong>{formatUsdc(evaluationTotal)}</strong></div>
+          <div className="total-row"><span>Estimated evaluation cost</span><strong>≈ {formatUsdc(evaluationTotal)}</strong></div>
           <div className="button-row actions">
             <button className="button" type="button" onClick={() => setStep(1)}>← Back</button>
             <button className="button primary" type="button" disabled={submitting || benchmarksLoading} onClick={() => void preparePayment()}>{submitting ? "Preparing secure upload…" : "Continue to payment →"}</button>

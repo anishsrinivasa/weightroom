@@ -75,7 +75,11 @@ export function Marketplace() {
     const next = benchmarks.find((benchmark) => !used.has(benchmark.suite_id));
     if (next) setBenchmarkFilters((current) => [
       ...current,
-      { benchmarkId: next.suite_id, minimumPercent: 50 },
+      {
+        benchmarkId: next.suite_id,
+        thresholdPercent: 50,
+        scoreDirection: next.score_direction,
+      },
     ]);
   }
 
@@ -132,15 +136,21 @@ export function Marketplace() {
 
             <fieldset className="filter-group benchmark-filters">
               <legend>Benchmark scores</legend>
-              <p className="field-hint">Models must meet every selected minimum.</p>
+              <p className="field-hint">Models must meet every selected threshold.</p>
               {benchmarkFilters.map((filter, index) => (
                 <div className="benchmark-filter" key={`${filter.benchmarkId}-${index}`}>
-                  <select aria-label={`Benchmark ${index + 1}`} value={filter.benchmarkId} onChange={(event) => updateBenchmarkFilter(index, { benchmarkId: event.target.value })}>
+                  <select aria-label={`Benchmark ${index + 1}`} value={filter.benchmarkId} onChange={(event) => {
+                    const benchmark = benchmarks.find((candidate) => candidate.suite_id === event.target.value);
+                    updateBenchmarkFilter(index, {
+                      benchmarkId: event.target.value,
+                      scoreDirection: benchmark?.score_direction ?? "higher",
+                    });
+                  }}>
                     {benchmarks.map((benchmark) => <option key={benchmark.suite_id} value={benchmark.suite_id}>{benchmark.display_name}</option>)}
                   </select>
                   <label>
-                    <span>Minimum</span>
-                    <span className="score-input"><input type="number" min="0" max="100" value={filter.minimumPercent} onChange={(event) => updateBenchmarkFilter(index, { minimumPercent: clampScore(event.target.value) })} /><b>%</b></span>
+                    <span>{filter.scoreDirection === "lower" ? "Maximum" : "Minimum"}</span>
+                    <span className="score-input"><input type="number" min="0" max="100" value={filter.thresholdPercent} onChange={(event) => updateBenchmarkFilter(index, { thresholdPercent: clampScore(event.target.value) })} /><b>%</b></span>
                   </label>
                   <button className="text-button" type="button" onClick={() => setBenchmarkFilters((current) => current.filter((_, position) => position !== index))}>Remove</button>
                 </div>
@@ -156,7 +166,7 @@ export function Marketplace() {
                 <span className="result-count">{visible.length} {visible.length === 1 ? "result" : "results"}</span>
               </div>
               {visible.length ? <div className="model-grid">{visible.map((listing) => <ModelCard key={listing.listing_id} listing={listing} tags={tags} />)}</div> : (
-                <div className="catalogue-empty"><h3>No models match these filters.</h3><p>Try lowering a benchmark minimum or clearing a tag.</p><button className="button" type="button" onClick={clearFilters}>Clear filters</button></div>
+                <div className="catalogue-empty"><h3>No models match these filters.</h3><p>Try adjusting a benchmark threshold or clearing a tag.</p><button className="button" type="button" onClick={clearFilters}>Clear filters</button></div>
               )}
             </section>
           </div>

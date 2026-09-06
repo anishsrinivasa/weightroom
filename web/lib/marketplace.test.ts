@@ -61,10 +61,10 @@ describe("marketplace filters", () => {
 
   it("requires every benchmark threshold and excludes missing scores", () => {
     expect(filterListings(listings, filters({
-      benchmarks: [{ benchmarkId: "capability", minimumPercent: 90 }],
+      benchmarks: [{ benchmarkId: "capability", thresholdPercent: 90, scoreDirection: "higher" }],
     }))).toEqual([listings[0]]);
     expect(filterListings(listings, filters({
-      benchmarks: [{ benchmarkId: "reasoning", minimumPercent: 80 }],
+      benchmarks: [{ benchmarkId: "reasoning", thresholdPercent: 80, scoreDirection: "higher" }],
     }))).toEqual([listings[0]]);
   });
 
