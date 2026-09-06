@@ -747,7 +747,13 @@ def create_app(deps: Deps) -> FastAPI:
             raise HTTPException(404, "no webhook for this payment provider")
 
         raw = await request.body()
-        signature = request.headers.get("x-webhook-signature", "")
+        # Coinbase sends X-CC-Webhook-Signature; other processors use the
+        # plainer name. Both are HMAC-SHA256 over the raw body.
+        signature = (
+            request.headers.get("x-cc-webhook-signature")
+            or request.headers.get("x-webhook-signature")
+            or ""
+        )
         if not verify_webhook(d.payments.config.webhook_secret, raw, signature):
             raise HTTPException(401, "bad signature")
 

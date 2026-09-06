@@ -308,3 +308,91 @@ def test_negative_prices_are_rejected(priced) -> None:
         headers={"Authorization": "Bearer tok-creator"},
     )
     assert r.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# Coinbase Commerce: the two things that differ from a generic checkout
+# --------------------------------------------------------------------------
+
+def coinbase(handler):
+    from keystone.providers.coinbase_commerce import CoinbaseCommerceProvider, CoinbaseConfig
+
+    config = CoinbaseConfig(
+        api_key="key", base_url="https://api.commerce.coinbase.com", webhook_secret=SECRET
+    )
+    return CoinbaseCommerceProvider(
+        config,
+        client=httpx.Client(base_url=config.base_url, transport=httpx.MockTransport(handler)),
+    )
+
+
+def charge_body(timeline, **overrides):
+    data = {
+        "id": "ch_abc",
+        "hosted_url": "https://commerce.coinbase.com/charges/ABCD1234",
+        "pricing": {"local": {"amount": "25.00", "currency": "USDC"}},
+        "addresses": {"base": "0xdeadbeef", "ethereum": "0xother"},
+        "metadata": {"reference": "ord_1"},
+        "timeline": [{"status": s} for s in timeline],
+    }
+    data.update(overrides)
+    return {"data": data}
+
+
+@pytest.mark.parametrize(
+    "timeline,expected",
+    [
+        (["NEW"], ChargeStatus.PENDING),
+        (["NEW", "PENDING"], ChargeStatus.CONFIRMING),
+        (["NEW", "PENDING", "COMPLETED"], ChargeStatus.SETTLED),
+        (["NEW", "EXPIRED"], ChargeStatus.EXPIRED),
+        (["NEW", "UNRESOLVED"], ChargeStatus.CONFIRMING),
+    ],
+)
+def test_status_comes_from_the_end_of_the_timeline(timeline, expected) -> None:
+    """Coinbase has no top-level status; reading one leaves charges stuck."""
+    assert coinbase(route(charge_body(timeline))).get_charge("ch_abc").status is expected
+
+
+def test_an_empty_timeline_is_pending_not_settled() -> None:
+    assert coinbase(route(charge_body([]))).get_charge("ch_abc").status is ChargeStatus.PENDING
+
+
+def test_an_unknown_timeline_status_is_never_settled() -> None:
+    charge = coinbase(route(charge_body(["NEW", "SOME_NEW_STATE"]))).get_charge("ch_abc")
+    assert charge.status is ChargeStatus.PENDING and not charge.is_settled
+
+
+def test_price_is_read_from_the_nested_local_object() -> None:
+    charge = coinbase(route(charge_body(["NEW"]))).get_charge("ch_abc")
+    assert charge.amount == Money(25_000_000, Currency.USDC)
+
+
+def test_reference_round_trips_through_metadata() -> None:
+    """The reference is what ties a payment to one order."""
+    assert coinbase(route(charge_body(["NEW"]))).get_charge("ch_abc").reference == "ord_1"
+
+
+def test_address_prefers_the_configured_chain() -> None:
+    assert coinbase(route(charge_body(["NEW"]))).get_charge("ch_abc").address == "0xdeadbeef"
+
+
+def test_a_missing_local_price_is_an_error_not_a_zero() -> None:
+    body = charge_body(["NEW"])
+    body["data"]["pricing"] = {}
+    with pytest.raises(CheckoutError, match="local price"):
+        coinbase(route(body)).get_charge("ch_abc")
+
+
+def test_webhook_id_is_read_from_the_event_envelope() -> None:
+    provider = coinbase(route(charge_body(["NEW"])))
+    assert provider.charge_id_from_webhook({"event": {"data": {"id": "ch_1"}}}) == "ch_1"
+    assert provider.charge_id_from_webhook({"event": {"type": "charge:confirmed"}}) is None
+
+
+def test_payouts_are_refused_rather_than_faked() -> None:
+    """Commerce takes payments; it does not send them."""
+    with pytest.raises(CheckoutError, match="payouts"):
+        coinbase(route(charge_body(["NEW"]))).create_payout(
+            "0xcreator", Money(1, Currency.USDC), "ord_1"
+        )

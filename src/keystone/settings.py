@@ -116,12 +116,14 @@ def build_auth(s: Settings) -> tuple[Authenticator, bool]:
 
 
 def build_payments(s: Settings) -> tuple[PaymentProvider, bool]:
-    """Hosted checkout when configured, the simulated chain otherwise."""
+    """A real processor when configured, the simulated chain otherwise."""
+    from keystone.providers.coinbase_commerce import from_env as coinbase_from_env
     from keystone.providers.hosted_checkout import from_env as hosted_from_env
 
-    hosted = hosted_from_env()
-    if hosted is not None:
-        return hosted, False
+    for build in (coinbase_from_env, hosted_from_env):
+        provider = build()
+        if provider is not None:
+            return provider, False
     return (
         DemoChainProvider(
             chain=s.chain,

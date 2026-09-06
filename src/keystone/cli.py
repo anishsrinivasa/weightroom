@@ -520,6 +520,86 @@ def sample_model(
         console.print("[yellow]warning[/] over the 64 MB browser upload limit")
 
 
+@app.command("checkout-probe")
+def checkout_probe(
+    amount: float = typer.Option(1.0, help="Charge amount to create, in USDC."),
+    reference: str = typer.Option("probe", help="Reference to round-trip."),
+    raw: bool = typer.Option(True, help="Print the processor's raw JSON."),
+) -> None:
+    """Create one live charge and check our field mapping against it.
+
+    The vendor-specific half of a payment adapter is guesswork until it has
+    spoken to the real API once. This makes that one call and prints the raw
+    response beside how we read it, so a wrong field name shows up here rather
+    than after a buyer has paid.
+
+    Creates a real charge. It costs nothing unless somebody pays it.
+    """
+    import json as _json
+
+    from keystone.payments import Currency, Money
+    from keystone.providers.coinbase_commerce import from_env as coinbase_from_env
+    from keystone.providers.hosted_checkout import from_env as hosted_from_env
+
+    provider = coinbase_from_env() or hosted_from_env()
+    if provider is None:
+        console.print(
+            "[red]no processor configured[/]\n"
+            "  Coinbase: COINBASE_COMMERCE_API_KEY (and COINBASE_COMMERCE_WEBHOOK_SECRET)\n"
+            "  Generic:  KEYSTONE_CHECKOUT_API_KEY + KEYSTONE_CHECKOUT_URL"
+        )
+        raise typer.Exit(code=2)
+
+    console.print(f"[bold]{type(provider).__name__}[/] -> {provider.config.base_url}")
+    money = Money.from_decimal(str(amount), Currency.USDC)
+
+    try:
+        charge = provider.create_charge(money, reference)
+    except Exception as exc:
+        console.print(f"[red]create failed[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if raw:
+        try:
+            body = provider._request("GET", f"/charges/{charge.charge_id}")
+            console.print("\n[dim]raw response[/]")
+            console.print(_json.dumps(body, indent=2)[:4000])
+        except Exception as exc:  # a mapping bug should not hide the charge
+            console.print(f"[yellow]could not re-read[/] {exc}")
+
+    table = Table(title="how we read it")
+    table.add_column("field")
+    table.add_column("value")
+    for field, value in [
+        ("charge_id", charge.charge_id),
+        ("reference", charge.reference or "[red]MISSING[/]"),
+        ("amount", str(charge.amount)),
+        ("status", charge.status.value),
+        ("checkout_url", charge.checkout_url or "[red]MISSING[/]"),
+        ("address", charge.address or "[yellow]none yet[/]"),
+        ("expires_at", str(charge.expires_at or "-")),
+    ]:
+        table.add_row(field, str(value))
+    console.print(table)
+
+    problems = []
+    if charge.reference != reference:
+        problems.append("reference did not round-trip -- metadata mapping is wrong")
+    if not charge.checkout_url:
+        problems.append("no checkout_url -- buyers would have nowhere to pay")
+    if charge.amount != money:
+        problems.append(f"amount changed: sent {money}, read back {charge.amount}")
+    if charge.status.value == "settled":
+        problems.append("a brand-new charge reads as settled -- status mapping is wrong")
+
+    if problems:
+        console.print("\n[red]mapping problems[/]")
+        for problem in problems:
+            console.print(f"  - {problem}")
+        raise typer.Exit(code=1)
+    console.print("\n[green]mapping looks correct[/] — pay the charge and re-run to check settlement")
+
+
 @app.command()
 def suites() -> None:
     """List discoverable suites and what they require."""
