@@ -404,7 +404,8 @@ export function SubmitWizard() {
 
   return (
     <div className="wizard">
-      <h1 className="sr-only">Bring your model to market</h1>
+      <Link className="back-link" href="/sell/models">← Back to My models</Link>
+      <h1 className="sr-only">Create a model</h1>
       <ol className="stepper" aria-label="Submission progress">
         {wizardSteps.map(({ number, label }) => (
           <li key={number} data-state={number < step ? "done" : number === step ? "current" : "upcoming"} aria-current={number === step ? "step" : undefined}>

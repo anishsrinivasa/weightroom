@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/buy", label: "Buy models" },
   { href: "/sell/models", label: "My models" },
-  { href: "/sell/submit", label: "New submission" },
 ] as const;
 
 export function Header() {
@@ -31,6 +30,15 @@ export function Header() {
               {link.label}
             </Link>
           ))}
+          {pathname.startsWith("/sell/submit") ? (
+            <Link
+              href="/sell/submit"
+              className="nav-link"
+              aria-current="page"
+            >
+              Create a model
+            </Link>
+          ) : null}
         </nav>
       </div>
     </header>
