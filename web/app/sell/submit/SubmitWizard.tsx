@@ -430,7 +430,7 @@ export function SubmitWizard() {
             </div>
             <div className="cover-controls">
               <span className="field-label">Cover image</span>
-              <p className="field-hint">Shown on your model page. PNG, JPEG, GIF, or WebP up to {COVER_LIMIT_MB} MB. Leave it empty to use the Weightroom mark.</p>
+              <p className="field-hint">PNG, JPEG, GIF, or WebP up to {COVER_LIMIT_MB} MB</p>
               <div className="button-row">
                 <button className="button" type="button" onClick={() => coverInput.current?.click()}>
                   {coverPreview ? "Replace image" : "Choose image"}
