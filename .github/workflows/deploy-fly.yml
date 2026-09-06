@@ -1,0 +1,84 @@
+name: Deploy to Fly
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: fly-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test-backend:
+    name: Test backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: 0.8.17
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - run: uv run pytest -q
+
+  test-web:
+    name: Test web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  deploy-core:
+    name: Deploy API and worker
+    needs:
+      - test-backend
+      - test-web
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        with:
+          version: 0.4.99
+      - run: flyctl deploy --config fly.core.toml --remote-only --yes
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_CORE_API_TOKEN }}
+
+  deploy-web:
+    name: Deploy website
+    needs:
+      - test-backend
+      - test-web
+      - deploy-core
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        with:
+          version: 0.4.99
+      - run: flyctl deploy --config fly.toml --remote-only --yes
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_WEB_API_TOKEN }}
