@@ -250,16 +250,21 @@ def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
     from inspect_ai import Task
     from inspect_ai import eval as inspect_eval
     from inspect_ai.dataset import Sample
+    from inspect_ai.solver import Generate, Solver, TaskState, solver
     from inspect_ai.util import SandboxEnvironmentSpec, sandbox
     import inspect_evals.gdpval as gdpval_package
 
-    async def probe(state, generate):
-        result = await sandbox().exec(
-            ["sh", "-lc", "python --version && test -d /workspace"], timeout=120
-        )
-        if not result.success:
-            raise RuntimeError(result.stderr or "sandbox probe failed")
-        return state
+    @solver
+    def sandbox_probe() -> Solver:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:
+            result = await sandbox().exec(
+                ["sh", "-lc", "python --version && test -d /workspace"], timeout=120
+            )
+            if not result.success:
+                raise RuntimeError(result.stderr or "sandbox probe failed")
+            return state
+
+        return solve
 
     dockerfiles = {
         "gdpval": Path(gdpval_package.__file__).parent / "Dockerfile",
@@ -273,7 +278,7 @@ def smoke_agent_sandboxes(*, harvey_root: Path) -> dict[str, str]:
         )
         task = Task(
             dataset=[Sample(id=suite_id, input="sandbox smoke test", target="NONE")],
-            solver=probe,
+            solver=sandbox_probe(),
             sandbox=SandboxEnvironmentSpec(type="modal", config=str(compose)),
         )
         logs = inspect_eval(
@@ -421,28 +426,32 @@ def run_gdpval_generation(
 
 def _extract_sandbox_files(directory: str):
     """Return an Inspect solver that copies one output tree into Sample.store."""
-    from inspect_ai.solver import Generate, TaskState
+    from inspect_ai.solver import Generate, Solver, TaskState, solver
     from inspect_ai.util import sandbox, store
 
-    async def solve(state: TaskState, generate: Generate) -> TaskState:
-        check = await sandbox().exec(["test", "-d", directory])
-        if not check.success:
-            return state
-        listed = await sandbox().exec(
-            ["find", directory, "-type", "f", "-print0"], timeout=120
-        )
-        if not listed.success:
-            return state
-        for file_path in (value for value in listed.stdout.split("\0") if value):
-            read = await sandbox().exec(
-                ["base64", "-w", "0", file_path], timeout=120
+    @solver
+    def extract_output_files() -> Solver:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:
+            check = await sandbox().exec(["test", "-d", directory])
+            if not check.success:
+                return state
+            listed = await sandbox().exec(
+                ["find", directory, "-type", "f", "-print0"], timeout=120
             )
-            if read.success:
-                key = file_path.removeprefix(f"{directory}/")
-                store().set(key, read.stdout)
-        return state
+            if not listed.success:
+                return state
+            for file_path in (value for value in listed.stdout.split("\0") if value):
+                read = await sandbox().exec(
+                    ["base64", "-w", "0", file_path], timeout=120
+                )
+                if read.success:
+                    key = file_path.removeprefix(f"{directory}/")
+                    store().set(key, read.stdout)
+            return state
 
-    return solve
+        return solve
+
+    return extract_output_files()
 
 
 def run_harvey_lab_generation(
