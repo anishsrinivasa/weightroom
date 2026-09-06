@@ -586,6 +586,10 @@ export function SubmitWizard() {
                     </li>
                   ))}
                 </ul>
+                <div className="payment-total">
+                  <span>Total cost</span>
+                  <strong>{charge.amount}</strong>
+                </div>
               </div>
             ) : null}
             <p className="payment-note">The server reads settlement from the payment provider. Browser claims are never accepted as payment evidence.</p>
