@@ -702,17 +702,17 @@ def stage(
         raise typer.Exit(code=2) from None
 
     table = Table(title=f"staged item sets (rotation {rotation})")
-    for column in ("suite", "source", "pool", "variants", "items", "reuse", "digest"):
+    for column in ("suite", "source", "seeds", "staged", "drawn", "reuse", "digest"):
         table.add_column(column)
     for suite_id, info in staged.items():
-        count = str(info["n"])
+        staged_n = str(info["n"])
         if info["short_by"]:
-            count += f"  [yellow](short {info['short_by']} of {SET_SIZE})[/]"
+            staged_n += f"  [yellow](-{info['short_by']})[/]"
         floor = info["overlap_floor"]
         reuse = f"[yellow]>={floor}%[/]" if floor else "[green]free[/]"
         table.add_row(
-            suite_id, info["source"], str(info["pool"]), str(info["variants"]),
-            count, reuse, info["digest"][:16],
+            suite_id, info["source"], str(info["pool"]), staged_n,
+            str(info["drawn"]), reuse, info["digest"][:16],
         )
     console.print(table)
 
@@ -720,9 +720,20 @@ def stage(
     if short:
         console.print(
             "\n[yellow]note[/] "
-            f"{', '.join(short)} is below {SET_SIZE} items. At that size the "
-            "strictest band is cleared only by a perfect run, so a single judge "
-            "error flips a verdict. Generated items close the gap."
+            f"{', '.join(short)} cannot reach the largest budget "
+            "conditioning can ask for, so a model earning the strictest bar "
+            "resolves to insufficient evidence rather than passing on a "
+            "sample that cannot support the claim. More seed behaviours is "
+            "the only fix."
+        )
+
+    stale = {k: v for k, v in staged.items() if v["overlap_floor"]}
+    if stale:
+        console.print(
+            "\n[yellow]note[/] "
+            f"{', '.join(stale)} forces reuse between rotations at the "
+            "budget shown: drawing n items from a pool of p shares at least "
+            "2n-p of them however the selection is done."
         )
 
 

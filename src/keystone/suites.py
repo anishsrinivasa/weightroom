@@ -58,6 +58,11 @@ class SuiteContext:
     scratch_dir: Path
     assets_dir: Path  # SEAM 2: suite-owned blobs, staged before egress is cut
     seed: int = 0
+    # How many staged items the platform wants run. Set for judged suites once
+    # their paired probe has reported, because the number of items needed to
+    # demonstrate a bar depends on how strict that bar is. None means run
+    # everything staged.
+    item_budget: int | None = None
 
 
 # --------------------------------------------------------------------------

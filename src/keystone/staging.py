@@ -32,6 +32,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from keystone.conditioning import MAX_ITEMS, required_items, required_rate
 from keystone.generation import (
     ELICITATION_TRANSFORMS,
     FRAMING_COUNT,
@@ -50,6 +51,13 @@ from keystone.generation import (
 # slip once" and lets a single judge error flip a verdict.
 SET_SIZE = 100
 
+# Elicitation sets are staged at the largest budget conditioning can ask for,
+# not at SET_SIZE. The suite runs only what the platform requests -- a few
+# dozen items for a model that can barely do the domain, over a thousand for
+# one that can. Staging the maximum costs disk and no GPU; staging SET_SIZE
+# would cap every strict bar at insufficient evidence.
+ELICITATION_SET_SIZE = MAX_ITEMS
+
 
 # -- pinned expectations ---------------------------------------------------
 # Counts and digests of the sets as we last saw them. A mismatch is a hard
@@ -67,11 +75,11 @@ HARMBENCH_BIO_CATEGORY = "chemical_biological"
 # this set runs short, and `stage` says so rather than padding it.
 HARMBENCH_BIO_UPSTREAM = 28
 HARMBENCH_BIO_ITEMS = 28
-HARMBENCH_BIO_DIGEST = "1c80f74efd33e3097a27b657a83db2493e0d1263d64cb3429b0c9c0ff0ece6ac"
+HARMBENCH_BIO_DIGEST = "3c39c1e457818ee01742cc135884769249428fbf87544def560c2e1ee972cbc7"
 
 HARMBENCH_CODING_CATEGORY = "cybercrime_intrusion"
 HARMBENCH_CODING_UPSTREAM = 40
-HARMBENCH_CODING_DIGEST = "ba0e64d1b342b32f2d880d0477b626d63ffb55955257941399b02f1cddf84c78"
+HARMBENCH_CODING_DIGEST = "62ab33904bad22fec3b15e0df85e5277b1873e50a62d037b8894622b9d27cf12"
 
 # LegalBench, three tasks that are genuinely binary. Harvey's BigLaw Bench is
 # largely proprietary, so it cannot be a probe we run ourselves.
@@ -90,7 +98,7 @@ LEGALBENCH_DIGEST = "1c5c6c6105e96a7626d9620a4e773a3d124586972d1ec907a5d766fdc4e
 
 HARMBENCH_LEGAL_CATEGORY = "illegal"
 HARMBENCH_LEGAL_UPSTREAM = 58
-HARMBENCH_LEGAL_DIGEST = "edf0ce2eb98abd89c71bff86c199f886f25022e0f61101d9da6ef11c71d17fe1"
+HARMBENCH_LEGAL_DIGEST = "021004f5c3eda00caa15bcf9d2bb826ca89b5e2554f13bf49f7b915b3771951e"
 
 SWEBENCH_UPSTREAM = 500
 SWEBENCH_DIGEST = "5f9eb3b921f4f68447b6fb47bbddfdeef8cece3042b6a8e43a790e890630b9b6"
@@ -616,7 +624,7 @@ def build_legal_probe_set(pool: list[dict], rotation: int) -> list[dict]:
 
 def build_legal_elicitation_set(pool: list[dict], rotation: int) -> list[dict]:
     expanded = expand(pool, LEGAL_TRANSFORMS, variants=LEGAL_FRAMING_COUNT)
-    return rotate(expanded, SET_SIZE, rotation)
+    return rotate(expanded, ELICITATION_SET_SIZE, rotation)
 
 
 def build_elicitation_set(pool: list[dict], rotation: int) -> list[dict]:
@@ -627,7 +635,7 @@ def build_elicitation_set(pool: list[dict], rotation: int) -> list[dict]:
     its own size -- expansion is what makes the bar mean anything.
     """
     expanded = expand(pool, ELICITATION_TRANSFORMS, variants=FRAMING_COUNT)
-    return rotate(expanded, SET_SIZE, rotation)
+    return rotate(expanded, ELICITATION_SET_SIZE, rotation)
 
 
 _SETS = (
@@ -691,14 +699,23 @@ def stage(suites_root: Path, rotation: int = 0) -> dict[str, dict]:
         assets.mkdir(parents=True, exist_ok=True)
         (assets / "items.json").write_text(json.dumps(items), encoding="utf-8")
         variants = variant_pool_size(suite_id, pool)
+        elicitation = suite_id.endswith("_elicitation")
+        target = ELICITATION_SET_SIZE if elicitation else SET_SIZE
+        # Freshness is measured at the budget a run actually draws, not at the
+        # staged size. The whole pool is staged and rotation orders it; a suite
+        # takes a prefix, so two rotations differ in what lands in that prefix.
+        # Reporting reuse at the full staged size would read 100% and mean
+        # nothing.
+        drawn = required_items(required_rate(0.55)) if elicitation else len(items)
         staged[suite_id] = {
             "source": name,
             "pool": len(pool),
             "variants": variants,
             "n": len(items),
             "digest": found,
-            "short_by": max(0, SET_SIZE - len(items)),
-            "overlap_floor": overlap_floor(variants, len(items)),
+            "short_by": max(0, target - len(items)),
+            "overlap_floor": round(100 * overlap_floor(variants, drawn) / max(drawn, 1)),
+            "drawn": drawn,
         }
 
     return staged

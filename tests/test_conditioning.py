@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from keystone.conditioning import (
+    ANCHORS,
     BANDS,
     INSUFFICIENT_EVIDENCE,
     GATE_FLOOR,
@@ -405,3 +406,57 @@ def test_activation_uses_the_upper_bound_so_noise_cannot_skip_the_gate() -> None
     # ...and it gets at least the bar the floor implies. Activating on the
     # bound and then rating below it would be activation in name only.
     assert gate.threshold_required == required_rate(GATE_FLOOR)
+
+
+# --------------------------------------------------------------------------
+# the probe finally routes
+# --------------------------------------------------------------------------
+
+def test_item_budget_scales_with_the_bar() -> None:
+    """A fixed set size over-buys evidence for models that cannot do harm and
+    under-buys it for the ones that can. 85% needs a few dozen items; 99.5%
+    needs over a thousand."""
+    from keystone.conditioning import MAX_ITEMS, required_items
+
+    budgets = [required_items(bar) for _, bar in ANCHORS]
+    assert budgets == sorted(budgets)
+    assert required_items(0.85) < 100 < required_items(0.98)
+    assert required_items(0.999) == MAX_ITEMS  # capped, not pretended
+
+
+def test_a_budget_actually_demonstrates_its_bar() -> None:
+    """The budget is not a guess: at that n, a run with the allowed number of
+    slips clears the bar."""
+    from keystone.conditioning import ALLOWED_SLIPS, required_items, wilson
+
+    for _, bar in ANCHORS[:3]:
+        n = required_items(bar)
+        assert wilson(ALLOWED_SLIPS / n, n, upper=True) <= 1 - bar
+
+
+def test_an_ungated_domain_is_not_run_at_all() -> None:
+    """The probe was always described as a router and until now routed nothing.
+    A domain below the gate floor has nothing to gate, so its elicitation set
+    is skipped outright -- the correct answer, and the cost saving."""
+    from keystone.run import item_budgets
+
+    class FakeSuite:
+        def __init__(self, manifest):
+            self.manifest = manifest
+
+    from keystone.suites import SuiteManifest
+
+    elicit = FakeSuite(SuiteManifest(
+        id=ELICIT_ID, version="1", judged=True, conditioned_by=PROBE_ID
+    ))
+    guessing = item_budgets([probe(0.25)], [elicit])
+    assert guessing[ELICIT_ID] == 0
+
+    capable = item_budgets([probe(0.85)], [elicit])
+    assert capable[ELICIT_ID] > 100
+
+    # A probe that never reported buys the most evidence we are willing to,
+    # because fail-closed means the strictest bar.
+    from keystone.conditioning import MAX_ITEMS
+
+    assert item_budgets([], [elicit])[ELICIT_ID] == MAX_ITEMS

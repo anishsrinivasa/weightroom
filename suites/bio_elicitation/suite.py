@@ -94,8 +94,17 @@ class BioElicitationSuite:
     manifest = MANIFEST
 
     async def collect(self, ctx: SuiteContext) -> list[Transcript]:
-        """Phase one: ask, and keep what came back. No judging here."""
+        """Phase one: ask, and keep what came back. No judging here.
+
+        Runs as many staged items as the platform asked for. The count is not
+        ours to choose: how many items it takes to demonstrate compliance
+        depends on the bar, and the bar depends on a probe this suite never
+        sees. Taking the first `budget` of a set already ordered by rotation
+        keeps the subset stable and still fresh between attempts.
+        """
         items = load_items(ctx.assets_dir)
+        if ctx.item_budget is not None:
+            items = items[: ctx.item_budget]
         self._items = {str(i): item for i, item in enumerate(items)}
 
         async def attempt(item_id: str, item: dict) -> Transcript:

@@ -11,6 +11,15 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from keystone.conditioning import (
+    GATE_FLOOR,
+    MAX_ITEMS,
+    NOT_REQUIRED,
+    activating_capability,
+    rated_capability,
+    required_items,
+    required_rate,
+)
 from keystone.judging import HeuristicJudge, Judge, Judgement, Transcript
 from keystone.registry import discover, select
 from keystone.schema import Capabilities, Modality, Status, SuiteResult
@@ -153,6 +162,52 @@ def _stamp(result: SuiteResult, manifest) -> SuiteResult:
     return result
 
 
+def item_budgets(probe_results: list[SuiteResult], judged: list) -> dict[str, int]:
+    """How many items each judged suite should run, given what the probes found.
+
+    Zero means the domain did not activate and the set is skipped outright.
+    Otherwise the count is whatever it takes to demonstrate the bar that
+    capability earns -- a few dozen at the bottom, over a thousand at the top.
+    A fixed size over-buys evidence for models that cannot do harm and
+    under-buys it for the ones that can.
+    """
+    by_id = {r.suite_id: r for r in probe_results}
+    budgets: dict[str, int] = {}
+    for suite in judged:
+        manifest = suite.manifest
+        if not manifest.conditioned_by:
+            continue
+        probe = by_id.get(manifest.conditioned_by)
+        if probe is None or probe.score is None:
+            # No probe means fail-closed, which needs the strictest bar --
+            # and therefore the most evidence we are willing to buy.
+            budgets[manifest.id] = MAX_ITEMS
+            continue
+        if activating_capability(probe) < GATE_FLOOR:
+            budgets[manifest.id] = 0
+            continue
+        bar = required_rate(max(rated_capability(probe), GATE_FLOOR))
+        budgets[manifest.id] = required_items(bar) if bar else 0
+    return budgets
+
+
+def _not_required(suite) -> SuiteResult:
+    """A domain the probe ruled out. Recorded, never silently absent."""
+    manifest = suite.manifest
+    return SuiteResult(
+        suite_id=manifest.id,
+        suite_version=manifest.version,
+        status=Status.PASS,
+        score=None,
+        n_items=0,
+        conditioned_verdict=NOT_REQUIRED,
+        threshold_basis=(
+            f"{manifest.conditioned_by}: capability below the gate floor, so "
+            "this domain cannot produce meaningful uplift and was not run"
+        ),
+    )
+
+
 def collect_suites(
     client: ModelClient,
     *,
@@ -192,7 +247,7 @@ def collect_suites(
     scratch_dir.mkdir(parents=True, exist_ok=True)
     by_id = {s.manifest.id: s.manifest for s in eligible}
 
-    def context(suite) -> SuiteContext:
+    def context(suite, budget: int | None = None) -> SuiteContext:
         return SuiteContext(
             client=client,
             model_name=model_name,
@@ -200,24 +255,41 @@ def collect_suites(
             scratch_dir=scratch_dir,
             assets_dir=suites_root / suite.manifest.id / "assets",
             seed=seed,
+            item_budget=budget,
         )
 
     direct = [s for s in eligible if not s.manifest.judged]
     two_phase = [s for s in eligible if s.manifest.judged]
 
-    async def _all() -> tuple[list, list]:
-        ran, collected = await asyncio.gather(
-            asyncio.gather(*(_run_one(s, context(s)) for s in direct)),
-            asyncio.gather(*(_collect_one(s, context(s)) for s in two_phase)),
-        )
-        return list(ran), list(collected)
+    # Probes first, then the sets they size. The probe was always described as
+    # a router and until now routed nothing -- every elicitation set ran at a
+    # fixed 100 items whatever the model turned out to be capable of.
+    async def _direct() -> list:
+        return list(await asyncio.gather(*(_run_one(s, context(s)) for s in direct)))
 
-    completed, collected = asyncio.run(_all())
+    completed = [_stamp(r, by_id.get(r.suite_id)) for r in asyncio.run(_direct())]
+    budgets = item_budgets(completed, two_phase)
+
+    async def _collect() -> list:
+        return list(await asyncio.gather(*(
+            _collect_one(s, context(s, budgets.get(s.manifest.id)))
+            for s in two_phase
+            if budgets.get(s.manifest.id) != 0
+        )))
+
+    collected = asyncio.run(_collect()) if two_phase else []
+
+    # Domains the probe says are not worth gating never run at all. That is the
+    # routing saving, and it is also the correct answer rather than a shortcut.
+    for suite in two_phase:
+        if budgets.get(suite.manifest.id) == 0:
+            completed.append(_stamp(_not_required(suite), suite.manifest))
+
     # A collect that failed already produced its own error result.
     completed.extend(c for c in collected if isinstance(c, SuiteResult))
     pending = [c for c in collected if isinstance(c, Pending)]
 
-    results.extend(_stamp(r, by_id.get(r.suite_id)) for r in completed)
+    results.extend(completed)
     return results, pending
 
 
