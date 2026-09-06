@@ -9,7 +9,7 @@
 
 * { box-sizing: border-box; }
 
-html { min-width: 320px; background: var(--paper); }
+html { min-width: 320px; background: var(--paper); scrollbar-gutter: stable; }
 
 body {
   margin: 0;
