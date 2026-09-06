@@ -304,7 +304,6 @@ export function ModelDetail({ id }: { id: string }) {
               <dt>Derived from</dt><dd>{parents}</dd>
               <dt>Files</dt><dd>{report?.subject.files.length ?? "—"}</dd>
               <dt>Total size</dt><dd>{report ? formatBytes(report.subject.total_bytes) : "—"}</dd>
-              <dt>Artifact state</dt><dd>{evaluationFailed ? "Evaluation failed" : stateLabel(model.state)}</dd>
             </dl>
           </section>
         </div>
