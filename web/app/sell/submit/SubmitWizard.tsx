@@ -426,8 +426,7 @@ export function SubmitWizard() {
 
       {step === 1 ? (
         <section aria-labelledby="upload-title">
-          <h2 id="upload-title">Upload open weights</h2>
-          <p className="section-copy">Select a model folder or individual files. Files are hashed locally before upload.</p>
+          <h2 id="upload-title">Upload weights</h2>
           <div className="form-grid">
             <label><span>Model name</span><input value={title} onChange={(event) => setTitle(event.target.value)} autoComplete="off" /></label>
             <label><span>Sale price (USDC)</span><input type="number" min="0" step="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label>
