@@ -91,7 +91,7 @@ button:disabled { cursor: not-allowed; opacity: 0.42; }
 .header-inner > nav { display: flex; justify-content: center; gap: 36px; }
 .brand { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 .brand strong { font-size: 17px; letter-spacing: -0.035em; }
-.brand-mark { width: 26px; height: 26px; object-fit: contain; display: block; }
+.brand-mark { width: 36px; height: 36px; object-fit: contain; display: block; }
 .brand span { color: var(--muted); font-size: 12px; }
 nav { display: flex; align-self: stretch; gap: 26px; }
 .nav-link { display: grid; place-items: center; border-bottom: 2px solid transparent; color: var(--muted); }

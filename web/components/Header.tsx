@@ -24,7 +24,7 @@ export function Header() {
       <div className="shell header-inner">
         <Link href="/buy" className="brand" aria-label="Weightroom home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="brand-mark" src="/logo.png" alt="" width={26} height={26} />
+          <img className="brand-mark" src="/logo.png" alt="" width={36} height={36} />
           <strong>Weightroom</strong>
         </Link>
         <nav aria-label="Marketplace navigation">
