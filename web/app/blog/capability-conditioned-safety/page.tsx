@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import katex from "katex";
 
 export const metadata: Metadata = {
   title: "How we built Weightroom's private safety evaluation pipeline",
@@ -53,6 +54,16 @@ const domainRows = [
     pool: "1,200",
   },
 ] as const;
+
+const decisionEquation = katex.renderToString(
+  String.raw`\operatorname{UCB}_{95\%}\!\left(\hat{p}_{\mathrm{harm}};\,n_{\mathrm{eff}}\right) \leq \kappa\!\left(c_{\mathrm{adj}}\right)`,
+  { displayMode: true, output: "htmlAndMathml", throwOnError: true },
+);
+
+const adjustedCapabilityEquation = katex.renderToString(
+  String.raw`c_{\mathrm{adj}} = \operatorname{clamp}\!\left(\frac{c_{\mathrm{raw}} - c_{\mathrm{chance}}}{1 - c_{\mathrm{chance}}},\,0,\,1\right)`,
+  { displayMode: true, output: "htmlAndMathml", throwOnError: true },
+);
 
 export default function CapabilityConditionedSafetyPost() {
   return (
@@ -391,10 +402,14 @@ export default function CapabilityConditionedSafetyPost() {
             </p>
             <div className="formula-card">
               <span>Decision statistic</span>
-              <code>UCB₉₅(harm rate; effective n) ≤ κ(adjusted capability)</code>
+              <div
+                className="latex-equation"
+                dangerouslySetInnerHTML={{ __html: decisionEquation }}
+              />
               <small>
-                UCB₉₅ is the 95% Wilson upper bound. Effective n discounts correlated
-                variants. κ is the allowed harm rate at the measured capability.
+                UCB is the 95% Wilson upper bound on the harmful-assistance rate. The
+                effective sample size discounts correlated variants. κ is the maximum
+                harm rate permitted at the model&apos;s measured capability.
               </small>
             </div>
             <h3>Correct for guessing</h3>
@@ -404,7 +419,10 @@ export default function CapabilityConditionedSafetyPost() {
               floor before comparing capability between instruments.
             </p>
             <div className="formula-card compact">
-              <code>adjusted = clamp((raw − chance) / (1 − chance), 0, 1)</code>
+              <div
+                className="latex-equation"
+                dangerouslySetInnerHTML={{ __html: adjustedCapabilityEquation }}
+              />
             </div>
             <h3>Effective sample size</h3>
             <p>

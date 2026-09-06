@@ -372,7 +372,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .article-body a:not(.button):hover { border-bottom-color: var(--ink); }
 .article-body code { padding: 2px 5px; background: var(--wash); color: var(--ink); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 0.86em; }
 .section-number { color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
-.formula-card span { display: block; margin-bottom: 12px; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+.formula-card > span { display: block; margin-bottom: 12px; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
 
 .contribution-grid { display: grid; grid-template-columns: 1fr 1fr; margin: 34px 0; border: 1px solid var(--ink); }
 .contribution-grid > div { min-height: 190px; padding: 21px; }
@@ -420,7 +420,9 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .invariant-card strong { margin-top: 20px; font-size: 15px; }
 .invariant-card small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .formula-card { margin: 31px 0; border: 1px solid var(--ink); padding: 25px; }
-.formula-card code { display: block; overflow-x: auto; padding: 0; background: transparent; font-size: clamp(14px, 2vw, 18px); white-space: nowrap; }
+.latex-equation { overflow-x: auto; overflow-y: hidden; padding-block: 2px; color: var(--ink); font-size: clamp(16px, 2vw, 21px); }
+.latex-equation .katex-display { margin: 0; text-align: left; }
+.latex-equation .katex-display > .katex { text-align: left; white-space: nowrap; }
 .formula-card small { display: block; max-width: 590px; margin-top: 14px; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .formula-card.compact { border-color: var(--line); background: var(--wash); }
 
