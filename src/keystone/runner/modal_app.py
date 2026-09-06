@@ -585,8 +585,8 @@ def smoke_agent_sandboxes() -> dict[str, str]:
     from keystone.runner.inspect_benchmarks import smoke_agent_sandboxes as smoke
 
     cache.reload()
-    assets = json.loads(Path(PUBLIC_SAFETY_ASSETS).read_text(encoding="utf-8"))
-    return smoke(harvey_root=Path(assets["harvey_lab_dir"]))
+    harvey_root = Path(PUBLIC_SAFETY_ROOT) / f"harvey-labs@{HARVEY_LAB_REVISION}"
+    return smoke(harvey_root=harvey_root)
 
 
 # ---------------------------------------------------------------------------
