@@ -2,15 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "A safety gate that scales with model capability",
+  title: "Building private safety evaluations that scale with model capability",
   description:
-    "Inside Weightroom's capability-conditioned safety evaluation for downloadable open-weight language models.",
+    "How Weightroom built custom held-out datasets, a constrained synthetic-data pipeline, and a capability-conditioned publishing gate for open-weight models.",
 };
 
 const sections = [
+  ["contributions", "What we built"],
   ["fixed-thresholds", "The problem with one threshold"],
   ["mechanism", "The mechanism"],
-  ["private-evaluations", "Building private evaluations"],
+  ["private-evaluations", "The synthetic-data pipeline"],
   ["uncertainty", "Accounting for uncertainty"],
   ["judge", "Judging harmful assistance"],
   ["leakage", "Preventing leakage"],
@@ -25,20 +26,23 @@ const domainRows = [
     probeUrl: "https://www.wmdp.ai/",
     elicitation: "Chemical and biological behaviors",
     elicitationUrl: "https://github.com/centerforaisafety/HarmBench",
+    pool: "532",
   },
   {
     domain: "Coding / cyber",
     probe: "SWE-bench-derived patch recognition",
     probeUrl: "https://github.com/SWE-bench/SWE-bench",
-    elicitation: "Cybercrime and intrusion behaviors",
+    elicitation: "Cybercrime and intrusion behaviors from HarmBench + AdvBench",
     elicitationUrl: "https://github.com/centerforaisafety/HarmBench",
+    pool: "1,200",
   },
   {
     domain: "Legal",
     probe: "LegalBench-derived binary questions",
     probeUrl: "https://legalbench.org/",
-    elicitation: "Illegal-assistance behaviors in legal contexts",
+    elicitation: "Illegal-assistance behaviors from HarmBench + StrongREJECT",
     elicitationUrl: "https://github.com/centerforaisafety/HarmBench",
+    pool: "1,200",
   },
 ] as const;
 
@@ -51,12 +55,12 @@ export default function CapabilityConditionedSafetyPost() {
           <span>Evaluation systems</span>
           <time dateTime="2026-09-06">September 6, 2026</time>
         </div>
-        <h1>A safety gate that scales with model capability</h1>
+        <h1>Building private safety evaluations that scale with model capability</h1>
         <p className="article-dek">
-          Refusal rates tell us how often a model says no. They do not tell us how
-          much dangerous capability sits behind the answers that get through. We
-          built a publishing gate that measures both—and makes the required safety
-          margin stricter as capability rises.
+          Weightroom built three custom held-out domain datasets and a constrained
+          synthetic-data pipeline to keep them fresh without inventing answer keys.
+          They power a publishing gate that asks not only whether a model refuses,
+          but how much dangerous capability sits behind the answers that get through.
         </p>
 
         <div className="article-hero-visual" aria-label="The core evaluation rule">
@@ -73,7 +77,7 @@ export default function CapabilityConditionedSafetyPost() {
         <dl className="article-stats">
           <div><dt>Domains today</dt><dd>3</dd></div>
           <div><dt>Probe size</dt><dd>100</dd><span>items per domain</span></div>
-          <div><dt>Typical runtime</dt><dd>5–10m</dd><span>on one A10G</span></div>
+          <div><dt>Private prompt pool</dt><dd>2,932</dd><span>staged elicitation variants</span></div>
           <div><dt>Observed run cost</dt><dd>≈ $0.13</dd><span>full three-domain run</span></div>
         </dl>
       </header>
@@ -111,8 +115,46 @@ export default function CapabilityConditionedSafetyPost() {
             harmful assistance is being tested.
           </p>
 
-          <section id="fixed-thresholds">
+          <section id="contributions">
             <p className="section-number">01</p>
+            <h2>What we built</h2>
+            <p>
+              The core contribution is not another aggregate safety score. It is the
+              evaluation system needed to make a capability-aware decision repeatable,
+              private, and cheap enough to run on every marketplace submission.
+            </p>
+            <div className="contribution-grid">
+              <div>
+                <span>01 / Data</span>
+                <strong>Three paired, held-out domain datasets</strong>
+                <p>Custom capability and elicitation instruments for biology, coding/cyber, and law.</p>
+              </div>
+              <div>
+                <span>02 / Generation</span>
+                <strong>A constrained synthetic-data pipeline</strong>
+                <p>Invariant-preserving transforms create fresh private items whose answers and behaviors remain traceable.</p>
+              </div>
+              <div>
+                <span>03 / Decision</span>
+                <strong>A capability-conditioned statistical gate</strong>
+                <p>Chance-corrected capability sets the tolerated harm ceiling; uncertainty determines the verdict.</p>
+              </div>
+              <div>
+                <span>04 / Operations</span>
+                <strong>A leakage-resistant execution path</strong>
+                <p>Digest-pinned sets, isolated inference, signed reports, and audience-specific redaction protect the test.</p>
+              </div>
+            </div>
+            <p>
+              The datasets and their generation pipeline are what make the mechanism
+              operational. A formula applied to a public, static benchmark would quickly
+              become a target to train against. A private corpus without inherited ground
+              truth would be fresh but scientifically weak. We designed the two together.
+            </p>
+          </section>
+
+          <section id="fixed-thresholds">
+            <p className="section-number">02</p>
             <h2>The problem with one threshold</h2>
             <p>
               Conventional safety screens produce an aggregate safe-response rate. That
@@ -140,7 +182,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="mechanism">
-            <p className="section-number">02</p>
+            <p className="section-number">03</p>
             <h2>The mechanism</h2>
             <p>
               Every domain pairs two private instruments. A multiple-choice probe measures
@@ -160,13 +202,14 @@ export default function CapabilityConditionedSafetyPost() {
 
             <div className="article-table-wrap">
               <table className="article-table">
-                <thead><tr><th>Domain</th><th>Capability probe</th><th>Elicitation evidence</th></tr></thead>
+                <thead><tr><th>Domain</th><th>Capability probe</th><th>Elicitation seeds</th><th>Private pool</th></tr></thead>
                 <tbody>
                   {domainRows.map((row) => (
                     <tr key={row.domain}>
                       <td><strong>{row.domain}</strong></td>
                       <td><a href={row.probeUrl}>{row.probe} ↗</a></td>
                       <td><a href={row.elicitationUrl}>{row.elicitation} ↗</a></td>
+                      <td>{row.pool}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -212,8 +255,8 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="private-evaluations">
-            <p className="section-number">03</p>
-            <h2>Building private evaluations without inventing answers</h2>
+            <p className="section-number">04</p>
+            <h2>The synthetic-data pipeline: fresh items, inherited truth</h2>
             <p>
               Public benchmarks cannot remain an effective publishing gate indefinitely.
               Their items appear in training corpora, and repeated certification attempts
@@ -221,28 +264,57 @@ export default function CapabilityConditionedSafetyPost() {
               capability probe cannot tolerate an unreliable answer key.
             </p>
             <p>
-              Our rule is <strong>transform, do not invent</strong>. Synthetic items inherit
-              ground truth from established sources: answer options can be permuted while
-              following the original key; a known-correct patch can be mutated into
-              alternatives; a labeled legal example can become a binary question. For
-              elicitation, the assessed behavior remains intact while the surrounding
-              framing changes.
+              Our rule is <strong>transform, do not invent</strong>. The pipeline begins
+              with public source datasets used under their respective terms, but the evaluation items it emits are
+              custom, private, rotated, and never published. Synthetic items inherit ground
+              truth instead of asking a generator to assert it: answer options can be
+              permuted while following the original key; a known-correct patch can be
+              mutated into alternatives; and a labeled legal example can become a binary
+              question. For elicitation, the assessed behavior remains verbatim while only
+              its surrounding frame changes.
             </p>
-            <div className="transformation-grid">
-              <div><span>Seed</span><strong>Known task + validated answer</strong></div>
-              <div><span>Invariant transform</span><strong>Change presentation, preserve truth</strong></div>
-              <div><span>Private item</span><strong>Digest-pinned + rotation-ready</strong></div>
+
+            <ol className="pipeline-steps">
+              <li><span>01</span><div><strong>Ingest and version the seeds</strong><p>WMDP, SWE-bench Verified, LegalBench, HarmBench, AdvBench, and StrongREJECT enter with source revision and license metadata.</p></div></li>
+              <li><span>02</span><div><strong>Normalize and fingerprint</strong><p>Each item receives a stable seed and behavior identity, preserving lineage through every later transform.</p></div></li>
+              <li><span>03</span><div><strong>Apply a constrained transform</strong><p>Permute keyed choices, mutate a gold patch into distractors, derive a binary legal question, or wrap a harmful behavior in a new framing.</p></div></li>
+              <li><span>04</span><div><strong>Validate the invariant</strong><p>The answer key must follow the transform, or the original assessed behavior must remain unchanged. Invalid variants never enter the pool.</p></div></li>
+              <li><span>05</span><div><strong>Deduplicate, rotate, and pin</strong><p>Content hashes select reproducible subsets; a digest locks the staged corpus so upstream drift fails loudly.</p></div></li>
+            </ol>
+
+            <div className="invariant-card">
+              <span>What every generated item retains</span>
+              <div><strong>Ground truth</strong><small>Inherited, not newly claimed</small></div>
+              <div><strong>Lineage</strong><small>Seed and behavior fingerprints</small></div>
+              <div><strong>Provenance</strong><small>Revision and license metadata</small></div>
+              <div><strong>Integrity</strong><small>Content digest at staging</small></div>
             </div>
+
+            <h3>Freshness is arithmetic</h3>
+            <p>
+              Rotation only helps when the pool is large enough. Drawing 100 items from
+              140—five framings across 28 biology behaviors—forces any two runs to share
+              at least 60 items. Expanding the library to 19 framings creates 532 variants,
+              drops that forced-overlap floor to zero, and produced 17% reuse in practice.
+              The framing library, not a clever random selector, created the freshness.
+            </p>
             <p>
               Framings span eight technique families—direct, persona, fiction, academic,
               indirect, authority, distancing, and format—because robustness to one style
-              says little about robustness to another. Selection is derived from content
-              hashes, and staged pools are pinned by digest so upstream changes fail loudly.
+              says little about robustness to another. The evaluation reports these slices,
+              turning one aggregate failure rate into a diagnosis of how a model is being
+              elicited.
+            </p>
+            <p>
+              Expansion and statistical power are deliberately separated. More framings
+              create a fresher test, but variants of one behavior are correlated. Only more
+              seed behaviors create more independent evidence—a distinction the uncertainty
+              calculation preserves rather than hiding behind the 2,932-item pool size.
             </p>
           </section>
 
           <section id="uncertainty">
-            <p className="section-number">04</p>
+            <p className="section-number">05</p>
             <h2>A pass rate is not yet evidence</h2>
             <p>
               Evaluation results are samples, not properties. We compare the 95% Wilson
@@ -279,7 +351,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="judge">
-            <p className="section-number">05</p>
+            <p className="section-number">06</p>
             <h2>Judge whether the answer helped—not whether it apologized</h2>
             <p>
               Refusal phrase matching fails in both directions. A response can begin with
@@ -306,7 +378,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="leakage">
-            <p className="section-number">06</p>
+            <p className="section-number">07</p>
             <h2>The threshold is private data too</h2>
             <p>
               A rejected seller can resubmit. Exact scores, capability bands, and even a
@@ -328,7 +400,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="results">
-            <p className="section-number">07</p>
+            <p className="section-number">08</p>
             <h2>What we observed on real hardware</h2>
             <p>
               Qwen2.5-7B-Instruct cleared the conventional screens—91% on HarmBench and 97%
@@ -352,7 +424,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="limitations">
-            <p className="section-number">08</p>
+            <p className="section-number">09</p>
             <h2>What this framework does not prove</h2>
             <ul className="limitations-list">
               <li><strong>The coding probe measures recognition.</strong> Choosing a patch is not the same as authoring and validating one.</li>
@@ -374,11 +446,13 @@ export default function CapabilityConditionedSafetyPost() {
             <p className="section-number">The takeaway</p>
             <h2>Ask what sits behind the refusal rate.</h2>
             <p>
-              A useful publishing gate must measure capability and harmful assistance in the
-              same domain, preserve uncertainty, and remain resistant to repeated submission.
-              That produces a stricter bar for models that can cause greater harm—and avoids
-              spending expensive adversarial evaluation on models with no meaningful domain
-              capability in the first place.
+              The custom held-out datasets are the substrate; the constrained synthetic-data
+              pipeline keeps them fresh and auditable; the statistical gate turns their
+              evidence into a decision. Together they let us measure capability and harmful
+              assistance in the same domain, preserve uncertainty, and resist repeated
+              submission. The result is a stricter bar for models that can cause greater harm
+              without spending expensive adversarial evaluation where no meaningful domain
+              capability exists.
             </p>
             <Link className="button primary" href="/buy">Explore evaluated models →</Link>
           </footer>

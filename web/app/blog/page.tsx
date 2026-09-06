@@ -25,10 +25,10 @@ export default function BlogIndex() {
             <time dateTime="2026-09-06">September 6, 2026</time>
           </div>
           <div className="research-card-copy">
-            <h2>A safety gate that scales with model capability</h2>
+            <h2>Building private safety evaluations that scale with model capability</h2>
             <p>
-              Why a fixed refusal threshold is not enough—and how Weightroom pairs
-              private capability probes with domain-specific elicitation tests.
+              How Weightroom built custom held-out datasets, a constrained synthetic-data
+              pipeline, and a statistical gate that gets stricter as capability rises.
             </p>
           </div>
           <span className="research-card-arrow" aria-hidden="true">→</span>

@@ -376,6 +376,14 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .principle-card span, .formula-card span { display: block; margin-bottom: 12px; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
 .principle-card p { max-width: 580px; color: var(--ink); font-size: 20px; line-height: 1.45; letter-spacing: -0.015em; }
 
+.contribution-grid { display: grid; grid-template-columns: 1fr 1fr; margin: 34px 0; border: 1px solid var(--ink); }
+.contribution-grid > div { min-height: 190px; padding: 21px; }
+.contribution-grid > div:nth-child(odd) { border-right: 1px solid var(--line); }
+.contribution-grid > div:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+.contribution-grid span, .pipeline-steps > li > span, .invariant-card > span { display: block; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.contribution-grid strong { display: block; margin-top: 33px; font-size: 16px; line-height: 1.35; }
+.contribution-grid p { margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
 .eval-flow { display: grid; grid-template-columns: 1fr 26px 1fr 26px 1fr 26px 1fr; align-items: stretch; margin: 35px 0 38px; }
 .flow-node { min-height: 155px; display: flex; flex-direction: column; border: 1px solid var(--line); padding: 15px; }
 .flow-node > span { width: 22px; height: 22px; display: grid; place-items: center; margin-bottom: 25px; border: 1px solid var(--ink); border-radius: 50%; font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; }
@@ -406,6 +414,18 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .transformation-grid > div:not(:last-child)::after { position: absolute; z-index: 1; top: 50%; right: -13px; width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid var(--ink); border-radius: 50%; background: var(--paper); content: "→"; color: var(--ink); font-size: 12px; transform: translateY(-50%); }
 .transformation-grid span, .phase-diagram span, .visibility-grid span, .result-comparison span { display: block; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .transformation-grid strong { display: block; margin-top: 45px; font-size: 13px; line-height: 1.4; }
+.pipeline-steps { margin: 36px 0; border-top: 1px solid var(--ink); padding: 0; list-style: none; }
+.pipeline-steps > li { display: grid; grid-template-columns: 45px 1fr; gap: 14px; border-bottom: 1px solid var(--line); padding: 19px 0; }
+.pipeline-steps strong { display: block; font-size: 15px; line-height: 1.35; }
+.pipeline-steps p { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.invariant-card { display: grid; grid-template-columns: repeat(2, 1fr); margin: 35px 0 42px; border: 1px solid var(--ink); }
+.invariant-card > span { grid-column: 1 / -1; padding: 15px 18px; border-bottom: 1px solid var(--ink); }
+.invariant-card > div { min-height: 115px; padding: 18px; }
+.invariant-card > div:nth-of-type(odd) { border-right: 1px solid var(--line); }
+.invariant-card > div:nth-of-type(-n + 2) { border-bottom: 1px solid var(--line); }
+.invariant-card strong, .invariant-card small { display: block; }
+.invariant-card strong { margin-top: 20px; font-size: 15px; }
+.invariant-card small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .formula-card { margin: 31px 0; border: 1px solid var(--ink); padding: 25px; }
 .formula-card code { display: block; overflow-x: auto; padding: 0; background: transparent; font-size: clamp(14px, 2vw, 18px); white-space: nowrap; }
 .formula-card.compact { border-color: var(--line); background: var(--wash); }
@@ -501,6 +521,11 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .article-note { margin-top: 27px; }
   .article-body { font-size: 15px; }
   .article-opening { font-size: 19px; }
+  .contribution-grid, .invariant-card { grid-template-columns: 1fr; }
+  .contribution-grid > div { min-height: 155px; border-right: 0 !important; border-bottom: 1px solid var(--line); }
+  .contribution-grid > div:last-child { border-bottom: 0; }
+  .invariant-card > div { min-height: 100px; border-right: 0 !important; border-bottom: 1px solid var(--line); }
+  .invariant-card > div:last-child { border-bottom: 0; }
   .eval-flow { grid-template-columns: 1fr; gap: 0; }
   .flow-node { min-height: 125px; }
   .flow-arrow { height: 32px; transform: rotate(90deg); }
