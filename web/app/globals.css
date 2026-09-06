@@ -615,3 +615,15 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .modal-card { animation: modal-in 140ms ease-out; }
   @keyframes modal-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 }
+
+/* Votes. The score is the figure that carries; the arrows are controls around
+   it, so they stay quiet until pressed or hovered. */
+.vote-group { display: inline-flex; align-items: center; gap: 8px; }
+.vote-group.compact { gap: 5px; }
+.vote-button { min-width: 26px; min-height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--paper); color: var(--muted); font-size: 10px; line-height: 1; transition: background 120ms ease, color 120ms ease, border-color 120ms ease; }
+.vote-button:hover:not(:disabled) { border-color: var(--ink); color: var(--ink); }
+.vote-button.active { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.vote-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.vote-score { min-width: 18px; font-size: 13px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+.vote-group.compact .vote-score { font-size: 12px; }
+.vote-signin { color: var(--muted); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
 import { LicenseAgreement } from "@/components/LicenseAgreement";
+import { VoteButtons } from "@/components/VoteButtons";
 import { clientUploadUrl, keystoneRequest } from "@/lib/api";
 import {
   benchmarksSchema,
@@ -189,6 +190,7 @@ export function BuyerModelDetail({ id }: { id: string }) {
           <header className="buyer-title">
             <h1>{model.title || "Untitled model"}</h1>
             {model.description ? <p className="lede">{model.description}</p> : null}
+            <VoteButtons listingId={model.listing_id} tally={model.votes} />
             <div className="tag-list">
               {model.domain_tags.map((tag) => <span className="tag" key={tag}>{domainNames.get(tag) ?? tag}</span>)}
               {sizeName ? <span className="tag">{sizeName}</span> : null}

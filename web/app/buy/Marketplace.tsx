@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { ErrorPanel, LoadingBlock } from "@/components/AsyncState";
+import { VoteButtons } from "@/components/VoteButtons";
 import { clientUploadUrl, keystoneRequest } from "@/lib/api";
 import {
   benchmarksSchema,
@@ -234,7 +235,10 @@ function ModelCard({ listing, tags }: {
         <dl className="card-metrics">
           <div><dt>Price</dt><dd>{formatUsdc(listing.price_minor)}</dd></div>
         </dl>
-        <div className="card-footer"><span className="mono">{listing.seller_id}</span><span aria-hidden="true">→</span></div>
+        <div className="card-footer">
+          <VoteButtons listingId={listing.listing_id} tally={listing.votes} compact />
+          <span aria-hidden="true">→</span>
+        </div>
       </div>
     </Link>
   );
