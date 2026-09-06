@@ -289,6 +289,12 @@ class Store:
             kwargs["connect_args"] = {"check_same_thread": False}
             if ":memory:" in url or url == "sqlite://":
                 kwargs["poolclass"] = StaticPool
+        else:
+            # Managed Postgres proxies close idle client connections. Validate
+            # a pooled connection before handing it to a request so the first
+            # Seller Studio visit after an idle period reconnects instead of
+            # surfacing psycopg's client_idle_timeout as a 500.
+            kwargs["pool_pre_ping"] = True
         self.engine = create_engine(url, echo=echo, future=True, **kwargs)
 
     def create_all(self) -> None:

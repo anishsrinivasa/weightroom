@@ -39,6 +39,19 @@ def store() -> Store:
     return s
 
 
+def test_postgres_pool_checks_for_connections_closed_while_idle(monkeypatch) -> None:
+    captured: dict = {}
+
+    def fake_create_engine(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return object()
+
+    monkeypatch.setattr("keystone.db.create_engine", fake_create_engine)
+    Store("postgresql+psycopg://example.invalid/weightroom")
+
+    assert captured["pool_pre_ping"] is True
+
+
 def _report(report_id: str = "r1", grade: str = "B", sandboxed: bool = True):
     return CertificationReport(
         report_id=report_id,
