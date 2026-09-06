@@ -472,14 +472,6 @@ export function SubmitWizard() {
               ))}
             </div>
           </fieldset>
-          <div className="derived-field">
-            <span className="field-label">Model size</span>
-            <strong>{parameterCountKnown && parameterCount != null
-              ? `${formatParameterCount(parameterCount)} parameters`
-              : picked.length && !hashing
-                ? "Parameter count unavailable locally"
-                : "Waiting for upload"}</strong>
-          </div>
           <div
             className={`drop-zone ${dragging ? "dragging" : ""}`}
             onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -487,9 +479,22 @@ export function SubmitWizard() {
             onDragLeave={() => setDragging(false)}
             onDrop={dropped}
           >
-            <strong>Drop your model folder here</strong>
-            <p>config.json, tokenizer files, and safetensors</p>
-            <div className="button-row">
+            <div className="drop-zone-summary">
+              {picked.length && !hashing ? (
+                <>
+                  <span className="field-label">Model size</span>
+                  <strong>{parameterCountKnown && parameterCount != null
+                    ? `${formatParameterCount(parameterCount)} parameters`
+                    : "Parameter count unavailable locally"}</strong>
+                </>
+              ) : (
+                <>
+                  <strong>{hashing ? "Reading model files…" : "Drop your model folder here"}</strong>
+                  <p>config.json, tokenizer files, and safetensors</p>
+                </>
+              )}
+            </div>
+            <div className="button-row upload-actions">
               <button className="button primary" type="button" onClick={() => directoryInput.current?.click()}>Choose folder</button>
               <button className="button" type="button" onClick={() => fileInput.current?.click()}>Choose files</button>
               {sampleAvailable ? <button className="button quiet" type="button" onClick={() => {
