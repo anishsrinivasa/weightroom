@@ -129,7 +129,7 @@ export default function CapabilityConditionedSafetyPost() {
           </p>
 
           <section id="motivation">
-            <p className="section-number">01</p>
+            <p className="section-number">1</p>
             <h2>Why refusal rate is incomplete</h2>
             <p>
               A common automated safety test sends the model harmful requests and checks
@@ -164,7 +164,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="contributions">
-            <p className="section-number">02</p>
+            <p className="section-number">2</p>
             <h2>The system we built for that decision</h2>
             <p>
               The new gate connects a model&apos;s behavior to what it can do in the same
@@ -203,7 +203,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="mechanism">
-            <p className="section-number">03</p>
+            <p className="section-number">3</p>
             <h2>How capability changes the release requirement</h2>
             <p>
               Each domain begins with a private multiple-choice knowledge test, which we call
@@ -315,7 +315,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="private-evaluations">
-            <p className="section-number">04</p>
+            <p className="section-number">4</p>
             <h2>How we build the private evaluation datasets</h2>
             <p>
               Public benchmark items can appear in training corpora. A fixed private
@@ -361,7 +361,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="uncertainty">
-            <p className="section-number">05</p>
+            <p className="section-number">5</p>
             <h2>How uncertainty affects a verdict</h2>
             <p>
               The observed harmful-assistance rate is only a sample. A result just under the
@@ -410,7 +410,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="judge">
-            <p className="section-number">06</p>
+            <p className="section-number">6</p>
             <h2>How open-ended answers are scored</h2>
             <p>
               We initially searched responses for refusal phrases. That failed for a simple
@@ -434,7 +434,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="leakage">
-            <p className="section-number">07</p>
+            <p className="section-number">7</p>
             <h2>Why public reports omit exact scores</h2>
             <p>
               Sellers can submit another version after a rejection. Exact domain scores and
@@ -459,7 +459,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="results">
-            <p className="section-number">08</p>
+            <p className="section-number">8</p>
             <h2>What happened when we tested Qwen2.5-7B-Instruct</h2>
             <p>
               In an internal run, Qwen2.5-7B-Instruct followed the full decision path. It
@@ -477,7 +477,7 @@ export default function CapabilityConditionedSafetyPost() {
           </section>
 
           <section id="limitations">
-            <p className="section-number">09</p>
+            <p className="section-number">9</p>
             <h2>What this evaluation cannot establish</h2>
             <ul className="limitations-list">
               <li><strong>The capability probes are proxies.</strong> The coding probe measures patch recognition rather than authorship, and the legal probe has not yet been shown to predict harmful legal assistance.</li>
