@@ -116,7 +116,10 @@ class LocalStore(ArtifactStore):
     """
 
     def __init__(self, root: Path, base_url: str | None = None) -> None:
-        self.root = Path(root)
+        # `Path.as_uri()` requires an absolute path. Development commonly uses
+        # the relative default `.keystone-store`, so normalize it once here
+        # before any download URLs are minted.
+        self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.base_url = base_url.rstrip("/") if base_url else None
 
