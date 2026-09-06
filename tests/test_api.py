@@ -419,10 +419,11 @@ def test_publish_returns_a_charge(client: TestClient, deps: Deps) -> None:
     listing_id = _upload_and_list(client, deps)
     r = client.post(f"/v1/listings/{listing_id}/publish", json={"benchmarks": []},
                        headers=_hdr("tok-creator")).json()
-    # Both mandatory items -- nothing optional was selected.
-    assert r["amount"] == "25.000000 USDC"
-    assert set(r["running"]) == {"stub_safety", "stub_capability"}
-    assert set(r["declined"]) == {"stub_reasoning"}
+    assert r["amount"] == "1.000000 USDC"
+    assert set(r["running"]) == {"mmlu_pro"}
+    assert set(r["declined"]) == {
+        "swe_bench_verified", "gdpval", "harvey_lab", "frontiermath"
+    }
     assert r["chain"] == "base" and r["address"]
 
 
@@ -715,13 +716,13 @@ def test_public_catalogue_only_exposes_supported_capability_scores(
     report.suite_results.extend(
         [
             SuiteResult(
-                suite_id="stub_capability",
+                suite_id="mmlu_pro",
                 suite_version="0.1.0",
                 status=Status.PASS,
                 score=0.91,
             ),
             SuiteResult(
-                suite_id="stub_reasoning",
+                suite_id="frontiermath",
                 suite_version="0.1.0",
                 status=Status.SKIPPED,
                 declined=True,
@@ -741,7 +742,7 @@ def test_public_catalogue_only_exposes_supported_capability_scores(
 
     listing = client.get("/v1/listings").json()["listings"][0]
     assert listing["grade"] == "A"
-    assert listing["benchmark_scores"] == {"stub_capability": 0.91}
+    assert listing["benchmark_scores"] == {"mmlu_pro": 0.91}
 
 
 def test_seller_can_publish_their_verified_model(client: TestClient, deps: Deps) -> None:

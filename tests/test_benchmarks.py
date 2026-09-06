@@ -44,6 +44,13 @@ FILES = [{"path": "model.safetensors", "size_bytes": 2048, "sha256": "a" * 64}]
 SAFETY = "stub_safety"
 CAPABILITY = "stub_capability"
 REASONING = "stub_reasoning"
+PUBLIC_IDS = {
+    "swe_bench_verified",
+    "gdpval",
+    "harvey_lab",
+    "mmlu_pro",
+    "frontiermath",
+}
 
 
 @pytest.fixture
@@ -245,21 +252,22 @@ def _listing(client: TestClient, deps: Deps) -> str:
 
 def test_menu_endpoint_is_public(client: TestClient) -> None:
     body = client.get("/v1/benchmarks").json()
-    assert {b["suite_id"] for b in body["benchmarks"]} == {SAFETY, CAPABILITY, REASONING}
-    assert body["mandatory_total"] == "25.000000 USDC"
+    assert {b["suite_id"] for b in body["benchmarks"]} == PUBLIC_IDS
+    assert body["mandatory_total"] == "4.000000 USDC"
+    assert all(b["price_is_estimate"] for b in body["benchmarks"])
 
 
 def test_publish_quotes_the_selection(client: TestClient, deps: Deps) -> None:
     listing_id = _listing(client, deps)
     r = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": [REASONING]},
+        json={"benchmarks": ["frontiermath"]},
         headers=_hdr("tok-creator"),
     ).json()
 
-    assert r["amount"] == "45.000000 USDC"       # 25 mandatory + 20 reasoning
-    assert set(r["running"]) == {SAFETY, CAPABILITY, REASONING}
-    assert r["declined"] == []
+    assert r["amount"] == "12.000000 USDC"  # tiny fixture hits the 20% model floor
+    assert set(r["running"]) == {"mmlu_pro", "frontiermath"}
+    assert set(r["declined"]) == PUBLIC_IDS - {"mmlu_pro", "frontiermath"}
 
 
 def test_publish_rejects_an_unknown_benchmark(client: TestClient, deps: Deps) -> None:
@@ -276,12 +284,12 @@ def test_selection_is_persisted_for_the_worker(client: TestClient, deps: Deps) -
     listing_id = _listing(client, deps)
     client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": [CAPABILITY]},
+        json={"benchmarks": ["frontiermath"]},
         headers=_hdr("tok-creator"),
     )
     with deps.store.session() as s:
         row = deps.store.get_listing(s, listing_id)
-        assert set(row.selected_benchmarks) == {SAFETY, CAPABILITY}
+        assert set(row.selected_benchmarks) == {"mmlu_pro", "frontiermath"}
 
 
 def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> None:
@@ -291,7 +299,7 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
     listing_id = _listing(client, deps)
     order = client.post(
         f"/v1/listings/{listing_id}/publish",
-        json={"benchmarks": [CAPABILITY]},
+        json={"benchmarks": ["frontiermath"]},
         headers=_hdr("tok-creator"),
     ).json()
     deps.payments.settle(order["charge_id"])
@@ -308,4 +316,4 @@ def test_worker_runs_only_what_was_paid_for(client: TestClient, deps: Deps) -> N
         return Outcome(digest)
 
     process_pending(deps.store, certify=fake_certify)
-    assert set(seen[0]) == {SAFETY, CAPABILITY}
+    assert set(seen[0]) == {"mmlu_pro", "frontiermath"}

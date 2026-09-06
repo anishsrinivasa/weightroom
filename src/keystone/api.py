@@ -22,12 +22,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from keystone.auth import Authenticator, Principal, audience_for
-from keystone.benchmarks import SelectionError, declined_ids, menu, normalise_selection, quote
 from keystone.db import ArtifactRow, ListingRow, Store, UserRow
 from keystone.listing import (
     DEFAULT_POLICY,
@@ -45,6 +44,14 @@ from keystone.orders import (
     settle,
 )
 from keystone.payments import DemoChainProvider, PaymentProvider
+from keystone.public_benchmarks import (
+    BY_ID as PUBLIC_BENCHMARKS_BY_ID,
+    PublicBenchmarkSelectionError,
+    declined_ids as public_declined_ids,
+    menu as public_benchmark_menu,
+    normalise_selection as normalise_public_benchmarks,
+    quote as quote_public_benchmarks,
+)
 from keystone.providers.dual import DualPaymentProvider
 from keystone.schema import Audience, CertificationReport, FileEntry
 from keystone.safety_gates import summarize as summarize_safety_gates
@@ -60,6 +67,7 @@ _HEX64 = re.compile("[0-9a-f]{64}")
 
 IMAGE_LIMIT_BYTES = 4 * 1024 * 1024
 DESCRIPTION_LIMIT = 4000
+_WEIGHT_EXTENSIONS = (".safetensors", ".bin", ".pt", ".pth", ".gguf", ".ckpt")
 
 # Sniffed from the bytes, never from the client's Content-Type. A caller that
 # mislabels a file should not be able to talk us into serving it back with a
@@ -79,6 +87,18 @@ def _image_url(row: ListingRow) -> str | None:
     proxy, which is the only host it is allowed to reach.
     """
     return f"/v1/images/{row.image_digest}" if row.image_digest else None
+
+
+def _artifact_weight_bytes(artifact: ArtifactRow) -> int:
+    """Bytes that drive inference cost, derived from the stored manifest."""
+    weight_bytes = sum(
+        int(entry.get("size_bytes", 0))
+        for entry in artifact.file_manifest
+        if str(entry.get("path", "")).lower().endswith(_WEIGHT_EXTENSIONS)
+    )
+    # Tiny test fixtures and legacy artifacts may not identify a weight file.
+    # Total bytes remains a conservative, server-owned fallback.
+    return weight_bytes or artifact.total_bytes
 
 
 def sniff_image(data: bytes) -> str | None:
@@ -345,15 +365,7 @@ def create_app(deps: Deps) -> FastAPI:
     @app.get("/v1/listings")
     def browse(d: D) -> dict:
         """Public catalogue. Unpublished submissions never cross this boundary."""
-        from keystone.registry import SUITES_ROOT, discover
-
-        supported_ids = {
-            suite.manifest.id
-            for suite in discover(SUITES_ROOT)
-            if not suite.manifest.gate
-            and not suite.manifest.diagnostic
-            and not suite.manifest.held_out
-        }
+        supported_ids = set(PUBLIC_BENCHMARKS_BY_ID)
         with d.store.session() as s:
             rows = d.store.listings_in_state(s, ListingState.LISTED)
             listings = []
@@ -371,6 +383,11 @@ def create_app(deps: Deps) -> FastAPI:
                         "price_minor": row.price_minor,
                         "seller_id": row.creator_id,
                         "grade": report.rating.grade if report else None,
+                        "source": (
+                            report.subject.source.model_dump(mode="json")
+                            if report is not None
+                            else None
+                        ),
                         "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
                         **_listing_tags(row),
                         "created_at": row.created_at.isoformat(),
@@ -474,15 +491,7 @@ def create_app(deps: Deps) -> FastAPI:
                 # to their seller (and platform operators) until publication.
                 raise HTTPException(404, "no such listing")
             report = d.store.latest_report(s, listing_id)
-            from keystone.registry import SUITES_ROOT, discover
-
-            supported_ids = {
-                suite.manifest.id
-                for suite in discover(SUITES_ROOT)
-                if not suite.manifest.gate
-                and not suite.manifest.diagnostic
-                and not suite.manifest.held_out
-            }
+            supported_ids = set(PUBLIC_BENCHMARKS_BY_ID)
             owned = principal is not None and principal.user_id == row.creator_id
             entitled = False
             if principal is not None:
@@ -506,6 +515,11 @@ def create_app(deps: Deps) -> FastAPI:
                 "price_minor": row.price_minor,
                 "seller_id": row.creator_id,
                 "grade": report.rating.grade if report else None,
+                "source": (
+                    report.subject.source.model_dump(mode="json")
+                    if report is not None
+                    else None
+                ),
                 "benchmark_scores": _buyer_benchmark_scores(report, supported_ids),
                 "is_owner": owned,
                 "entitled": entitled,
@@ -550,19 +564,22 @@ def create_app(deps: Deps) -> FastAPI:
     # ----------------------------------------------------------------------
 
     @app.get("/v1/benchmarks")
-    def benchmarks(d: D) -> dict:
+    def benchmarks(
+        d: D,
+        model_weight_bytes: int | None = Query(default=None, ge=0),
+    ) -> dict:
         """The menu a creator picks from.
 
-        Mandatory items are listed too, so the price shown is the price paid.
+        Prices are direct-cost estimates scaled to the selected checkpoint's
+        stored weight bytes. With no size, the menu shows the 7B BF16 baseline.
         """
-        from keystone.registry import SUITES_ROOT, discover
-
-        items = menu(discover(SUITES_ROOT))
         return {
-            "benchmarks": [i.as_dict() for i in items],
-            "mandatory_total": str(
-                quote(discover(SUITES_ROOT), [])
-            ),
+            "benchmarks": public_benchmark_menu(model_weight_bytes),
+            "mandatory_total": str(quote_public_benchmarks([], model_weight_bytes)),
+            "pricing_basis": {
+                "estimated": True,
+                "model_weight_bytes": model_weight_bytes,
+            },
         }
 
     @app.post("/v1/listings/{listing_id}/publish")
@@ -574,24 +591,25 @@ def create_app(deps: Deps) -> FastAPI:
         is minted, so we never take money from someone we are about to reject on
         cooldown.
         """
-        from keystone.registry import SUITES_ROOT, discover
-
         me = require(principal)
         now = datetime.now(timezone.utc)
-        suites = discover(SUITES_ROOT)
 
         try:
-            running = normalise_selection(suites, body.benchmarks)
-        except SelectionError as exc:
+            running = normalise_public_benchmarks(body.benchmarks)
+        except PublicBenchmarkSelectionError as exc:
             raise HTTPException(400, str(exc)) from exc
-
-        price = quote(suites, body.benchmarks)
-        declined = declined_ids(suites, body.benchmarks)
+        declined = public_declined_ids(body.benchmarks)
 
         with d.store.session() as s:
             row = _row_or_404(d, s, listing_id)
             if row.creator_id != me.user_id:
                 raise HTTPException(403, "not your listing")
+
+            artifact = s.get(ArtifactRow, row.artifact_digest)
+            if artifact is None:
+                raise HTTPException(409, "listing artifact is missing")
+            model_weight_bytes = _artifact_weight_bytes(artifact)
+            price = quote_public_benchmarks(body.benchmarks, model_weight_bytes)
 
             listing = d.store.load_listing(s, listing_id)
             ok, reason = listing.can_attempt(now, d.policy)  # no charge yet
@@ -604,6 +622,7 @@ def create_app(deps: Deps) -> FastAPI:
                 listing_id,
                 metadata={
                     "creator_id": me.user_id,
+                    "estimated_model_weight_bytes": model_weight_bytes,
                     **({"rail": body.rail} if body.rail else {}),
                 },
             )
