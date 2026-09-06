@@ -239,8 +239,18 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .filter-group legend { padding: 0; }
 .price-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
 .price-fields input { width: 100%; min-width: 0; }
+.facet-filter-group { position: relative; }
+.facet-dropdown { position: relative; }
+.facet-dropdown summary { min-height: 43px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); padding: 9px 11px; background: var(--paper); cursor: pointer; list-style: none; }
+.facet-dropdown summary::-webkit-details-marker { display: none; }
+.facet-dropdown[open] summary { border-color: var(--ink); }
+.dropdown-chevron { font-size: 16px; line-height: 1; transition: transform 120ms ease; }
+.facet-dropdown[open] .dropdown-chevron { transform: rotate(180deg); }
+.facet-menu { position: absolute; z-index: 12; top: calc(100% + 5px); left: 0; width: 100%; max-height: 290px; overflow-y: auto; border: 1px solid var(--ink); padding: 12px; background: var(--paper); box-shadow: 5px 5px 0 rgb(0 0 0 / 0.08); }
+.facet-menu-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding-bottom: 9px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.facet-menu-heading .text-button { font-size: 10px; text-transform: none; }
 .facet-list { display: grid; gap: 7px; }
-.facet-list label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.facet-list label { min-height: 30px; display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .facet-list input { width: 15px; height: 15px; min-height: 0; margin: 0; accent-color: var(--ink); }
 .benchmark-filters > .field-hint { margin: -2px 0 12px; }
 .benchmark-filter { display: grid; gap: 9px; margin-bottom: 15px; border-left: 1px solid var(--ink); padding-left: 12px; }
@@ -351,7 +361,6 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .marketplace-count { margin-top: 22px; text-align: left; }
   .marketplace-layout { display: block; }
   .filter-panel { position: static; margin-bottom: 42px; }
-  .facet-list { grid-template-columns: 1fr 1fr; }
   .model-grid { grid-template-columns: 1fr; }
   .buyer-detail-layout { display: flex; flex-direction: column; }
   .buyer-model, .checkout-panel { width: 100%; }

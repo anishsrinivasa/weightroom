@@ -185,17 +185,33 @@ function FacetGroup({ title, options, selected, toggle }: {
   selected: Set<string>;
   toggle: (id: string) => void;
 }) {
+  const selectionLabel = selected.size
+    ? `${selected.size} selected`
+    : title === "Domain" ? "All domains" : "All model sizes";
+
   return (
-    <fieldset className="filter-group">
+    <fieldset className="filter-group facet-filter-group">
       <legend>{title}</legend>
-      <div className="facet-list">
-        {options.map((option) => (
-          <label key={option.id}>
-            <input type="checkbox" checked={selected.has(option.id)} onChange={() => toggle(option.id)} />
-            <span>{option.label}</span>
-          </label>
-        ))}
-      </div>
+      <details className="facet-dropdown">
+        <summary>
+          <span>{selectionLabel}</span>
+          <span className="dropdown-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div className="facet-menu">
+          <div className="facet-menu-heading">
+            <span>Select {title.toLocaleLowerCase()}</span>
+            {selected.size ? <button className="text-button" type="button" onClick={() => selected.forEach(toggle)}>Clear</button> : null}
+          </div>
+          <div className="facet-list">
+            {options.map((option) => (
+              <label key={option.id}>
+                <input type="checkbox" checked={selected.has(option.id)} onChange={() => toggle(option.id)} />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </details>
     </fieldset>
   );
 }
