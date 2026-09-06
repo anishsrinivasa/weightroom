@@ -229,7 +229,10 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .marketplace-count strong { display: block; font-size: 32px; font-weight: 500; line-height: 1; letter-spacing: -0.045em; }
 .marketplace-count span { display: block; margin-top: 9px; color: var(--muted); font-size: 11px; }
 .marketplace-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 42px; align-items: start; }
-.filter-panel { position: sticky; top: 98px; border-top: 1px solid var(--ink); }
+.filter-panel { position: sticky; top: 98px; height: clamp(320px, calc(100dvh - 390px), 620px); overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-gutter: stable; border-top: 1px solid var(--ink); padding-right: 10px; }
+.filter-panel::-webkit-scrollbar { width: 8px; }
+.filter-panel::-webkit-scrollbar-track { background: var(--wash); }
+.filter-panel::-webkit-scrollbar-thumb { border: 2px solid var(--wash); background: var(--muted); }
 .filter-heading { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
 .filter-heading h2 { font-size: 20px; }
 .filter-field { display: block; padding: 19px 0; border-bottom: 1px solid var(--line); }
@@ -260,7 +263,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
 .score-input input { width: 72px; min-height: 36px; border-right: 0; text-align: right; }
 .score-input b { min-height: 36px; display: grid; place-items: center; border: 1px solid var(--line); border-left: 0; padding-right: 9px; color: var(--ink); font-weight: 500; }
 .benchmark-filter > .text-button { justify-self: start; color: var(--muted); font-size: 11px; }
-.marketplace-content { min-width: 0; }
+.marketplace-content { min-width: 0; overflow-anchor: none; }
 .featured-section { margin-bottom: 48px; }
 .featured-section .section-heading, .results-section .section-heading { margin-bottom: 16px; border-bottom: 1px solid var(--ink); }
 .result-count { color: var(--muted); font-size: 12px; }
@@ -360,7 +363,7 @@ input, select, textarea { min-height: 43px; border: 1px solid var(--line); borde
   .marketplace-heading { display: block; margin-bottom: 30px; padding-bottom: 28px; }
   .marketplace-count { margin-top: 22px; text-align: left; }
   .marketplace-layout { display: block; }
-  .filter-panel { position: static; margin-bottom: 42px; }
+  .filter-panel { position: static; height: auto; overflow: visible; margin-bottom: 42px; padding-right: 0; scrollbar-gutter: auto; }
   .model-grid { grid-template-columns: 1fr; }
   .buyer-detail-layout { display: flex; flex-direction: column; }
   .buyer-model, .checkout-panel { width: 100%; }

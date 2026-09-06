@@ -156,7 +156,7 @@ export function Marketplace() {
           </aside>
 
           <div className="marketplace-content">
-            {!hasActiveFilters(query, minimumPrice, maximumPrice, domains, sizes, benchmarkFilters) && featured.length ? (
+            {featured.length ? (
               <section className="featured-section" aria-labelledby="featured-title">
                 <div className="section-heading"><h2 id="featured-title">New &amp; notable</h2></div>
                 <div className="model-grid featured-grid">{featured.map((listing) => <ModelCard key={listing.listing_id} listing={listing} tags={tags} featured />)}</div>
